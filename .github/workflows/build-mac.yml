@@ -1,0 +1,82 @@
+name: Compilar EVO SOL (Mac)
+
+on:
+  push:
+    branches: [ main, master ]
+    tags: [ "v*" ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  mac:
+    name: VST3 + AU universal (Intel y Apple Silicon)
+    runs-on: macos-15
+    timeout-minutes: 60
+
+    steps:
+      - name: Descargar el código
+        uses: actions/checkout@v4
+
+      - name: Configurar (binario universal, macOS 10.13 o superior)
+        run: |
+          cmake -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=10.13
+
+      - name: Compilar
+        run: cmake --build build --config Release --parallel 4 --target EVOSOL_VST3 EVOSOL_AU EVOSOL_Standalone
+
+      - name: Firmar (ad-hoc) y verificar arquitecturas
+        run: |
+          ART="build/EVOSOL_artefacts/Release"
+          for b in "$ART/VST3/EVO SOL.vst3" "$ART/AU/EVO SOL.component" "$ART/Standalone/EVO SOL.app"; do
+            codesign --force --deep --sign - "$b"
+          done
+          lipo -info "$ART/VST3/EVO SOL.vst3/Contents/MacOS/EVO SOL"
+          lipo -info "$ART/AU/EVO SOL.component/Contents/MacOS/EVO SOL"
+
+      - name: Validar Audio Unit (auval)
+        continue-on-error: true
+        run: |
+          mkdir -p ~/Library/Audio/Plug-Ins/Components
+          cp -R "build/EVOSOL_artefacts/Release/AU/EVO SOL.component" ~/Library/Audio/Plug-Ins/Components/
+          killall -9 AudioComponentRegistrar || true
+          sleep 3
+          auval -v aufx Esol Evts
+
+      - name: Validar VST3 (pluginval)
+        continue-on-error: true
+        run: |
+          curl -sL -o pluginval.zip https://github.com/Tracktion/pluginval/releases/latest/download/pluginval_macOS.zip
+          unzip -q pluginval.zip
+          ./pluginval.app/Contents/MacOS/pluginval --strictness-level 5 --skip-gui-tests \
+            --validate "build/EVOSOL_artefacts/Release/VST3/EVO SOL.vst3"
+
+      - name: Armar paquete para instalar
+        run: |
+          ART="build/EVOSOL_artefacts/Release"
+          PKG="EVO-SOL-mac"
+          mkdir -p "$PKG"
+          cp -R "$ART/VST3/EVO SOL.vst3" "$PKG/"
+          cp -R "$ART/AU/EVO SOL.component" "$PKG/"
+          cp -R "$ART/Standalone/EVO SOL.app" "$PKG/"
+          cp "installer/Instalar EVO SOL.command" "$PKG/"
+          chmod +x "$PKG/Instalar EVO SOL.command"
+          cp installer/LEEME.txt "$PKG/"
+          ditto -c -k --sequesterRsrc --keepParent "$PKG" EVO-SOL-mac.zip
+
+      - name: Subir el plugin listo para descargar
+        uses: actions/upload-artifact@v4
+        with:
+          name: EVO-SOL-mac
+          path: EVO-SOL-mac.zip
+          retention-days: 90
+
+      - name: Publicar release (solo al crear un tag vX.Y.Z)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: EVO-SOL-mac.zip

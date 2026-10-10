@@ -1,0 +1,6 @@
+build/
+cmake-build-*/
+tests/out/
+tests/bin/
+.DS_Store
+*.zip

@@ -1,0 +1,30 @@
+EVO SOL — Vocal Suite · EVO THE SUN
+====================================
+
+INSTALAR
+1. Hacé clic derecho en "Instalar EVO SOL.command" > Abrir > Abrir.
+   (La primera vez macOS pregunta porque el plugin no está firmado por Apple.)
+2. Abrí Ableton Live 12 > Settings > Plug-Ins:
+   - Activá "Use Audio Units v2" y/o "Use VST3 Plug-in System Folders".
+   - Tocá "Rescan".
+3. Buscalo en el navegador: Plug-Ins > EVO THE SUN > EVO SOL.
+   Arrastralo a tu pista de voz.
+
+Si macOS dice que "está dañado" o "no se puede abrir", abrí Terminal y pegá:
+  xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/VST3/"EVO SOL.vst3" ~/Library/Audio/Plug-Ins/Components/"EVO SOL.component"
+
+"EVO SOL.app" es la versión independiente (sin Ableton) para probar con el micrófono.
+
+USO RÁPIDO
+1. Poné el plugin en la pista de voz.
+2. INTELIGENCIA > ANALIZAR VOZ, reproducí 10-20 s de la voz sola,
+   tocá DETENER Y CALCULAR y después APLICAR. Ajusta key, escala, registro,
+   low-cut, cuerpo, presencia, aire, de-esser y nivel de entrada.
+3. Elegí un preset (Trap Hard Tune, Reggaeton Brillante, R&B Natural...).
+   Los presets no tocan tu key ni tu escala.
+4. Ajustá Velocidad (0 = efecto robot, 40-80 ms = natural).
+
+LATENCIA
+El plugin trabaja con ~63 ms de latencia para afinar con precisión.
+Ableton la compensa sola al mezclar. Para grabar escuchándote en vivo,
+desactivá el plugin mientras grabás o usá el monitoreo directo de tu placa.
