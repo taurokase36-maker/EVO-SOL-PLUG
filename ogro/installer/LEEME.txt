@@ -1,0 +1,34 @@
+OGRO — Groovebox analógico · EVO THE SUN
+========================================
+
+INSTALAR
+1. Clic derecho en "Instalar OGRO.command" > Abrir > Abrir.
+2. Ableton Live 12 > Settings > Plug-Ins: activá Audio Units y/o VST3 y tocá "Rescan".
+3. Plug-Ins > EVO THE SUN > OGRO. Arrastralo a una PISTA MIDI (es un instrumento).
+4. Dale play en Ableton: OGRO sigue el tempo y la posición de Ableton.
+
+Si macOS dice que está dañado, en Terminal:
+  xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/VST3/OGRO.vst3 ~/Library/Audio/Plug-Ins/Components/OGRO.component
+
+USO RÁPIDO
+- PRESET / MOOD: 12 presets (Amanecer, Medianoche Mínima, Sudor, Terciopelo,
+  Hipnosis, Nostalgia 92, Lluvia, Oscuro, Euforia, Sol de Verano, Underground...).
+  Cada uno trae 8 patrones: A = groove, B = variación, C = break, D = fill.
+  E-H arrancan como copias para que los edites.
+- PATRÓN A-H: cambia al empezar el próximo compás (se puede automatizar en Ableton).
+- PISTAS: clic para elegir la pista; M / S = mute / solo; perilla = nivel.
+- SECUENCIADOR: clic en las teclas para prender pasos, clic derecho = acento.
+  Arriba dibujás VELOCIDAD, NOTA, PROBABILIDAD, RATCHET o LIGADO de cada paso.
+  LARGO cambia los pasos de cada pista (polirritmos). INVENTAR genera un patrón.
+- MACROS: CALOR, MOVIMIENTO (cuánto se mueven LFOs y carriles), ESPACIO, CRUDEZA.
+- PESTAÑAS:
+  SONIDO   8 perillas de la pista elegida + mezcla, envíos, PUMP (sidechain) y PROBAR.
+  MOD      4 LFOs sincronizados + matriz de 12 modulaciones.
+  MOTION   4 carriles de automatización que dibujás con el mouse (1 a 8 compases).
+  RING MOD ring modulator con ruteo por pista.
+  FX       delay ping-pong, reverb, tiempo de pump y drum bus (compresión + crudo).
+  MASTER   filtro DJ, EQ y compresión estilo EVO SOL, textura de vinilo, techo y volumen.
+- GUARDAR / ABRIR: tus presets se guardan en Música > OGRO Presets.
+
+MIDI: las notas C1 a G1 (36-43) disparan las 8 pistas, por si querés tocarlas o
+programarlas desde un clip de Ableton.

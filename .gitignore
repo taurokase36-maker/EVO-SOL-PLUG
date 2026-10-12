@@ -4,3 +4,7 @@ tests/out/
 tests/bin/
 .DS_Store
 *.zip
+ogro/tests/out/
+ogro/tests/bin/
+ogro/tests/demos/
+build-ogro/
