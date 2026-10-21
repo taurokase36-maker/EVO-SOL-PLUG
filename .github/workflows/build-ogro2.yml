@@ -1,0 +1,134 @@
+name: Compilar OGRO 2 (Mac)
+
+# Solo corre con cambios en ogro2/ (OGRO 1.0 y EVO SOL tienen sus propios workflows)
+on:
+  push:
+    branches: [ main, master ]
+    paths:
+      - "ogro2/**"
+      - ".github/workflows/build-ogro2.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mac:
+    name: OGRO 2 VST3 + AU universal (Intel y Apple Silicon)
+    runs-on: macos-15
+    timeout-minutes: 75
+    env:
+      ART: build-ogro2/OGRO2_artefacts/Release
+      LOGS: ${{ github.workspace }}/registros
+
+    steps:
+      - name: Descargar el código
+        uses: actions/checkout@v4
+
+      - name: Tests del motor (timing, swing, CPU, estado)
+        working-directory: ogro2/tests
+        run: |
+          set -o pipefail
+          mkdir -p bin out "$LOGS"
+          clang++ -std=c++17 -O2 test_ogro.cpp -o bin/test_ogro
+          ./bin/test_ogro 2>&1 | tee "$LOGS/tests_motor.log"
+          bash ci_anotar.sh notice "Tests del motor" "$LOGS/tests_motor.log" 30
+
+      - name: Comparación A/B con OGRO 1.0
+        working-directory: ogro2/tests
+        run: |
+          set -o pipefail
+          clang++ -std=c++17 -O2 ab_v1.cpp -o bin/ab_v1
+          ./bin/ab_v1 --exacto 2>&1 | tee "$LOGS/ab_v1.log"
+          bash ci_anotar.sh notice "A/B con OGRO 1.0" "$LOGS/ab_v1.log" 30
+
+      - name: Probar el instalador (nunca toca OGRO 1.0)
+        run: |
+          set -o pipefail
+          bash ogro2/tests/test_instalador.sh 2>&1 | tee "$LOGS/instalador.log"
+
+      - name: Configurar (binario universal, macOS 10.13 o superior)
+        run: |
+          cmake -S ogro2 -B build-ogro2 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=10.13
+
+      - name: Compilar
+        run: |
+          set -o pipefail
+          cmake --build build-ogro2 --config Release --parallel 4 --target OGRO2_VST3 OGRO2_AU OGRO2_Standalone 2>&1 | tee "$LOGS/compilacion.log"
+
+      - name: Firmar (ad-hoc) y verificar arquitecturas
+        run: |
+          for b in "$ART/VST3/OGRO 2.vst3" "$ART/AU/OGRO 2.component" "$ART/Standalone/OGRO 2.app"; do
+            codesign --force --deep --sign - "$b"
+          done
+          lipo -info "$ART/VST3/OGRO 2.vst3/Contents/MacOS/OGRO 2"
+          lipo -info "$ART/AU/OGRO 2.component/Contents/MacOS/OGRO 2"
+
+      - name: Verificar que no pisa a OGRO 1.0 (IDs, subtype y nombres)
+        run: |
+          set -e
+          INFO="$ART/VST3/OGRO 2.vst3/Contents/Resources/moduleinfo.json"
+          cat "$INFO"
+          # OGRO 1.0 usa los IDs de clase ...457674734F67726F ("Evts" + "Ogro")
+          if grep -q "457674734F67726F" "$INFO"; then echo "::error::El VST3 de OGRO 2 tiene el mismo ID de clase que OGRO 1.0"; exit 1; fi
+          grep -q '"Name": "OGRO 2"' "$INFO"
+          PLIST="$ART/AU/OGRO 2.component/Contents/Info.plist"
+          SUB=$(/usr/libexec/PlistBuddy -c "Print :AudioComponents:0:subtype" "$PLIST")
+          MANU=$(/usr/libexec/PlistBuddy -c "Print :AudioComponents:0:manufacturer" "$PLIST")
+          NAME=$(/usr/libexec/PlistBuddy -c "Print :AudioComponents:0:name" "$PLIST")
+          BID=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$PLIST")
+          echo "AU: $MANU/$SUB '$NAME' ($BID)"
+          [ "$SUB" = "Ogr2" ] && [ "$MANU" = "Evts" ] && [ "$BID" = "com.evothesun.ogro2" ]
+          echo "::notice title=Convivencia con OGRO 1.0::AU $MANU/$SUB '$NAME' ($BID). VST3 sin IDs de OGRO 1.0."
+
+      - name: Armar paquete para instalar
+        run: |
+          PKG="OGRO-2-mac"
+          mkdir -p "$PKG"
+          cp -R "$ART/VST3/OGRO 2.vst3" "$PKG/"
+          cp -R "$ART/AU/OGRO 2.component" "$PKG/"
+          cp -R "$ART/Standalone/OGRO 2.app" "$PKG/"
+          cp "ogro2/installer/Instalar OGRO 2.command" "$PKG/"
+          chmod +x "$PKG/Instalar OGRO 2.command"
+          cp ogro2/installer/LEEME.txt "$PKG/"
+          ditto -c -k --sequesterRsrc --keepParent "$PKG" OGRO-2-mac.zip
+
+      - name: Subir el plugin listo para descargar
+        uses: actions/upload-artifact@v4
+        with:
+          name: OGRO-2-mac
+          path: OGRO-2-mac.zip
+          retention-days: 90
+
+      # Las validaciones van después de subir el paquete: si fallan, la compilación
+      # queda en rojo, pero el zip igual se puede descargar para revisar.
+      - name: Validar Audio Unit (auval)
+        run: |
+          set -o pipefail
+          mkdir -p ~/Library/Audio/Plug-Ins/Components
+          cp -R "$ART/AU/OGRO 2.component" ~/Library/Audio/Plug-Ins/Components/
+          killall -9 AudioComponentRegistrar || true
+          sleep 3
+          auval -v aumu Ogr2 Evts 2>&1 | tee "$LOGS/auval.log"
+          grep -q "AU VALIDATION SUCCEEDED" "$LOGS/auval.log"
+
+      - name: Validar VST3 (pluginval)
+        run: |
+          set -o pipefail
+          curl -sL -o pluginval.zip https://github.com/Tracktion/pluginval/releases/latest/download/pluginval_macOS.zip
+          unzip -q pluginval.zip
+          ./pluginval.app/Contents/MacOS/pluginval --strictness-level 5 --skip-gui-tests \
+            --validate "$ART/VST3/OGRO 2.vst3" 2>&1 | tee "$LOGS/pluginval.log"
+          bash ogro2/tests/ci_anotar.sh notice "pluginval" "$LOGS/pluginval.log" 5
+
+      # Sin acceso a los registros de Actions, los errores quedan como anotaciones
+      # públicas de la compilación (las últimas líneas de cada registro).
+      - name: Reportar errores
+        if: failure()
+        run: |
+          for f in "$LOGS"/*.log; do
+            bash ogro2/tests/ci_anotar.sh error "$(basename "$f")" "$f" 40
+          done

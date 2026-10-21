@@ -7,6 +7,8 @@ on:
     paths-ignore:
       - "ogro/**"
       - ".github/workflows/build-ogro.yml"
+      - "ogro2/**"
+      - ".github/workflows/build-ogro2.yml"
   workflow_dispatch:
 
 permissions:

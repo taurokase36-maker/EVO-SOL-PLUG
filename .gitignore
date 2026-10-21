@@ -8,3 +8,20 @@ ogro/tests/out/
 ogro/tests/bin/
 ogro/tests/demos/
 build-ogro/
+
+# OGRO 2
+build-ogro2/
+ogro2/tests/out/
+ogro2/tests/bin/
+ogro2/tests/demos/
+ogro2/tests/reference/
+ogro2/design/referencias/
+
+# Audio y samples (Orbhitz): nunca van al repo
+*.mse
+*.wav
+*.aif
+*.aiff
+*.flac
+ogro2/**/cache/
+*.ogrocache

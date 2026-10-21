@@ -1,9 +1,10 @@
 # Plugins de EVO THE SUN
 
-Este repositorio tiene dos plugins para Ableton Live 12 (Mac Intel y Apple Silicon):
+Este repositorio tiene tres plugins para Ableton Live 12 (Mac Intel y Apple Silicon):
 
 - **EVO SOL** — suite vocal (esta carpeta raíz). Se compila con *Compilar EVO SOL (Mac)*.
 - **OGRO** — groovebox analógico de minimal, house y deep house (carpeta `ogro/`). Se compila con *Compilar OGRO (Mac)*. Ver [ogro/README.md](ogro/README.md).
+- **OGRO 2** — la versión nueva de OGRO, un plugin aparte que convive con OGRO 1.0 (carpeta `ogro2/`). Se compila con *Compilar OGRO 2 (Mac)*. Ver [ogro2/README.md](ogro2/README.md).
 
 Cada vez que se sube un cambio, GitHub compila solo el plugin que cambió. El instalable aparece en la pestaña **Actions**, dentro de la última ejecución, en *Artifacts*.
 
