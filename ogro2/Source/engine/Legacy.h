@@ -53,6 +53,7 @@ inline State convert (const std::vector<std::pair<std::string, float>>& old)
     st.values[P::Tempo] = 124.0f;
     st.values[P::RandomMode] = 1.0f; // VIVO: el azar de la 1.0
     st.values[P::MacroDepth] = 0.0f; // macros x1: mismo recorrido que la 1.0
+    st.values[P::PolyMode] = 1.0f;   // polirritmos continuos, como la 1.0
     auto setP = [&st] (int idx, float v) { if (idx >= 0) st.values[(size_t) idx] = v; };
 
     static const std::vector<std::pair<std::string, int>> direct = {

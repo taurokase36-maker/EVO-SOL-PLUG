@@ -5,6 +5,7 @@
 #include "../dsp/Dynamics.h"
 #include "../dsp/Effects.h"
 #include "../dsp/Saturation.h"
+#include "BarFx.h"
 #include "ParamDefs.h"
 #include "Sequencer.h"
 #include "Voices.h"
@@ -127,6 +128,8 @@ struct EngineMeters
     std::atomic<float> lanePhase[kLanes] {};
     std::atomic<float> lfo[P::kLfos] {};
     std::atomic<double> bpm { 120.0 };
+    std::atomic<uint32_t> barFx { 0u };   // efectos de fin de compás sonando (un bit por efecto)
+    std::atomic<bool> fill { false };
 };
 
 // Registro de disparos con la muestra exacta (para tests y para la interfaz).
@@ -197,6 +200,7 @@ public:
         clipL.reset(); clipR.reset();
         limiter.prepare (fs);
         texture.prepare (fs);
+        barFx.prepare (fs);
         synthAlignL.prepare (64); synthAlignR.prepare (64);
         dryL.prepare (64); dryR.prepare (64);
         djL.reset(); djR.reset();
@@ -209,6 +213,7 @@ public:
         controlCounter = 0;
         lastRandStep = -1;
         sampleClock = 0;
+        for (auto& l : trackLocks) l.n = 0;
         updateControl (0.0, false);
     }
 
@@ -230,6 +235,8 @@ public:
     void setInternalPlay (bool p) { internalPlayReq.store (p); }
     bool isInternalPlaying() const { return internalPlayReq.load(); }
     void audition (int track) { if (track >= 0 && track < kTracks) auditionMask.fetch_or (1u << track); }
+    // Botón "TIRAR FX": efectos de fin de compás ya, por el largo elegido
+    void fireBarFxNow() { barFxNow.store (true); }
 
     PatternBank bank;
     ModRouting routing;
@@ -281,6 +288,16 @@ private:
         randomSeed = (uint32_t) std::lround (base[P::Seed]);
         clock.setRandom (fixedRandom, randomSeed);
         clock.setSwing (base[P::Swing]);
+        for (int t = 0; t < kTracks; ++t)
+            clock.setTrackSwing (t, base[(size_t) P::track (t, P::SwingOwn)] > 0.5f, eff[(size_t) P::track (t, P::SwingAmt)]);
+        clock.setGroove ((int) base[P::Groove], eff[P::GrooveAmt], eff[P::Humanize]);
+        clock.setPatternMode ((int) base[P::PatChange], base[P::PolyMode] > 0.5f, base[P::Chain] > 0.5f);
+        {
+            static const int fillBars[] = { 0, 2, 4, 8, 16 };
+            static const int fxBars[] = { 0, 1, 2, 4, 8 };
+            clock.setFill (fillBars[clampv ((int) base[P::Fill], 0, 4)], (int) base[P::FillPat]);
+            clock.setBarFx (fxBars[clampv ((int) base[P::BfxEvery], 0, 4)], (int) std::lround (base[P::BfxLen]));
+        }
         clock.requestPattern ((int) base[P::Pattern]);
         int numEvents = clock.process (tr, n, bank, rngState, events, kMaxEvents);
         // Azar FIJO: al arrancar el transporte o al saltar a otro lugar, todo vuelve al mismo estado
@@ -307,6 +324,16 @@ private:
             events[j] = e;
         }
 
+        // FX de fin de compás a mano
+        if (barFxNow.exchange (false) && numEvents < kMaxEvents)
+        {
+            TriggerEvent e; e.sample = 0; e.track = -1;
+            e.bfxBar = (int) (std::floor (curPpq / 4.0)) + 1000003;   // otra semilla que la del compás
+            e.bfxBeats = 0.25 * std::lround (base[P::BfxLen]);
+            for (int j = numEvents++; j > 0; --j) events[j] = events[j - 1];
+            events[0] = e;
+        }
+
         // Pruebas de sonido desde la interfaz
         if (const uint32_t mask = auditionMask.exchange (0u))
             for (int t = 0; t < kTracks && numEvents < kMaxEvents; ++t)
@@ -327,7 +354,11 @@ private:
                 updateControl (ppqHere, playing);
                 controlCounter = kControl;
             }
-            while (ev < numEvents && events[ev].sample <= pos) fire (events[ev++]);
+            while (ev < numEvents && events[ev].sample <= pos)
+            {
+                const double ppqAt = curPpq + (double) events[ev].sample * curBpm / 60.0 / fs;
+                fire (events[ev++], ppqAt);
+            }
             int segEnd = std::min (n, pos + controlCounter);
             if (ev < numEvents) segEnd = std::min (segEnd, std::max (pos + 1, events[ev].sample));
             const int len = segEnd - pos;
@@ -340,6 +371,8 @@ private:
         for (int t = 0; t < kTracks; ++t) meters.step[t].store (clock.stepOf (t), std::memory_order_relaxed);
         meters.pattern.store (clock.pattern(), std::memory_order_relaxed);
         meters.playing.store (playing, std::memory_order_relaxed);
+        meters.barFx.store (barFx.activeBits(), std::memory_order_relaxed);
+        meters.fill.store (clock.fillActive() && playing, std::memory_order_relaxed);
         meters.bpm.store (curBpm, std::memory_order_relaxed);
         float pl = 0, pr = 0;
         for (int i = 0; i < n; ++i) { pl = std::max (pl, std::fabs (outL[i])); pr = std::max (pr, std::fabs (outR[i])); }
@@ -357,6 +390,7 @@ private:
     void resetForRender (double ppq) noexcept
     {
         // Primero los valores de este lugar del tema (los suavizadores quedan fijos en ellos)
+        for (auto& l : trackLocks) l.n = 0;
         lastFilter = 99.0f; lastReso = -1.0f;
         lastDlyTone = lastRevSize = lastRevDecay = -1.0f;
         lastEq[0] = lastEq[1] = lastEq[2] = lastEq[3] = -999.0f;
@@ -370,6 +404,7 @@ private:
         clipL.reset(); clipR.reset();
         limiter.reset();
         texture.resetState();
+        barFx.reset();
         synthAlignL.clear(); synthAlignR.clear(); dryL.clear(); dryR.clear();
         djL.reset(); djR.reset();
         for (int c = 0; c < 2; ++c) { hp1[c].reset(); hp2[c].reset(); body[c].reset(); pres[c].reset(); air[c].reset(); }
@@ -383,9 +418,10 @@ private:
         lastTextureBar = INT64_MIN;
     }
 
-    void fire (const TriggerEvent& ev) noexcept
+    void fire (const TriggerEvent& ev, double ppqAt) noexcept
     {
         const int t = ev.track;
+        if (t < 0 && ev.bfxBar != -1) { startBarFx (ev.bfxBar, ev.bfxBeats); return; }
         if (t < 0 || t >= kTracks) return;
         quiet[t] = 0;
         if (ev.release)
@@ -393,6 +429,21 @@ private:
             if (t == Chord) chord.release();
             else if (voices[t]) voices[t]->release();
             return;
+        }
+        // P-locks: los valores propios del paso valen hasta el próximo golpe de la pista
+        if (ev.locks || trackLocks[t].n > 0)
+        {
+            auto& tl = trackLocks[t];
+            tl.n = 0;
+            if (ev.locks)
+                for (int k = 0; k < kMaxLocks; ++k)
+                {
+                    const Lock l = bank.getLock (ev.pattern, t, ev.stepIndex, k);
+                    if (l.param < 0 || l.param >= (int) base.size()) continue;
+                    tl.param[tl.n] = l.param; tl.norm[tl.n] = l.value; ++tl.n;
+                }
+            updateControl (ppqAt, playing);
+            mixState[t] = target[t];   // el nivel y el paneo del lock valen desde el golpe, sin rampa
         }
         TriggerEvent e = ev;
         if (e.gateBeats > 0.0) e.hit.gateSamples = e.gateBeats * 60.0 / curBpm * fs;
@@ -405,6 +456,24 @@ private:
         }
         meters.triggers[t].fetch_add (1, std::memory_order_relaxed);
         triggerLog.push (sampleClock + e.sample, t);
+    }
+
+    void startBarFx (int bar, double beats) noexcept
+    {
+        const double len = beats * 60.0 / std::max (1.0, curBpm) * fs;
+        const double slice = (base[P::BfxStutterRate] > 0.5f ? 0.125 : 0.25) * 60.0 / std::max (1.0, curBpm) * fs;
+        const float amount = eff[P::BfxAmount];
+        for (int k = 0; k < P::kBfx; ++k)
+        {
+            const float prob = eff[(size_t) P::bfx (k, P::BfxProb)];
+            if (prob <= 0.0f) continue;
+            float roll;
+            if (fixedRandom) roll = hashUnit (hash32 (randomSeed, 0x42465800u + (uint32_t) k, (uint32_t) bar, 0x5EEDu));
+            else roll = lfoRng.uni();
+            if (roll >= prob) continue;
+            const int point = clampv ((int) base[(size_t) P::bfx (k, P::BfxTarget)], 0, PointCount - 1);
+            barFx.start (k, point, len, amount, slice, hash32 (randomSeed, (uint32_t) bar, (uint32_t) k, 0x52u));
+        }
     }
 
     // ------------------------------------------------------------------
@@ -546,6 +615,14 @@ private:
             if (modNorm[i] == 0.0f || ! canMod) { eff[i] = base[i]; continue; }
             eff[i] = defs[i].fromNorm (defs[i].toNorm (base[i]) + modNorm[i]);
         }
+        // P-locks (encima de la modulación)
+        for (int t = 0; t < kTracks; ++t)
+            for (int k = 0; k < trackLocks[t].n; ++k)
+            {
+                const size_t i = (size_t) trackLocks[t].param[k];
+                const bool canMod = defs[i].kind == Kind::Float || (defs[i].kind == Kind::Choice && defs[i].modulatable);
+                eff[i] = defs[i].fromNorm (trackLocks[t].norm[k] + (canMod ? modNorm[i] : 0.0f));
+            }
 
         // Voces
         const int root = (int) eff[P::Root];
@@ -589,7 +666,7 @@ private:
 
         // FX
         delay.setTimeSeconds ((float) (60.0 / curBpm * delayDivBeats ((int) eff[P::DlyDiv])));
-        delay.setFeedback (eff[P::DlyFb]);
+        delay.setFeedback (barFx.delayBoost() > 0.0f ? std::min (0.95f, eff[P::DlyFb] + barFx.delayBoost()) : eff[P::DlyFb]);
         delay.setMix (eff[P::DlyRet]);
         delay.setDuck (0.25f);
         if (std::fabs (eff[P::DlyTone] - lastDlyTone) > 0.005f) { delay.setTone (eff[P::DlyTone]); lastDlyTone = eff[P::DlyTone]; }
@@ -678,6 +755,7 @@ private:
         const float ringMixStep = (ringMixTarget - ringMix) * inv;
         const float ringIncL = ringFreq / (float) fs, ringIncR = ringFreq * (1.0f + ringSpread * 0.015f) / (float) fs;
         const float pumpAtk = 1.0f - (float) std::exp (-1.0 / (0.004 * fs));
+        const bool fxOn = barFx.any();
 
         for (int i = 0; i < len; ++i)
         {
@@ -715,12 +793,29 @@ private:
                     xl += rm * (xl * cL - xl);
                     xr += rm * (xr * cR - xr);
                 }
+                if (fxOn)
+                {
+                    const int pt = PointTrack0 + t;
+                    barFx.process (pt, xl, xr);
+                    const float throwMono = 0.5f * (xl + xr);
+                    sendD += throwMono * barFx.delaySend (pt);
+                    sendR += throwMono * barFx.reverbSend (pt);
+                }
                 const float mono = 0.5f * (xl + xr);
                 sendD += mono * m.dly;
                 sendR += mono * m.rev;
                 if (isDrum (t)) { dL += xl; dR += xr; } else { sL += xl; sR += xr; }
             }
 
+            if (fxOn)
+            {
+                sendD += 0.5f * (dL + dR) * barFx.delaySend (PointDrums) + 0.5f * (sL + sR) * barFx.delaySend (PointSynths)
+                       + 0.5f * (dL + dR + sL + sR) * barFx.delaySend (PointMaster);
+                sendR += 0.5f * (dL + dR) * barFx.reverbSend (PointDrums) + 0.5f * (sL + sR) * barFx.reverbSend (PointSynths)
+                       + 0.5f * (dL + dR + sL + sR) * barFx.reverbSend (PointMaster);
+                barFx.process (PointDrums, dL, dR);
+                barFx.process (PointSynths, sL, sR);
+            }
             // Drum bus: compresión fuerte + saturación cruda
             drumComp.process (dL, dR);
             dL = drumSatL.process (dL);
@@ -736,6 +831,7 @@ private:
 
             float L = dL + sL + yL + rL * 2.2f;
             float R = dR + sR + yR + rR * 2.2f;
+            if (fxOn) { barFx.process (PointMaster, L, R); barFx.advance(); }
 
             // Master: filtro DJ -> EQ -> compresión -> calor -> paralelo -> textura -> volumen -> clipper -> limitador
             if (std::fabs (lastFilter) > 0.002f)
@@ -795,6 +891,10 @@ private:
     bool internalPlay = false, playing = false;
     std::atomic<bool> internalPlayReq { false };
     std::atomic<uint32_t> auditionMask { 0u };
+    std::atomic<bool> barFxNow { false };
+    struct TrackLocks { int n = 0; int param[kMaxLocks] {}; float norm[kMaxLocks] {}; };
+    TrackLocks trackLocks[kTracks];
+    BarFx barFx;
     double internalPpq = 0.0, curPpq = 0.0, curBpm = 120.0, stoppedPpq = 0.0;
     int controlCounter = 0;
     int64_t sampleClock = 0; // muestras procesadas desde prepare()

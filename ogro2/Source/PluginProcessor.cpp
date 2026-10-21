@@ -191,6 +191,52 @@ void Ogro2Processor::applyValues (const std::vector<float>& v)
         }
 }
 
+std::string Ogro2Processor::bankText() const
+{
+    const auto& defs = paramDefs();
+    return engine.bank.serialise ([&defs] (int p) { return p >= 0 && p < (int) defs.size() && defs[(size_t) p].exists ? defs[(size_t) p].id : std::string(); });
+}
+
+void Ogro2Processor::pushUndo()
+{
+    auto now = bankText();
+    if (! undoStack.empty() && undoStack.back() == now) return;
+    undoStack.push_back (std::move (now));
+    if (undoStack.size() > 64) undoStack.erase (undoStack.begin());
+    redoStack.clear();
+}
+
+bool Ogro2Processor::undo()
+{
+    auto now = bankText();
+    // Lo último guardado puede ser igual a lo actual (no se editó nada después)
+    while (! undoStack.empty() && undoStack.back() == now) undoStack.pop_back();
+    if (undoStack.empty()) return false;
+    redoStack.push_back (std::move (now));
+    engine.bank.deserialise (undoStack.back(), [] (const std::string& id) { return paramIndex (id); });
+    undoStack.pop_back();
+    notifyStateChanged();
+    return true;
+}
+
+bool Ogro2Processor::redo()
+{
+    if (redoStack.empty()) return false;
+    undoStack.push_back (bankText());
+    engine.bank.deserialise (redoStack.back(), [] (const std::string& id) { return paramIndex (id); });
+    redoStack.pop_back();
+    notifyStateChanged();
+    return true;
+}
+
+void Ogro2Processor::syncPatternLength (int pattern)
+{
+    int longest = 1;
+    for (int t = 0; t < kTracks; ++t) longest = juce::jmax (longest, engine.bank.getLength (pattern, t));
+    // Los polirritmos cortos no achican el patrón por debajo de un compás
+    engine.bank.setPatternLength (pattern, juce::jmax (16, longest));
+}
+
 void Ogro2Processor::notifyStateChanged()
 {
     updateHostDisplay (juce::AudioProcessor::ChangeDetails().withNonParameterStateChanged (true));

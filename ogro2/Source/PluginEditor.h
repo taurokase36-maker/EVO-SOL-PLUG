@@ -23,10 +23,11 @@ public:
     void paint (juce::Graphics&) override;
     void resized() override;
     void setPage (int i) { showPage (i); } // para capturas y tests
+    void setSeqMode (int m) { setLaneMode ((LaneMode) m); }
     void refreshNow() { timerCallback(); }
 
 private:
-    enum PageId { PageTrack = 0, PageFx, PageMod, PageMotion, PageRing, PageMaster, PageCount };
+    enum PageId { PageTrack = 0, PageFx, PageMod, PageGroove, PageArrange, PageRing, PageMaster, PageCount };
 
     void timerCallback() override;
     void selectTrack (int t);
@@ -34,6 +35,11 @@ private:
     void refreshPreset();
     void showPresetMenu();
     void showFileMenu();
+    void showInventMenu();
+    void setLaneMode (LaneMode m);
+    void setMotionLane (int l);
+    void showEuclid();
+    void lengthChanged();
     void paintLogo (juce::Graphics&, juce::Rectangle<float>);
 
     Ogro2Processor& proc;
@@ -68,10 +74,21 @@ private:
     juce::TextButton randomButton { "FIJO" };
     SeedBox seedBox { proc };
     bool stateDirty = false;
-    juce::TextButton lenMinus { T ("−") }, lenPlus { "+" }, inventButton, clearButton, copyButton, pasteButton;
+    juce::TextButton lenMinus { T ("−") }, lenPlus { "+" }, inventButton, inventMenu { T ("▾") }, mutateButton, clearButton, copyButton, pasteButton;
     juce::OwnedArray<juce::TextButton> modeButtons;
     StepLane lane;
     StepKeys keys;
+    LockChoice lockChoice { proc, lane };
+    juce::TextButton page1 { "1-16" }, page2 { "17-32" }, euclidButton { "EUCLID" };
+    ArrowButton undoButton { false }, redoButton { true };
+    // MOTION dentro del secuenciador: 4 carriles, se ve uno por vez
+    juce::OwnedArray<MotionCanvas> motionCanvas;
+    juce::OwnedArray<RouteChoice> motionDest;
+    juce::OwnedArray<Choice> motionBars;
+    juce::OwnedArray<juce::Slider> motionDepth;
+    juce::OwnedArray<APVTS::SliderAttachment> motionDepthAtt;
+    juce::OwnedArray<juce::TextButton> motionLaneButtons, motionShapes;
+    int motionLane = 0;
     int clipboardPattern = -1;
 
     // Zonas (coordenadas de diseño, 1280 x 820)
@@ -79,6 +96,7 @@ private:
     int lastTrigger[kTracks] {};
     float flash[kTracks] {};
     uint32_t lastRevision = 0;
+    bool lastFill = false;
     int blink = 0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (Content)

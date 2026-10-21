@@ -297,6 +297,36 @@ inline void styleKey (juce::TextButton& b, juce::Colour c, juce::Colour text = c
     b.setColour (juce::TextButton::textColourOffId, text);
 }
 
+// Tecla con flecha curva (deshacer / rehacer)
+class ArrowButton : public juce::TextButton
+{
+public:
+    explicit ArrowButton (bool isRedo) : redo (isRedo) { styleKey (*this, col::keyCream); }
+    void paintButton (juce::Graphics& g, bool over, bool down) override
+    {
+        getLookAndFeel().drawButtonBackground (g, *this, findColour (buttonColourId), over, down);
+        auto r = getLocalBounds().toFloat().withTrimmedBottom (3.0f).reduced (9.0f, 7.0f);
+        if (down) r.translate (0, 1.0f);
+        juce::Path p;
+        const float cx = r.getCentreX(), cy = r.getCentreY() + 2.0f, rad = juce::jmin (r.getWidth(), r.getHeight()) * 0.5f;
+        p.addCentredArc (cx, cy, rad, rad, 0.0f, -2.1f, 1.2f, true);
+        const auto tip = p.getPointAlongPath (0.0f);
+        juce::Path head;
+        head.addTriangle (tip.x - 4.0f, tip.y - 1.0f, tip.x + 3.0f, tip.y - 5.0f, tip.x + 2.0f, tip.y + 4.0f);
+        if (redo)
+        {
+            const auto t = juce::AffineTransform::scale (-1.0f, 1.0f, cx, cy);
+            p.applyTransform (t); head.applyTransform (t);
+        }
+        g.setColour (col::ink.withAlpha (isEnabled() ? 0.85f : 0.3f));
+        g.strokePath (p, juce::PathStrokeType (2.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        g.fillPath (head);
+    }
+
+private:
+    bool redo;
+};
+
 // ---------------------------------------------------------------------------
 // Pantalla de fósforo (número grande + texto chico)
 // ---------------------------------------------------------------------------
@@ -618,7 +648,7 @@ private:
 // ---------------------------------------------------------------------------
 // Edición de pasos
 // ---------------------------------------------------------------------------
-enum class LaneMode { Vel = 0, Note, Prob, Ratchet, Slide };
+enum class LaneMode { Vel = 0, Note, Prob, Ratchet, Slide, Octave, Nudge, Gate, Cond, Lock, Motion };
 constexpr int kViewSteps = 16;
 
 struct SeqContext
@@ -626,8 +656,26 @@ struct SeqContext
     Ogro2Processor& proc;
     int track() const { return proc.selectedTrack.load(); }
     int pattern() const { return (int) proc.value (P::Pattern); }
+    int offset() const { return proc.seqPage.load() * kViewSteps; }
     PatternBank& bank() const { return proc.engine.bank; }
+    void edit() const { proc.pushUndo(); }   // antes de cada edición (para deshacer)
 };
+
+// Qué perilla se dibuja en el modo P-LOCK: un campo de la pista (sigue a la pista elegida)
+// o un parámetro global
+struct LockTarget
+{
+    int field = P::S3;     // >= 0: campo de pista (P::TrackField)
+    int global = -1;       // >= 0: parámetro global
+    int param (int track) const { return global >= 0 ? global : P::track (track, field); }
+};
+
+inline const std::vector<int>& lockGlobals()
+{
+    static const std::vector<int> v { P::MFilter, P::MReso, P::DlyFb, P::DlyRet, P::RevRet, P::RevSize, P::RingFreq, P::RingMix,
+                                      P::BusCrudo, P::BusComp, P::MWarmth, P::MTexture };
+    return v;
+}
 
 // Teclas de pasos tipo calculadora con LED arriba y número abajo
 class StepKeys : public juce::Component
@@ -637,21 +685,22 @@ public:
 
     void paint (juce::Graphics& g) override
     {
-        const int t = ctx.track(), p = ctx.pattern();
+        const int t = ctx.track(), p = ctx.pattern(), off = ctx.offset();
         const int len = ctx.bank().getLength (p, t);
         const bool playing = ctx.proc.engine.meters.playing.load();
         const int cur = ctx.proc.engine.meters.step[t].load();
         const float w = (float) getWidth() / (float) kViewSteps;
         const int root = (int) ctx.proc.value (P::Root);
-        for (int s = 0; s < kViewSteps; ++s)
+        for (int i = 0; i < kViewSteps; ++i)
         {
+            const int s = off + i;
             const Step st = ctx.bank().get (p, t, s);
             const bool active = st.on && s < len;
             const bool here = playing && s == cur;
-            auto cell = juce::Rectangle<float> ((float) s * w, 0.0f, w, (float) getHeight()).reduced (3.5f, 0.0f);
+            auto cell = juce::Rectangle<float> ((float) i * w, 0.0f, w, (float) getHeight()).reduced (3.5f, 0.0f);
             paint::led (g, { cell.getCentreX() - 6.0f, 1.0f, 12.0f, 7.0f }, here ? col::led : col::ledGreen, here || active);
             auto key = cell.withTrimmedTop (14.0f).withTrimmedBottom (18.0f);
-            juce::Colour kc = st.vel >= 118 && active ? col::orange : col::stepKey (s);
+            juce::Colour kc = st.vel >= 118 && active ? col::orange : col::stepKey (i);
             if (s >= len) kc = kc.withMultipliedSaturation (0.2f).darker (0.25f).withAlpha (0.6f);
             paint::key (g, key, kc, active, false);
             auto face = active ? key.translated (0, 1.5f) : key;
@@ -668,14 +717,26 @@ public:
                 g.setColour (col::track (t));
                 g.fillRoundedRectangle (lightR, 2.0f);
                 g.setColour (col::ink.withAlpha (0.85f));
-                g.setFont (labelFont (13.0f));
+                g.setFont (labelFont (12.0f));
                 juce::String txt;
-                if (t >= Bass) txt = noteName ((t == Bass ? 36 : 48) + root + st.note);
+                if (t >= Bass) txt = noteName ((t == Bass ? 36 : 48) + root + st.note + st.octave * 12);
                 if (st.ratchet > 1) txt = txt.isEmpty() ? "x" + juce::String (st.ratchet) : txt + " x" + juce::String (st.ratchet);
                 if (txt.isEmpty() && st.prob < 100) txt = juce::String (st.prob) + "%";
-                g.drawText (txt, face.reduced (2.0f, 0.0f), juce::Justification::centred, false);
+                g.drawText (txt, face.reduced (2.0f, 0.0f).withTrimmedBottom (6.0f), juce::Justification::centred, false);
             }
-            g.setColour (s % 4 == 0 ? col::ink : col::dim);
+            // Condición (arriba a la izquierda) y p-locks (punto violeta arriba a la derecha)
+            if (st.cond != CondAlways && s < len)
+            {
+                g.setColour (active ? col::violet : col::dim);
+                g.setFont (labelFont (10.0f));
+                g.drawText (juce::String (condLabel (st.cond)), face.reduced (5.0f, 3.0f), juce::Justification::topLeft, false);
+            }
+            if (ctx.bank().lockCount (p, t, s) > 0 && s < len)
+            {
+                g.setColour (col::violet);
+                g.fillEllipse (face.getRight() - 11.0f, face.getY() + 5.0f, 6.0f, 6.0f);
+            }
+            g.setColour (i % 4 == 0 ? col::ink : col::dim);
             g.setFont (labelFont (12.0f));
             g.drawText (juce::String (s + 1), cell.withTop ((float) getHeight() - 16.0f), juce::Justification::centred);
         }
@@ -685,6 +746,7 @@ public:
     {
         const int s = stepAt (e.x);
         if (s < 0) return;
+        ctx.edit();
         const int t = ctx.track(), p = ctx.pattern();
         Step st = ctx.bank().get (p, t, s);
         if (e.mods.isPopupMenu())
@@ -718,7 +780,7 @@ public:
     }
 
 private:
-    int stepAt (int x) const { return juce::jlimit (0, kViewSteps - 1, (int) ((float) x / ((float) getWidth() / kViewSteps))); }
+    int stepAt (int x) const { return ctx.offset() + juce::jlimit (0, kViewSteps - 1, (int) ((float) x / ((float) getWidth() / kViewSteps))); }
     SeqContext ctx;
     int dragMode = 0, lastStep = -1;
 };
@@ -730,74 +792,144 @@ public:
     explicit StepLane (SeqContext c) : ctx (c) {}
     void setMode (LaneMode m) { mode = m; repaint(); }
     LaneMode getMode() const { return mode; }
+    LockTarget lockTarget;
 
     void paint (juce::Graphics& g) override
     {
         auto r = getLocalBounds().toFloat();
         paint::lcd (g, r);
-        const int t = ctx.track(), p = ctx.pattern();
+        const int t = ctx.track(), p = ctx.pattern(), off = ctx.offset();
         const int len = ctx.bank().getLength (p, t);
         const auto in = r.reduced (10.0f, 8.0f);
         const float w = in.getWidth() / (float) kViewSteps;
         const int root = (int) ctx.proc.value (P::Root);
         const int base = t == Bass ? 36 + root : (t == Chord ? 48 + root : 60);
+        const bool bipolar = mode == LaneMode::Note || mode == LaneMode::Octave || mode == LaneMode::Nudge;
         // Guías
         g.setColour (col::phosphorOff);
-        for (int s = 4; s < kViewSteps; s += 4) g.fillRect (in.getX() + w * (float) s - 0.5f, in.getY(), 1.0f, in.getHeight());
-        if (mode == LaneMode::Note) g.fillRect (in.getX(), in.getCentreY(), in.getWidth(), 1.0f);
+        for (int i = 4; i < kViewSteps; i += 4) g.fillRect (in.getX() + w * (float) i - 0.5f, in.getY(), 1.0f, in.getHeight());
+        if (bipolar) g.fillRect (in.getX(), in.getY() + 14.0f + (in.getHeight() - 14.0f) * 0.5f, in.getWidth(), 1.0f);
 
-        for (int s = 0; s < kViewSteps; ++s)
+        const int lockParam = lockTarget.param (t);
+        const auto& defs = paramDefs();
+        const float baseNorm = mode == LaneMode::Lock ? defs[(size_t) lockParam].toNorm (ctx.proc.value (lockParam)) : 0.0f;
+        for (int i = 0; i < kViewSteps; ++i)
         {
+            const int s = off + i;
             const Step st = ctx.bank().get (p, t, s);
-            const bool active = st.on && s < len;
-            auto cr = juce::Rectangle<float> (in.getX() + w * (float) s, in.getY() + 14.0f, w, in.getHeight() - 14.0f).reduced (4.0f, 0.0f);
+            bool active = st.on && s < len;
+            auto cr = juce::Rectangle<float> (in.getX() + w * (float) i, in.getY() + 14.0f, w, in.getHeight() - 14.0f).reduced (4.0f, 0.0f);
             juce::String label;
             juce::Rectangle<float> bar;
+            auto bipolarBar = [&cr] (float v) {   // v en -1..1
+                const float cy = cr.getCentreY(), y = cy - v * cr.getHeight() * 0.5f;
+                return juce::Rectangle<float>::leftTopRightBottom (cr.getX(), juce::jmin (cy, y), cr.getRight(), juce::jmax (cy, y) + 2.0f);
+            };
+            auto signedText = [] (int v) { return (v > 0 ? "+" : "") + juce::String (v); };
             switch (mode)
             {
                 case LaneMode::Vel: bar = cr.withTop (cr.getBottom() - cr.getHeight() * (float) st.vel / 127.0f); label = juce::String (st.vel); break;
                 case LaneMode::Prob: bar = cr.withTop (cr.getBottom() - cr.getHeight() * (float) st.prob / 100.0f); label = juce::String (st.prob) + "%"; break;
                 case LaneMode::Note:
-                {
-                    const float cy = cr.getCentreY(), y = cy - (float) st.note / 24.0f * cr.getHeight() * 0.5f;
-                    bar = juce::Rectangle<float>::leftTopRightBottom (cr.getX(), juce::jmin (cy, y), cr.getRight(), juce::jmax (cy, y) + 2.0f);
-                    label = (st.note > 0 ? "+" : "") + juce::String (st.note);
+                    bar = bipolarBar ((float) st.note / 24.0f);
+                    label = signedText (st.note);
                     if (t >= Bass) label = juce::String (noteName (base + st.note));
                     break;
-                }
+                case LaneMode::Octave: bar = bipolarBar ((float) st.octave / 3.0f); label = st.octave == 0 ? juce::String ("0") : signedText (st.octave); break;
+                case LaneMode::Nudge: bar = bipolarBar ((float) st.nudge / 50.0f); label = st.nudge == 0 ? juce::String ("0") : signedText (st.nudge); break;
                 case LaneMode::Ratchet:
-                    bar = cr.withTop (cr.getBottom() - cr.getHeight() * (float) st.ratchet / 4.0f);
+                    bar = cr.withTop (cr.getBottom() - cr.getHeight() * (float) st.ratchet / (float) kMaxRatchet);
                     label = "x" + juce::String (st.ratchet);
+                    break;
+                case LaneMode::Gate:
+                    if (st.gate == 0) { bar = cr.withTop (cr.getBottom() - 3.0f); label = "AUTO"; }
+                    else
+                    {
+                        bar = cr.withTop (cr.getBottom() - cr.getHeight() * juce::jmin (1.0f, (float) st.gate / 32.0f));
+                        label = juce::String ((float) st.gate / 8.0f, st.gate % 8 == 0 ? 0 : 1);
+                    }
                     break;
                 case LaneMode::Slide:
                     bar = st.slide ? cr.withSizeKeepingCentre (cr.getWidth(), 18.0f) : juce::Rectangle<float>();
                     label = st.slide ? "LIGA" : "";
                     break;
+                case LaneMode::Cond:
+                    bar = st.cond != CondAlways ? cr.withSizeKeepingCentre (cr.getWidth(), 22.0f) : juce::Rectangle<float>();
+                    label = st.cond != CondAlways ? juce::String (condLabel (st.cond)) : juce::String ("-");
+                    break;
+                case LaneMode::Lock:
+                {
+                    const float lv = ctx.bank().lockValue (p, t, s, lockParam);
+                    if (lv >= 0.0f)
+                    {
+                        bar = cr.withTop (cr.getBottom() - cr.getHeight() * lv);
+                        label = juce::String::fromUTF8 (defs[(size_t) lockParam].text (defs[(size_t) lockParam].fromNorm (lv)).c_str());
+                        active = s < len;
+                    }
+                    else
+                    {
+                        bar = juce::Rectangle<float> (cr.getX(), cr.getBottom() - cr.getHeight() * baseNorm - 1.0f, cr.getWidth(), 2.0f);
+                        active = false;
+                    }
+                    break;
+                }
+                case LaneMode::Motion: break;
             }
             if (! bar.isEmpty())
             {
                 if (active)
                 {
-                    g.setColour (col::phosphor.withAlpha (0.25f));
+                    g.setColour ((mode == LaneMode::Lock ? juce::Colour (0xffb48cff) : col::phosphor).withAlpha (0.25f));
                     g.fillRoundedRectangle (bar.expanded (2.0f), 3.0f);
                 }
-                g.setColour (active ? col::phosphor : col::phosphorOff);
+                g.setColour (active ? (mode == LaneMode::Lock ? juce::Colour (0xffb48cff) : col::phosphor) : col::phosphorOff);
                 g.fillRoundedRectangle (bar, 2.0f);
             }
             g.setColour (active ? col::phosphor : col::phosphorDim.withAlpha (0.55f));
-            g.setFont (lcdFont (17.0f));
+            g.setFont (lcdFont (label.length() > 5 ? 14.0f : 17.0f));
             g.drawText (label, juce::Rectangle<float> (cr.getX() - 4.0f, in.getY() - 2.0f, cr.getWidth() + 8.0f, 14.0f), juce::Justification::centred);
         }
     }
 
-    void mouseDown (const juce::MouseEvent& e) override { lastS = -1; slideSet = -1; apply (e); }
-    void mouseDrag (const juce::MouseEvent& e) override { apply (e); }
+    void mouseDown (const juce::MouseEvent& e) override
+    {
+        lastS = -1; slideSet = -1;
+        ctx.edit();
+        if (mode == LaneMode::Cond) { condMenu (e); return; }
+        apply (e);
+    }
+    void mouseDrag (const juce::MouseEvent& e) override { if (mode != LaneMode::Cond) apply (e); }
 
 private:
+    int stepAt (const juce::MouseEvent& e) const
+    {
+        const auto r = getLocalBounds().toFloat().reduced (10.0f, 8.0f);
+        return ctx.offset() + juce::jlimit (0, kViewSteps - 1, (int) ((float) (e.x - 10) / (r.getWidth() / kViewSteps)));
+    }
+    void condMenu (const juce::MouseEvent& e)
+    {
+        const int s = stepAt (e);
+        const int t = ctx.track(), p = ctx.pattern();
+        const int cur = ctx.bank().get (p, t, s).cond;
+        juce::PopupMenu m, ratios;
+        for (int c = 0; c < CondRatioBase; ++c)
+            m.addItem (c + 1, juce::String::fromUTF8 (condLabel (c).c_str()).isEmpty() ? T ("Siempre")
+                                                                                       : juce::String (condLabel (c)) + "  ·  " + T (condName (c).c_str()),
+                       true, c == cur);
+        for (int c = CondRatioBase; c < CondCount; ++c) ratios.addItem (c + 1, juce::String (condLabel (c)) + "  ·  " + T (condName (c).c_str()), true, c == cur);
+        m.addSubMenu (T ("Vueltas (A:B)"), ratios, true, nullptr, cur >= CondRatioBase);
+        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition(), [this, s, t, p] (int r) {
+            if (r <= 0) return;
+            Step st = ctx.bank().get (p, t, s);
+            st.cond = r - 1;
+            ctx.bank().set (p, t, s, st);
+            repaint();
+        });
+    }
     void apply (const juce::MouseEvent& e)
     {
         const auto r = getLocalBounds().toFloat().reduced (10.0f, 8.0f).withTrimmedTop (14.0f);
-        const int s = juce::jlimit (0, kViewSteps - 1, (int) ((float) (e.x - 10) / (r.getWidth() / kViewSteps)));
+        const int s = stepAt (e);
         const float f = juce::jlimit (0.0f, 1.0f, (r.getBottom() - (float) e.y) / r.getHeight());
         const int t = ctx.track(), p = ctx.pattern();
         Step st = ctx.bank().get (p, t, s);
@@ -806,12 +938,26 @@ private:
             case LaneMode::Vel: st.vel = juce::jmax (1, juce::roundToInt (f * 127.0f)); break;
             case LaneMode::Prob: st.prob = juce::roundToInt (f * 20.0f) * 5; break;
             case LaneMode::Note: st.note = juce::jlimit (-24, 24, juce::roundToInt ((f - 0.5f) * 48.0f)); break;
-            case LaneMode::Ratchet: st.ratchet = juce::jlimit (1, 4, 1 + (int) (f * 4.0f)); break;
+            case LaneMode::Octave: st.octave = juce::jlimit (-3, 3, juce::roundToInt ((f - 0.5f) * 6.0f)); break;
+            case LaneMode::Nudge: st.nudge = juce::jlimit (-50, 50, juce::roundToInt ((f - 0.5f) * 50.0f) * 2); break;
+            case LaneMode::Ratchet: st.ratchet = juce::jlimit (1, kMaxRatchet, 1 + (int) (f * (float) kMaxRatchet)); break;
+            case LaneMode::Gate: st.gate = f < 0.05f ? 0 : juce::jlimit (1, 32, juce::roundToInt (f * 32.0f)); break;
             case LaneMode::Slide:
                 if (s == lastS) return;
                 if (slideSet < 0) slideSet = st.slide ? 0 : 1;
                 st.slide = slideSet == 1;
                 break;
+            case LaneMode::Lock:
+            {
+                const int param = lockTarget.param (t);
+                if (e.mods.isPopupMenu() || e.mods.isAltDown()) ctx.bank().clearLock (p, t, s, param);
+                else if (! ctx.bank().setLock (p, t, s, param, f)) return;   // ya tiene 8 locks
+                lastS = s;
+                repaint();
+                return;
+            }
+            case LaneMode::Cond:
+            case LaneMode::Motion: return;
         }
         lastS = s;
         ctx.bank().set (p, t, s, st);
@@ -821,6 +967,98 @@ private:
     SeqContext ctx;
     LaneMode mode = LaneMode::Vel;
     int lastS = -1, slideSet = -1;
+};
+
+// Elige qué perilla dibujar en el modo P-LOCK
+class LockChoice : public juce::Component
+{
+public:
+    LockChoice (Ogro2Processor& p, StepLane& l) : proc (p), lane (l)
+    {
+        addAndMakeVisible (box);
+        box.onChange = [this] {
+            const int id = box.getSelectedId();
+            if (id <= 0) return;
+            if (id >= 1000) { lane.lockTarget.global = id - 1000; }
+            else { lane.lockTarget.global = -1; lane.lockTarget.field = id - 1; }
+            lane.repaint();
+        };
+        box.setTooltip (T ("Perilla que se dibuja paso a paso. Clic derecho o Alt en un paso: borra su lock."));
+    }
+    void trackChanged (int t)
+    {
+        box.clear (juce::dontSendNotification);
+        for (int i = 0; i < kSoundParams; ++i)
+            box.addItem (juce::String::fromUTF8 (soundParamInfo (t, i).name), P::S1 + i + 1);
+        box.addSeparator();
+        static const std::pair<int, const char*> mix[] = { { P::Level, "NIVEL" }, { P::Pan, "PANEO" }, { P::Delay, "DELAY" },
+                                                           { P::Reverb, "REVERB" }, { P::Pump, "PUMP" }, { P::Ring, "RING" } };
+        for (const auto& m : mix) box.addItem (m.second, m.first + 1);
+        if (t == Bass) box.addItem ("ATAQUE", P::EnvA + 1);
+        if (t == Bass || t == Chord) { box.addItem ("SUSTAIN", P::EnvS + 1); box.addItem ("RELEASE", P::EnvR + 1); }
+        juce::PopupMenu glob;
+        for (int g : lockGlobals()) glob.addItem (1000 + g, juce::String::fromUTF8 (paramDefs()[(size_t) g].name.c_str()));
+        box.getRootMenu()->addSubMenu ("GLOBAL", glob);
+        const bool validField = lane.lockTarget.field < P::EnvA || (t == Bass) || (t == Chord && lane.lockTarget.field != P::EnvA);
+        if (lane.lockTarget.global < 0 && ! validField) lane.lockTarget.field = P::S3;
+        box.setSelectedId (lane.lockTarget.global >= 0 ? 1000 + lane.lockTarget.global : lane.lockTarget.field + 1, juce::dontSendNotification);
+    }
+    void resized() override { box.setBounds (getLocalBounds()); }
+    juce::ComboBox box;
+
+private:
+    Ogro2Processor& proc;
+    StepLane& lane;
+};
+
+// Ventanita de ritmo euclidiano (pulsos repartidos parejo en N pasos)
+class EuclidPanel : public juce::Component
+{
+public:
+    std::function<void (int, int, int)> onApply;
+    EuclidPanel (int len)
+    {
+        auto setup = [this] (juce::Slider& sl, const char* name, int lo, int hi, int v) {
+            sl.setSliderStyle (juce::Slider::LinearHorizontal);
+            sl.setTextBoxStyle (juce::Slider::TextBoxRight, false, 36, 22);
+            sl.setRange (lo, hi, 1);
+            sl.setValue (v, juce::dontSendNotification);
+            sl.setColour (juce::Slider::trackColourId, col::violetRing);
+            sl.onValueChange = [this] { pulses.setRange (0, steps.getValue(), 1); rot.setRange (0, juce::jmax (1.0, steps.getValue() - 1), 1); repaint(); };
+            addAndMakeVisible (sl);
+            labels.add (new juce::String (T (name)));
+        };
+        setup (pulses, "PULSOS", 0, 32, juce::jmin (5, len));
+        setup (steps, "PASOS", 1, 32, len);
+        setup (rot, "ROTAR", 0, 31, 0);
+        apply.setButtonText ("APLICAR");
+        styleKey (apply, col::orange);
+        apply.onClick = [this] { if (onApply) onApply ((int) pulses.getValue(), (int) steps.getValue(), (int) rot.getValue()); };
+        addAndMakeVisible (apply);
+        setSize (320, 190);
+    }
+    void paint (juce::Graphics& g) override
+    {
+        g.setColour (col::violetText);
+        for (int i = 0; i < labels.size(); ++i)
+            drawSpaced (g, *labels[i], { 10.0f, 10.0f + (float) i * 34.0f, 80.0f, 26.0f }, labelFont (12.0f), 0.06f, juce::Justification::centredLeft);
+        auto r = juce::Rectangle<float> (10.0f, 112.0f, (float) getWidth() - 20.0f, 28.0f);
+        paint::lcd (g, r, 6.0f);
+        paint::glowText (g, euclidPreview ((int) pulses.getValue(), (int) steps.getValue(), (int) rot.getValue()), r, lcdFont (20.0f),
+                         juce::Justification::centred);
+    }
+    void resized() override
+    {
+        pulses.setBounds (90, 10, getWidth() - 100, 26);
+        steps.setBounds (90, 44, getWidth() - 100, 26);
+        rot.setBounds (90, 78, getWidth() - 100, 26);
+        apply.setBounds (getWidth() - 110, 148, 100, 32);
+    }
+
+private:
+    juce::Slider pulses, steps, rot;
+    juce::TextButton apply;
+    juce::OwnedArray<juce::String> labels;
 };
 
 // ---------------------------------------------------------------------------
@@ -877,7 +1115,7 @@ public:
             g.drawText (T ("Elegí un destino y dibujá con el mouse"), in, juce::Justification::centred);
         }
     }
-    void mouseDown (const juce::MouseEvent& e) override { last = -1; draw (e); }
+    void mouseDown (const juce::MouseEvent& e) override { proc.pushUndo(); last = -1; draw (e); }
     void mouseDrag (const juce::MouseEvent& e) override { draw (e); }
 
 private:

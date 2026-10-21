@@ -67,6 +67,38 @@ struct Step
     }
 };
 
+// Condiciones de disparo por paso (estilo Elektron). El índice se guarda: la lista solo crece al final.
+enum TrigCond { CondAlways = 0, CondFill, CondNotFill, CondPre, CondNotPre, CondNei, CondNotNei, CondFirst, CondNotFirst,
+                CondRatioBase, CondCount = CondRatioBase + 17 };
+// A:B (suena en la vuelta A de cada B): 1:2 2:2 1:3 2:3 3:3 1:4..4:4 1:8..8:8
+inline bool condRatio (int c, int& a, int& b)
+{
+    static const int tab[17][2] = { { 1, 2 }, { 2, 2 }, { 1, 3 }, { 2, 3 }, { 3, 3 }, { 1, 4 }, { 2, 4 }, { 3, 4 }, { 4, 4 },
+                                    { 1, 8 }, { 2, 8 }, { 3, 8 }, { 4, 8 }, { 5, 8 }, { 6, 8 }, { 7, 8 }, { 8, 8 } };
+    const int i = c - CondRatioBase;
+    if (i < 0 || i >= 17) return false;
+    a = tab[i][0]; b = tab[i][1];
+    return true;
+}
+inline std::string condLabel (int c)
+{
+    static const char* fixed[] = { "", "FILL", "!FILL", "PRE", "!PRE", "VEC", "!VEC", "1a", "!1a" };
+    int a = 0, b = 0;
+    if (c >= 0 && c < CondRatioBase) return fixed[c];
+    if (condRatio (c, a, b)) return std::to_string (a) + ":" + std::to_string (b);
+    return "";
+}
+inline std::string condName (int c)
+{
+    static const char* fixed[] = { "Siempre", "Solo en el fill", "Nunca en el fill", "Si el paso anterior con condición sonó",
+                                   "Si el paso anterior con condición no sonó", "Si la pista de arriba sonó", "Si la pista de arriba no sonó",
+                                   "Solo la primera vuelta", "Todas las vueltas menos la primera" };
+    int a = 0, b = 0;
+    if (c >= 0 && c < CondRatioBase) return fixed[c];
+    if (condRatio (c, a, b)) return "Vuelta " + std::to_string (a) + " de cada " + std::to_string (b);
+    return "";
+}
+
 // P-lock: valor propio de una perilla en un paso (índice de parámetro + valor normalizado)
 struct Lock
 {
@@ -90,6 +122,7 @@ public:
 
     void clearAll()
     {
+        chainLen.store (0);
         for (int p = 0; p < kPatterns; ++p) clearPattern (p);
         for (int l = 0; l < kLanes; ++l)
             for (int i = 0; i < kLanePoints; ++i) lanes[l][i].store (0.5f);
@@ -211,6 +244,12 @@ public:
                     }
             }
         }
+        if (chainLength() > 0)
+        {
+            o << "C";
+            for (int i = 0; i < chainLength(); ++i) o << " " << chainPattern (i) << "x" << chainRepeats (i);
+            o << "\n";
+        }
         for (int l = 0; l < kLanes; ++l)
         {
             o << "M " << l;
@@ -264,6 +303,18 @@ public:
                 ls >> p >> tid >> s >> pid >> v;
                 const int t = trackIndex (tid), param = paramIndex (pid);
                 if (p >= 0 && p < kPatterns && t >= 0 && s >= 0 && s < kSteps && param >= 0) setLock (p, t, s, param, (float) v);
+            }
+            else if (kind == "C")
+            {
+                std::vector<std::pair<int, int>> entries;
+                std::string tok;
+                while (ls >> tok)
+                {
+                    const auto x = tok.find ('x');
+                    if (x == std::string::npos) continue;
+                    entries.push_back ({ std::atoi (tok.substr (0, x).c_str()), std::atoi (tok.substr (x + 1).c_str()) });
+                }
+                setChain (entries);
             }
             else if (kind == "M")
             {
@@ -322,9 +373,35 @@ public:
         return -1;
     }
 
+    // ---- Cadena de patrones (song mode): hasta 64 entradas de patrón x repeticiones ----
+    static constexpr int kChainMax = 64;
+    int chainLength() const { return chainLen.load (std::memory_order_relaxed); }
+    int chainPattern (int i) const { return chainPat[clampv (i, 0, kChainMax - 1)].load (std::memory_order_relaxed); }
+    int chainRepeats (int i) const { return chainRep[clampv (i, 0, kChainMax - 1)].load (std::memory_order_relaxed); }
+    void setChain (const std::vector<std::pair<int, int>>& entries)
+    {
+        const int n = std::min ((int) entries.size(), kChainMax);
+        chainLen.store (0);
+        for (int i = 0; i < n; ++i)
+        {
+            chainPat[i].store (clampv (entries[(size_t) i].first, 0, kPatterns - 1));
+            chainRep[i].store (clampv (entries[(size_t) i].second, 1, 64));
+        }
+        chainLen.store (n);
+        ++revision;
+    }
+    std::vector<std::pair<int, int>> getChain() const
+    {
+        std::vector<std::pair<int, int>> v;
+        for (int i = 0; i < chainLength(); ++i) v.push_back ({ chainPattern (i), chainRepeats (i) });
+        return v;
+    }
+
     std::atomic<uint32_t> revision { 0 };
 
 private:
+    std::atomic<int> chainLen { 0 };
+    std::atomic<int> chainPat[kChainMax] {}, chainRep[kChainMax] {};
     void writeLock (int p, int t, int s, int k, const Lock& l)
     {
         locks[idx (p)][tr (t)][st (s)][clampv (k, 0, kMaxLocks - 1)].store (l.pack(), std::memory_order_relaxed);
@@ -362,28 +439,40 @@ struct TriggerEvent
     int stepIndex = 0;      // paso dentro de la pista
     int pattern = 0;
     bool release = false;   // fin de nota (MIDI note-off)
+    bool locks = false;     // el paso tiene p-locks (se leen al disparar)
+    int bfxBar = -1;        // >= 0: arranca la ventana de FX de fin de compás de ese compás
+    double bfxBeats = 0.0;  // largo de la ventana en negras
 };
 
 // Calcula los disparos que caen dentro de un bloque
 class StepClock
 {
 public:
+    enum PatChange { ChangeAtBar = 0, ChangeAtPatternEnd, ChangeImmediate };
+
     void prepare (double sampleRate) { fs = sampleRate; reset(); }
     void reset()
     {
-        lastEnd = -1.0; curPattern = -1;
+        lastEnd = -1.0; curPattern = -1; patternStartK = 0; playing = -1;
         for (auto& s : lastStep) s = -1;
         for (auto& d : decisionStep) d = INT64_MIN;
+        for (auto& c : lastCond) c = false;
     }
 
     void setSwing (float s) { swing = clampv (s, 0.5f, 0.75f); }
+    void setTrackSwing (int t, bool own, float amt) { trackSwingOwn[clampv (t, 0, kTracks - 1)] = own; trackSwing[clampv (t, 0, kTracks - 1)] = clampv (amt, 0.5f, 0.75f); }
+    void setGroove (int type, float amount, float humanizeMs) { groove = type; grooveAmt = clampv (amount, 0.0f, 1.0f); humanize = std::max (0.0f, humanizeMs); }
+    void setPatternMode (int change, bool continuousPoly, bool chainOn) { patChange = change; polyContinuous = continuousPoly; chain = chainOn; }
+    void setFill (int everyBars, int fillPattern) { fillEvery = everyBars; fillPat = fillPattern; }
+    void setBarFx (int everyBars, int lenSteps) { bfxEvery = everyBars; bfxLen = clampv (lenSteps, 1, 4); }
     void requestPattern (int p) { wantedPattern = clampv (p, 0, kPatterns - 1); }
     // Azar: fijo = cada decisión sale de (semilla, pista, paso); vivo = generador con estado (como la 1.0)
     void setRandom (bool fixed, uint32_t s) { fixedRandom = fixed; seed = s; }
-    int pattern() const { return curPattern < 0 ? wantedPattern : curPattern; }
+    int pattern() const { return playing >= 0 ? playing : (curPattern < 0 ? wantedPattern : curPattern); }
+    int stepOf (int track) const { return lastStep[clampv (track, 0, kTracks - 1)]; }
     // true si en el último bloque el transporte arrancó o saltó (no en los saltos del loop)
     bool relocated() const { return jumped; }
-    int stepOf (int track) const { return lastStep[clampv (track, 0, kTracks - 1)]; }
+    bool fillActive() const { return lastFill; }
 
     // Llena "events" (ordenados) y devuelve cuántos hay
     int process (const Transport& tr, int numSamples, const PatternBank& bank, uint32_t& rngState,
@@ -397,6 +486,7 @@ public:
         }
         jumped = lastEnd < 0.0;
         const double ppqPerSample = tr.bpm / 60.0 / fs;
+        bpm = tr.bpm;
         const double hostStart = tr.ppq;
         double start = hostStart, end = hostStart + ppqPerSample * numSamples;
         // Continuidad: seguimos desde donde terminó el bloque anterior para no saltear ni
@@ -409,7 +499,14 @@ public:
             else if (drift < 0.02) start = lastEnd;
             else jumped = true;
         }
-        if (curPattern < 0) curPattern = wantedPattern;
+        if (jumped)
+        {
+            // Saltó o arrancó: todo se ancla a la posición del tema (sale igual en cada render)
+            for (auto& d : decisionStep) d = INT64_MIN;
+            for (auto& c : lastCond) c = false;
+            patternStartK = 0;
+        }
+        if (curPattern < 0) { curPattern = wantedPattern; patternStartK = 0; }
 
         int count = 0;
         // Loop de Ableton: si el fin del loop cae adentro del bloque, partimos la ventana
@@ -441,6 +538,67 @@ public:
     }
 
 private:
+    // Qué patrón suena en la semicorchea k, desde qué paso empezó y en qué vuelta va
+    struct Slot { int pattern; int64_t startK; bool fill; };
+
+    Slot slotFor (int64_t k, const PatternBank& bank) const
+    {
+        Slot sl { curPattern, patternStartK, false };
+        // Cadena: sale solo de la posición en el tema (repetible y apta para loops)
+        const int n = bank.chainLength();
+        if (chain && n > 0)
+        {
+            int64_t total = 0;
+            for (int i = 0; i < n; ++i) total += (int64_t) bank.getPatternLength (bank.chainPattern (i)) * bank.chainRepeats (i);
+            if (total > 0)
+            {
+                int64_t pos = k % total, acc = 0;
+                for (int i = 0; i < n; ++i)
+                {
+                    const int p = bank.chainPattern (i);
+                    const int64_t len = (int64_t) bank.getPatternLength (p) * bank.chainRepeats (i);
+                    if (pos < acc + len)
+                    {
+                        const int64_t into = pos - acc;
+                        sl.pattern = p;
+                        sl.startK = k - into;
+                        break;
+                    }
+                    acc += len;
+                }
+            }
+        }
+        // Fill: el último compás de cada grupo de N compases
+        if (fillEvery > 0)
+        {
+            const int64_t bar = k / 16;
+            if (bar % fillEvery == fillEvery - 1)
+            {
+                sl.fill = true;
+                if (fillPat > 0) { sl.pattern = fillPat - 1; sl.startK = bar * 16; }
+            }
+        }
+        return sl;
+    }
+
+    // Corrimiento de la plantilla de groove (en fracción de paso) y escala de velocidad
+    void grooveFor (int64_t k, double& offset, float& velScale) const
+    {
+        static const float loose[16] = { 0.0f, 0.06f, -0.03f, 0.09f, 0.0f, 0.04f, -0.05f, 0.07f, -0.02f, 0.05f, -0.04f, 0.08f, 0.01f, 0.03f, -0.06f, 0.10f };
+        static const float looseVel[16] = { 1.0f, 0.85f, 0.95f, 0.8f, 1.0f, 0.88f, 0.92f, 0.82f, 0.98f, 0.86f, 0.94f, 0.8f, 1.0f, 0.84f, 0.9f, 0.85f };
+        static const float push[16] = { 0.0f, 0.04f, 0.0f, 0.08f, -0.03f, 0.05f, 0.0f, 0.09f, 0.0f, 0.04f, 0.0f, 0.08f, -0.03f, 0.05f, 0.0f, 0.10f };
+        static const float mpcVel[16] = { 1.0f, 0.9f, 0.96f, 0.88f, 1.0f, 0.9f, 0.96f, 0.88f, 1.0f, 0.9f, 0.96f, 0.88f, 1.0f, 0.9f, 0.96f, 0.88f };
+        const int s16 = (int) (k % 16);
+        offset = 0.0; velScale = 1.0f;
+        switch (groove)
+        {
+            case 1: velScale = 1.0f + (mpcVel[s16] - 1.0f) * grooveAmt; break;
+            case 3: offset = loose[s16] * grooveAmt; velScale = 1.0f + (looseVel[s16] - 1.0f) * grooveAmt; break;
+            case 4: offset = push[s16] * grooveAmt; break;
+            default: break;
+        }
+    }
+
     // Recorre las semicorcheas de [start, end). "origin" es la posición que corresponde a la muestra 0.
     int window (double start, double end, double origin, double ppqPerSample, int numSamples, int minSample,
                 const PatternBank& bank, uint32_t& rngState, TriggerEvent* events, int maxEvents, int count)
@@ -454,45 +612,88 @@ private:
         {
             if (k < 0) continue;
             const bool odd = (k & 1) != 0;
-            const double swingOffset = odd ? (swing - 0.5) * 2.0 * stepLen : 0.0;
-            const double t0base = (double) k * stepLen + swingOffset;
-            // Cambio de patrón en el inicio de compás
-            if (k % 16 == 0 && t0base >= start && t0base < end && wantedPattern != curPattern) curPattern = wantedPattern;
+            const double kpos = (double) k * stepLen;
+            // Cambio de patrón (modo manual)
+            if (! chain || bank.chainLength() == 0)
+            {
+                const double tq = odd ? kpos + (swing - 0.5) * 2.0 * stepLen : kpos;
+                if (tq >= start && tq < end && wantedPattern != curPattern)
+                {
+                    const int len = std::max (1, bank.getPatternLength (curPattern));
+                    const bool atBar = k % 16 == 0;
+                    const bool atEnd = relative (k, patternStartK) % len == 0;
+                    if ((patChange == ChangeAtBar && atBar) || (patChange == ChangeAtPatternEnd && atEnd) || patChange == ChangeImmediate)
+                    {
+                        curPattern = wantedPattern;
+                        if (patChange != ChangeImmediate) patternStartK = k;
+                    }
+                }
+            }
+            // Ventana de FX de fin de compás: en los últimos pasos de cada N compases
+            if (bfxEvery > 0 && k % 16 == 16 - bfxLen && kpos >= start && kpos < end && count < maxEvents)
+            {
+                const int64_t bar = k / 16;
+                if (bar % bfxEvery == bfxEvery - 1)
+                {
+                    TriggerEvent& e = events[count++];
+                    e = TriggerEvent();
+                    e.track = -1;
+                    e.sample = clampv ((int) ((kpos - origin) / ppqPerSample), minSample, numSamples - 1);
+                    e.bfxBar = (int) bar;
+                    e.bfxBeats = bfxLen * stepLen;
+                    e.absStep = k;
+                }
+            }
+            const Slot sl = slotFor (k, bank);
+            if (kpos >= start && kpos < end) { lastFill = sl.fill; playing = sl.pattern; }
+            const int64_t relK = relative (k, sl.startK);
+            double gOffset = 0.0; float gVel = 1.0f;
+            grooveFor (k, gOffset, gVel);
 
             for (int t = 0; t < kTracks; ++t)
             {
-                const int len = bank.getLength (curPattern, t);
-                const int s = (int) (k % len);
-                const Step st = bank.get (curPattern, t, s);
-                const double dur = odd ? stepLen * (1.0 - (swing - 0.5) * 2.0) : stepLen * (1.0 + (swing - 0.5) * 2.0);
-                const double t0 = t0base + (double) st.nudge / 100.0 * stepLen;
+                const int len = bank.getLength (sl.pattern, t);
+                const int64_t pos = polyContinuous ? k : relK;
+                const int s = (int) (pos % len);
+                const Step st = bank.get (sl.pattern, t, s);
+                float sw = trackSwingOwn[t] ? trackSwing[t] : swing;
+                if (groove == 2) sw = 0.5f + std::round ((sw - 0.5f) * 24.0f) / 24.0f;   // 909: el swing va en saltos
+                const double swingOffset = odd ? (sw - 0.5) * 2.0 * stepLen : 0.0;
+                const double t0base = (double) k * stepLen + swingOffset;
+                const double dur = odd ? stepLen * (1.0 - (sw - 0.5) * 2.0) : stepLen * (1.0 + (sw - 0.5) * 2.0);
+                double t0 = t0base + (double) st.nudge / 100.0 * stepLen;
+                if (gOffset != 0.0) t0 += gOffset * stepLen;
+                if (humanize > 0.0f)
+                    t0 += (double) hashBipolar (hash32 (seed, (uint32_t) t, (uint32_t) k, 0x48554Du)) * humanize * 0.001 * bpm / 60.0;
                 if (t0base >= start && t0base < end) lastStep[t] = s;
                 if (! st.on) continue;
                 for (int r = 0; r < st.ratchet; ++r)
                 {
                     const double tr0 = t0 + dur * (double) r / (double) st.ratchet;
                     if (tr0 < start || tr0 >= end) continue;
-                    if (st.prob < 100 && ! passes (t, k, st.prob, rngState)) break;
+                    if ((st.prob < 100 || st.cond != CondAlways) && ! passes (t, k, st, sl.fill, (int) (relK / len), rngState)) break;
                     if (count >= maxEvents) break;
                     TriggerEvent& e = events[count++];
                     e = TriggerEvent();
                     e.sample = clampv ((int) ((tr0 - origin) / ppqPerSample), minSample, numSamples - 1);
                     e.track = t;
                     e.hit.vel = (float) st.vel / 127.0f * (r > 0 ? 0.82f : 1.0f);
-                    e.hit.note = (float) st.note;
+                    if (gVel != 1.0f) e.hit.vel *= gVel;
+                    e.hit.note = (float) (st.note + st.octave * 12);
                     e.hit.slide = st.slide && r == 0;
                     e.hit.accent = st.vel >= 118;
                     e.absStep = k;
                     e.sub = r;
                     e.stepIndex = s;
-                    e.pattern = curPattern;
+                    e.pattern = sl.pattern;
+                    e.locks = bank.lockCount (sl.pattern, t, s) > 0;
                     if (fixedRandom) { e.hit.fixedSeed = true; e.hit.seed = hash32 (seed, (uint32_t) t, (uint32_t) k, (uint32_t) r + 77u); }
                     // Gate: largo del paso (o el que se eligió) y, si el paso siguiente está ligado, hasta él
                     const double subDur = dur / (double) st.ratchet;
                     double gate = st.gate > 0 ? stepLen * (double) st.gate / 8.0 : subDur;
                     if (r == st.ratchet - 1)
                     {
-                        const Step next = bank.get (curPattern, t, (int) ((k + 1) % len));
+                        const Step next = bank.get (sl.pattern, t, (int) ((pos + 1) % len));
                         if (next.on && next.slide) gate = std::max (gate, dur - (tr0 - t0) + 0.02);
                     }
                     e.gateBeats = gate;
@@ -502,31 +703,71 @@ private:
         return count;
     }
 
+    // Posición relativa al inicio del patrón (si el loop volvió antes de ese inicio, la del tema)
+    static int64_t relative (int64_t k, int64_t startK) { return k >= startK ? k - startK : k; }
+
+    bool evalCond (int t, const Step& st, bool fill, int iteration) const
+    {
+        int a = 0, b = 0;
+        switch (st.cond)
+        {
+            case CondAlways: return true;
+            case CondFill: return fill;
+            case CondNotFill: return ! fill;
+            case CondPre: return lastCond[t];
+            case CondNotPre: return ! lastCond[t];
+            case CondNei: return t > 0 && lastCond[t - 1];
+            case CondNotNei: return ! (t > 0 && lastCond[t - 1]);
+            case CondFirst: return iteration == 0;
+            case CondNotFirst: return iteration > 0;
+            default: if (condRatio (st.cond, a, b)) return iteration % b == a - 1;
+        }
+        return true;
+    }
+
     // Una sola decisión por cada vez que pasa el paso: vale para todos sus subgolpes
-    bool passes (int t, int64_t k, int prob, uint32_t& rngState)
+    bool passes (int t, int64_t k, const Step& st, bool fill, int iteration, uint32_t& rngState)
     {
         if (decisionStep[t] == k) return decisionPass[t];
-        bool pass;
-        if (fixedRandom) pass = (int) (hash32 (seed, (uint32_t) t, (uint32_t) k, 0x50524F42u) % 100u) < prob;
-        else
+        bool pass = true;
+        if (st.cond != CondAlways)
         {
-            rngState ^= rngState << 13; rngState ^= rngState >> 17; rngState ^= rngState << 5;
-            pass = (int) (rngState % 100u) < prob;
+            pass = evalCond (t, st, fill, iteration);
+            if (st.cond != CondPre && st.cond != CondNotPre && st.cond != CondNei && st.cond != CondNotNei) lastCond[t] = pass;
+        }
+        if (pass && st.prob < 100)
+        {
+            if (fixedRandom) pass = (int) (hash32 (seed, (uint32_t) t, (uint32_t) k, 0x50524F42u) % 100u) < st.prob;
+            else
+            {
+                rngState ^= rngState << 13; rngState ^= rngState >> 17; rngState ^= rngState << 5;
+                pass = (int) (rngState % 100u) < st.prob;
+            }
+            if (st.cond == CondAlways) lastCond[t] = pass;
         }
         decisionStep[t] = k;
         decisionPass[t] = pass;
         return pass;
     }
 
-    double fs = 44100.0, lastEnd = -1.0;
-    bool jumped = false;
+    double fs = 44100.0, lastEnd = -1.0, bpm = 120.0;
+    bool jumped = false, lastFill = false;
     float swing = 0.5f;
+    bool trackSwingOwn[kTracks] {};
+    float trackSwing[kTracks] { 0.54f, 0.54f, 0.54f, 0.54f, 0.54f, 0.54f, 0.54f, 0.54f };
+    int groove = 0;
+    float grooveAmt = 1.0f, humanize = 0.0f;
+    int patChange = ChangeAtBar;
+    bool polyContinuous = false, chain = false;
+    int fillEvery = 0, fillPat = 0, bfxEvery = 0, bfxLen = 2;
     bool fixedRandom = true;
     uint32_t seed = 1;
-    int wantedPattern = 0, curPattern = -1;
+    int wantedPattern = 0, curPattern = -1, playing = -1;
+    int64_t patternStartK = 0;
     int lastStep[kTracks] { -1, -1, -1, -1, -1, -1, -1, -1 };
     int64_t decisionStep[kTracks] {};
     bool decisionPass[kTracks] {};
+    bool lastCond[kTracks] {};
 };
 
 } // namespace ogro2

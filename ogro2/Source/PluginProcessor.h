@@ -56,6 +56,16 @@ public:
     void setModDest (int slot, int param);
     void setLaneDest (int lane, int param);
 
+    // Deshacer / rehacer del secuenciador (patrones, p-locks, cadena y carriles; no los
+    // parámetros, que los deshace Ableton). Se llama a pushUndo() antes de cada edición.
+    void pushUndo();
+    bool undo();
+    bool redo();
+    bool canUndo() const { return ! undoStack.empty(); }
+    bool canRedo() const { return ! redoStack.empty(); }
+    // El largo del patrón (para la cadena y el cambio "al final") sigue a la pista más larga
+    void syncPatternLength (int pattern);
+
     // Avisa al host que cambió algo que no es un parámetro (patrones, ruteo), para que
     // Ableton marque la sesión como modificada
     void notifyStateChanged();
@@ -68,6 +78,7 @@ public:
     juce::AudioProcessorValueTreeState state;
     ogro2::Engine engine;
     std::atomic<int> selectedTrack { 0 };
+    std::atomic<int> seqPage { 0 };      // vista del secuenciador: pasos 1-16 o 17-32
 
 private:
     static BusesProperties createBuses();
@@ -81,6 +92,8 @@ private:
     std::vector<std::atomic<float>*> raw;
     std::vector<float> values;
     std::vector<ogro2::MidiTrigger> midiTriggers;
+    std::string bankText() const;
+    std::vector<std::string> undoStack, redoStack;
     std::atomic<int> currentPreset { 0 };
     juce::String userPresetName;
     mutable juce::SpinLock nameLock;

@@ -2,6 +2,54 @@
 
 Formato: cada fase del desarrollo suma una entrada. La versión publicada será la 2.0.0.
 
+## 2.0.0 (en desarrollo) — Fase 2: secuenciador, groove y arreglo
+
+### Secuenciador
+- **32 pasos** por pista (LARGO hasta 32; botones 1-16 / 17-32). El largo del patrón sigue a
+  la pista más larga.
+- Modos nuevos en la pantalla de pasos: **OCT** (octava por paso), **NUDGE** (corrimiento
+  fino de hasta medio paso), **GATE** (largo de la nota), **COND** (condiciones), **P-LOCK**
+  y **MOTION**. RATCH llega a 8 repeticiones.
+- **Condiciones por paso** (estilo Elektron): FILL / !FILL, PRE / !PRE (si sonó el paso
+  anterior con condición), VEC / !VEC (la pista de arriba), 1ª / !1ª y vueltas A:B (1:2,
+  2:2, 1:3... 8:8). Se ven en la tecla del paso.
+- **P-locks**: cualquier perilla de la pista (o algunas globales: filtro DJ, delay, reverb,
+  ring, drum bus...) puede tener un valor propio en cada paso; vale desde ese golpe hasta el
+  próximo de la pista. Se dibujan en el modo P-LOCK; clic derecho borra.
+- **MOTION** ahora vive en el secuenciador (modo MOTION, carriles M1-M4); el panel aparte
+  se fue y su lugar lo ocupan GROOVE y ARREGLO.
+- **Deshacer / rehacer** propio del secuenciador (pasos, p-locks, cadena y MOTION; 64
+  pasos de historial). Los parámetros los sigue deshaciendo Ableton.
+- **Euclidiano** (botón EUCLID): pulsos, pasos y rotación con vista previa.
+- **INVENTAR por género** (minimal house, micro-house / rominimal, deep, Detroit, garage),
+  para una pista o para todas (▾), y **MUTAR** (cambia un porcentaje sin tocar los tiempos
+  del bombo; clic derecho: todas las pistas).
+
+### Groove (panel GROOVE)
+- Plantillas: Recto, MPC 60 (acentos), Shuffle 909 (swing en saltos), Suelto (Villalobos)
+  y Empuje (garage), con CANTIDAD.
+- HUMANIZAR (0 a 20 ms; sale de la semilla, así que con AZAR FIJO se repite igual).
+- **Swing por pista** (PROPIO + cantidad).
+- Polirritmos "desde el patrón" (las pistas de largo distinto arrancan juntas cuando entra
+  el patrón) o "continuos" como la 1.0 (lo usan los presets importados).
+
+### Arreglo (panel ARREGLO)
+- **Cadena de patrones** (song mode): fichas patrón x vueltas; sale de la posición del tema,
+  así que exportar o arrancar en cualquier compás da siempre lo mismo.
+- **Cambio de patrón**: al compás, al final del patrón o inmediato.
+- **Fills** cada 2, 4, 8 o 16 compases: solo condiciones FILL, o tocar otro patrón entero.
+- **FX de fin de compás**: stutter (1/16 o 1/32), barrido de filtro, tiro de reverb, tiro
+  de delay con feedback que sube, tape stop, bitcrush y riser de ruido. Cada uno con su
+  probabilidad y su destino (master, batería, bajo y acordes o una pista); cada 1, 2, 4 u 8
+  compases, en los últimos 1 a 4 pasos, con CANTIDAD general y botón TIRAR FX. Todo
+  automatizable.
+
+### Medidas
+- Los 12 presets importados de la 1.0 siguen dando idénticos muestra a muestra.
+- Test nuevo `test_secuencia` (condiciones, fills, cadena, cambio de patrón, polirritmos,
+  nudge, groove, humanizar, swing por pista, p-locks, octava, los 7 FX en 4 destinos,
+  azar FIJO, generador). CPU con 8 pistas y los 7 FX en cada compás: ~12 % de un núcleo.
+
 ## 2.0.0 (en desarrollo) — Fase 1: base y bugs
 
 Desde esta versión los IDs de los parámetros son definitivos: **las sesiones y presets que

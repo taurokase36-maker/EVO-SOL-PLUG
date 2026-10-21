@@ -60,9 +60,11 @@ struct ParamDef
 // ---------------------------------------------------------------------------
 namespace P
 {
-    enum Global { Swing = 0, Pattern, Root, Tempo, Macro1, Macro2, Macro3, Macro4, Seed, RandomMode, MacroDepth, GlobalCount };
+    enum Global { Swing = 0, Pattern, Root, Tempo, Macro1, Macro2, Macro3, Macro4, Seed, RandomMode, MacroDepth,
+                  PatChange, PolyMode, Chain, Groove, GrooveAmt, Humanize, Fill, FillPat, Genre, Mutate,
+                  BfxEvery, BfxLen, BfxAmount, BfxStutterRate, GlobalCount };
     enum TrackField { S1 = 0, S2, S3, S4, S5, S6, S7, S8, Level, Pan, Delay, Reverb, Pump, Ring, Mute, Solo,
-                      EnvA, EnvS, EnvR, TrackFieldCount };
+                      EnvA, EnvS, EnvR, SwingOwn, SwingAmt, TrackFieldCount };
     constexpr int TrackBase = GlobalCount;
     constexpr int track (int t, int f) { return TrackBase + t * TrackFieldCount + f; }
     constexpr int sound (int t, int p) { return track (t, p); }
@@ -82,7 +84,13 @@ namespace P
     constexpr int LaneBase = ModBase + kSlots * ModFieldCount;
     constexpr int lane (int l, int f) { return LaneBase + l * LaneFieldCount + f; }
 
-    enum Rest { RingOn = LaneBase + kMotion * LaneFieldCount, RingFreq, RingWave, RingMix, RingSpread,
+    // Efectos de fin de compás: probabilidad y destino de cada uno
+    constexpr int kBfx = 7;
+    enum BfxField { BfxProb = 0, BfxTarget, BfxFieldCount };
+    constexpr int BfxBase = LaneBase + kMotion * LaneFieldCount;
+    constexpr int bfx (int e, int f) { return BfxBase + e * BfxFieldCount + f; }
+
+    enum Rest { RingOn = BfxBase + kBfx * BfxFieldCount, RingFreq, RingWave, RingMix, RingSpread,
                 DlyDiv, DlyFb, DlyTone, DlyRet, RevSize, RevDecay, RevRet, PumpRel,
                 BusComp, BusCrudo,
                 MFilter, MReso, MLowCut, MBody, MPres, MAir, MComp, MColor, MWarmth, MParallel, MTexture, MCeiling, MVol,
@@ -110,6 +118,13 @@ inline const char* soundId (int t, int p)
         { "type", "decay", "cutoff", "reso", "envamt", "detune", "chorus", "attack" },
     };
     return ids[clampv (t, 0, kTracks - 1)][clampv (p, 0, kSoundParams - 1)];
+}
+
+inline std::string capitaliseName (const char* s)
+{
+    std::string r (s);
+    for (size_t i = 1; i < r.size(); ++i) r[i] = (char) std::tolower ((unsigned char) r[i]);
+    return r;
 }
 
 // ---------------------------------------------------------------------------
@@ -165,6 +180,37 @@ inline int modSourceIndex (const std::string& id)
 {
     for (int i = 0; i < SrcCount; ++i) if (id == modSource (i).id) return i;
     return SrcNone;
+}
+
+// Plantillas de groove (la lista solo crece al final)
+inline const std::vector<std::string>& grooveNames()
+{
+    static const std::vector<std::string> v { "Recto", "MPC 60", "Shuffle 909", "Suelto (Villalobos)", "Empuje (garage)" };
+    return v;
+}
+// Géneros de INVENTAR
+inline const std::vector<std::string>& genreNames()
+{
+    static const std::vector<std::string> v { "Minimal house", "Micro-house / rominimal", "Deep", "Detroit", "Garage" };
+    return v;
+}
+// Efectos de fin de compás
+inline const char* bfxId (int e)
+{
+    static const char* ids[] = { "stutter", "filter", "reverb", "delay", "tapestop", "crush", "riser" };
+    return ids[clampv (e, 0, 6)];
+}
+inline const char* bfxName (int e)
+{
+    static const char* n[] = { "Stutter", "Barrido de filtro", "Tiro de reverb", "Tiro de delay", "Tape stop", "Bitcrush", "Riser de ruido" };
+    return n[clampv (e, 0, 6)];
+}
+// Destinos de los efectos de fin de compás
+inline std::vector<std::string> bfxTargetNames()
+{
+    std::vector<std::string> v { "Master", "Bateria", "Bajo y acordes" };
+    for (int t = 0; t < kTracks; ++t) v.push_back (capitaliseName (trackName (t)));
+    return v;
 }
 
 inline const char* macroName (int m)
@@ -242,6 +288,28 @@ inline const std::vector<ParamDef>& paramDefs()
         // Recorrido de las macros: x2 en OGRO 2; los presets importados de la 1.0 usan x1 (suenan igual)
         C (P::MacroDepth, "global.macrodepth", "Profundidad de macros", { "x1 (como la 1.0)", "x2" }, 1, 4);
 
+        // Secuenciador y groove (fase 2)
+        C (P::PatChange, "global.patchange", "Cambio de patron", { "Al compas", "Al final del patron", "Inmediato" }, 0, 4);
+        C (P::PolyMode, "global.polymode", "Polirritmos", { "Desde el patron", "Continuos (1.0)" }, 0, 4);
+        B (P::Chain, "global.chain", "Cadena de patrones", false);
+        C (P::Groove, "global.groove", "Groove", grooveNames(), 0, 16);
+        F (P::GrooveAmt, "global.grooveamt", "Groove cantidad", 0.0f, 1.0f, 1.0f, false, pct, true);
+        F (P::Humanize, "global.humanize", "Humanizar tiempo", 0.0f, 20.0f, 0.0f, false, [] (float x) { return fmt ("%.1f ms", x); }, true);
+        C (P::Fill, "global.fill", "Fill", { "Apagado", "Cada 2 compases", "Cada 4 compases", "Cada 8 compases", "Cada 16 compases" }, 0, 8);
+        C (P::FillPat, "global.fillpat", "Fill patron", { "Solo condiciones", "A", "B", "C", "D", "E", "F", "G", "H" }, 4, 16);
+        C (P::Genre, "global.genre", "Genero de INVENTAR", genreNames(), 0, 16);
+        F (P::Mutate, "global.mutate", "Mutar", 0.0f, 1.0f, 0.25f, false, pct);
+        C (P::BfxEvery, "bfx.every", "FX de fin de compas", { "Apagado", "Cada compas", "Cada 2 compases", "Cada 4 compases", "Cada 8 compases" }, 0, 8);
+        I (P::BfxLen, "bfx.len", "FX de fin de compas largo", 1, 4, 2, [] (float x) { return fmt (x < 1.5f ? "%.0f paso" : "%.0f pasos", x); });
+        F (P::BfxAmount, "bfx.amount", "FX de fin de compas cantidad", 0.0f, 1.0f, 0.7f, false, pct, true);
+        C (P::BfxStutterRate, "bfx.stutter.rate", "Stutter division", { "1/16", "1/32" }, 0, 4);
+        for (int e = 0; e < P::kBfx; ++e)
+        {
+            const std::string pre = std::string ("bfx.") + bfxId (e) + ".";
+            F (P::bfx (e, P::BfxProb), pre + "prob", std::string (bfxName (e)) + " probabilidad", 0.0f, 1.0f, 0.0f, false, pct, true);
+            C (P::bfx (e, P::BfxTarget), pre + "target", std::string (bfxName (e)) + " destino", bfxTargetNames(), 0, 16);
+        }
+
         // Pistas
         for (int t = 0; t < kTracks; ++t)
         {
@@ -270,7 +338,11 @@ inline const std::vector<ParamDef>& paramDefs()
             auto& rng = F (P::track (t, P::Ring), pre + "ring", tn + " Ring mod", 0.0f, 1.0f, 0.0f, false, pct, true);
             auto& mut = B (P::track (t, P::Mute), pre + "mute", tn + " Mute", false);
             auto& sol = B (P::track (t, P::Solo), pre + "solo", tn + " Solo", false);
-            for (auto* p : { &lvl, &pan, &dly, &rev, &pmp, &rng, &mut, &sol }) p->track = t;
+            // Swing propio de la pista (si no, usa el global)
+            auto& swo = B (P::track (t, P::SwingOwn), pre + "swingown", tn + " Swing propio", false);
+            auto& swa = F (P::track (t, P::SwingAmt), pre + "swing", tn + " Swing", 0.5f, 0.75f, 0.54f, false,
+                           [] (float x) { return fmt ("%.0f %%", x * 100.0); });
+            for (auto* p : { &lvl, &pan, &dly, &rev, &pmp, &rng, &mut, &sol, &swo, &swa }) p->track = t;
             // Envolvente con sustain (bajo y acordes). Con SUSTAIN en 0 suena como en la 1.0.
             if (t == Bass || t == Chord)
             {

@@ -1,5 +1,5 @@
 // Abre el editor de OGRO 2 fuera de un host y guarda una captura PNG
-// Uso: snapshot salida.png [escala] [pista] [panel] [preset]
+// Uso: snapshot salida.png [escala] [pista] [panel] [preset] [modo del secuenciador]
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 
@@ -14,6 +14,7 @@ int main (int argc, char** argv)
     if (argc > 3) proc.selectedTrack = std::atoi (argv[3]);
     std::unique_ptr<Ogro2Editor> ed (dynamic_cast<Ogro2Editor*> (proc.createEditor()));
     if (argc > 4) ed->getContent().setPage (std::atoi (argv[4]));
+    if (argc > 6) ed->getContent().setSeqMode (std::atoi (argv[6]));
     ed->getContent().refreshNow();
     const auto img = ed->createComponentSnapshot (ed->getLocalBounds(), true, scale);
     out.deleteFile();

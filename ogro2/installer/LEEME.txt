@@ -17,31 +17,35 @@ INSTALAR
 Si macOS dice que está dañado, en Terminal:
   xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/VST3/"OGRO 2.vst3" ~/Library/Audio/Plug-Ins/Components/"OGRO 2.component"
 
-ESTADO: VERSIÓN EN DESARROLLO (fase 1 de 7)
-- Desde esta versión los IDs de los parámetros son definitivos: lo que guardes con
-  OGRO 2 sigue abriendo en las próximas versiones.
+ESTADO: VERSIÓN EN DESARROLLO (fase 2 de 7)
+- Los IDs de los parámetros son definitivos: lo que guardes con OGRO 2 sigue abriendo en
+  las próximas versiones.
 - En el logo vas a ver un "2": así sabés cuál es cuál.
 
-QUÉ PROBAR EN ESTA VERSIÓN
-1. Cargá un preset y tocá Cmd+Z en Ableton: tiene que deshacer lo último que hiciste,
-   no los cientos de valores del preset. Con Automation Arm encendido, cargar un preset
-   no tiene que escribir curvas.
-2. Menú ≡ > "Importar preset de OGRO 1.0...": elegí un .ogro tuyo de la 1.0. Tiene que
-   sonar igual que en la 1.0 (queda en azar VIVO y macros x1).
-3. Poné un loop de 1 compás en Ableton con un preset de polirritmos (Medianoche Mínima,
-   Hipnosis): cada vuelta tiene que sonar igual, sin perder el primer golpe.
-4. GROOVE > AZAR en FIJO: exportá dos veces el mismo tramo; los dos audios tienen que
-   salir iguales. Clic en la semilla (#4721) = otra variante.
-5. BAJO y ACORDES: subí SUSTAIN en la tarjeta ENVOLVENTE; la nota dura lo que el paso
-   (o lo que dure la nota en tu clip MIDI) y después suelta en RELEASE.
-6. Macros: ahora mueven el doble (botón x2 / x1 arriba a la derecha de MACROS).
-7. Guardá una sesión con OGRO 2, cerrala y abrila: todo tiene que volver igual
-   (sonidos, patrones, MOD y MOTION).
+QUÉ PROBAR EN ESTA VERSIÓN (fase 2)
+1. ARREGLO > FX de fin de compás: FX CADA "Cada 4 compases", subí la probabilidad de
+   Stutter y Barrido de filtro. En el último paso de cada 4 compases tiene que pasar.
+   Probá también TIRAR FX con Ableton en play.
+2. Secuenciador > COND: clic en un paso del hat abierto y elegí 1:2. Suena una vuelta sí y
+   otra no. Con ARREGLO > FILL "Cada 4 compases", un paso con FILL suena solo en el 4to.
+3. P-LOCK: elegí CORTE en el bajo y dibujá valores distintos en algunos pasos. Cada nota
+   abre el filtro distinto; clic derecho borra el lock.
+4. GROOVE > PLANTILLA "Suelto (Villalobos)" con CANTIDAD al 100 % y HUMANIZAR 4 ms.
+   Probá SWING PROPIO solo en el hat cerrado.
+5. ARREGLO > CADENA: tocá + varias veces (A, A, B...), encendé CADENA y dale play desde
+   distintos compases: siempre suena el patrón que corresponde a esa parte del tema.
+6. INVENTAR ▾ > elegí un género e "Inventar todas las pistas". MUTAR cambia un poco la
+   pista elegida. Si algo no te gusta: flecha de deshacer (arriba a la derecha de la
+   SECUENCIA).
+7. LARGO 32 en una pista: aparecen los pasos 17-32. EUCLID arma ritmos parejos (3 en 8,
+   5 en 16...).
+8. MOTION ahora está en el secuenciador (botón MOTION): M1-M4, destino, compases y
+   dibujo.
 
 USO RÁPIDO
 - PRESET / MOOD: 12 presets (Amanecer, Medianoche Mínima, Sudor, Terciopelo,
   Hipnosis, Nostalgia 92, Lluvia, Oscuro, Euforia, Sol de Verano, Underground...).
-- PATRÓN A-H: cambia al empezar el próximo compás.
+- PATRÓN A-H: entra al próximo compás (o al final del patrón, o ya: ARREGLO > CAMBIO).
 - SECUENCIADOR: clic en las teclas para prender pasos, clic derecho = acento.
 - MENÚ ≡: guardar y abrir presets propios (.ogro2, en Música > OGRO 2 Presets, aparte de
   los de OGRO 1.0) e importar presets .ogro de la 1.0.
