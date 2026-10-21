@@ -144,7 +144,16 @@ int main()
         juce::MemoryBlock mb2;
         juce::AudioProcessor::copyXmlToBinary (*xml, mb2);
         c.setStateInformation (mb2.getData(), (int) mb2.getSize());
-        all &= report ("migracion", c.value (P::Tonal) == 1.0f && c.value (P::ChordMode) == 0.0f, "estado v2: valores por defecto de OGRO 2");
+        all &= report ("migracion", c.value (P::Tonal) == 1.0f && c.value (P::ChordMode) == 0.0f && c.value (P::FillStyle) == 1.0f,
+                       "estado actual: valores por defecto de OGRO 2 (fill ROLL)");
+        // Una sesión de la 2.0.8 (estado v2) con fills: sigue con el fill de antes (CUSTOM) y el sample de acordes entero
+        Ogro2Processor d;
+        xml->setAttribute ("stateVersion", 2);
+        juce::MemoryBlock mb3;
+        juce::AudioProcessor::copyXmlToBinary (*xml, mb3);
+        d.setStateInformation (mb3.getData(), (int) mb3.getSize());
+        all &= report ("migracion", d.value (P::FillStyle) == 0.0f && d.value (P::ChordStart) == 0.0f && d.value (P::ChordLength) == 1.0f,
+                       "estado v2 (2.0.8): fill CUSTOM como antes, sample de acordes entero");
     }
 
     // ---- Fase 5: escenas A/B, candados y dado de sonido ----

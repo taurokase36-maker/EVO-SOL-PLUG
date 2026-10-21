@@ -133,6 +133,7 @@ struct EngineMeters
     std::atomic<double> bpm { 120.0 };
     std::atomic<uint32_t> barFx { 0u };   // efectos de fin de compás sonando (un bit por efecto)
     std::atomic<bool> fill { false };
+    std::atomic<int> bar { 0 };             // compás que suena (para el contador de fills)
 };
 
 // Registro de disparos con la muestra exacta (para tests y para la interfaz).
@@ -373,7 +374,7 @@ private:
         {
             static const int fillBars[] = { 0, 2, 4, 8, 16 };
             static const int fxBars[] = { 0, 1, 2, 4, 8 };
-            clock.setFill (fillBars[clampv ((int) base[P::Fill], 0, 4)], (int) base[P::FillPat]);
+            clock.setFill (fillBars[clampv ((int) base[P::Fill], 0, 4)], (int) base[P::FillPat], (int) base[P::FillStyle]);
             clock.setBarFx (fxBars[clampv ((int) base[P::BfxEvery], 0, 4)], (int) std::lround (base[P::BfxLen]));
         }
         clock.requestPattern ((int) base[P::Pattern]);
@@ -467,6 +468,7 @@ private:
         meters.playing.store (playing, std::memory_order_relaxed);
         meters.barFx.store (barFx.activeBits(), std::memory_order_relaxed);
         meters.fill.store (clock.fillActive() && playing, std::memory_order_relaxed);
+        meters.bar.store ((int) clock.currentBar(), std::memory_order_relaxed);
         meters.bpm.store (curBpm, std::memory_order_relaxed);
         float pl = 0, pr = 0;
         for (int i = 0; i < n; ++i) { pl = std::max (pl, std::fabs (outL[i])); pr = std::max (pr, std::fabs (outR[i])); }
@@ -591,13 +593,20 @@ private:
                 {
                     SampleParams sp;
                     sp.semis = se->tonal ? (float) fold12 ((int) std::lround (base) - se->rootMidi) : 0.0f;
+                    sp.start = eff[P::ChordStart];
+                    sp.length = std::max (0.01f, eff[P::ChordLength]);
+                    sp.drive = eff[P::ChordDrive];
+                    sp.reverse = eff[P::ChordReverse] > 0.5f;
                     sp.cutoffHz = maps::chordCut (eff[(size_t) P::sound (Chord, 2)]);
                     sp.reso = eff[(size_t) P::sound (Chord, 3)] * 0.8f;
                     sp.envOct = maps::chordEnvOct (eff[(size_t) P::sound (Chord, 4)]) * 0.6f;
                     sp.attackMs = maps::attackMs (eff[(size_t) P::sound (Chord, 7)]);
                     const float sus = eff[(size_t) P::track (Chord, P::EnvS)];
                     sp.sustain = sus;
-                    sp.releaseMs = sus > 0.0f ? eff[(size_t) P::track (Chord, P::EnvR)] : maps::synthDecay (eff[(size_t) P::sound (Chord, 1)]);
+                    const float decay = maps::synthDecay (eff[(size_t) P::sound (Chord, 1)]);
+                    sp.releaseMs = sus > 0.0f ? eff[(size_t) P::track (Chord, P::EnvR)] : decay;
+                    sp.decayMs = decay;
+                    sp.filterEnvMs = clampv (decay * 0.5f, 40.0f, 1500.0f);
                     sp.gain = eff[P::ChordSampleLevel] * 1.4f;
                     chordSampler.trigger (se, sp, e.hit);
                 }

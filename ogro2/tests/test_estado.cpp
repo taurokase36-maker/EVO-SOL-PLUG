@@ -131,15 +131,23 @@ int main()
 
     // ---- 6) Importador: cada destino de modulación de la 1.0 va al mismo parámetro ----
     {
+        // El parámetro al que va el destino i tiene que ser el mismo al que el importador
+        // lleva el ID de la 1.0 (cambiando solo ese ID en un preset vacío)
         const auto& d1 = ogro::modDests();
+        const auto base = v1::convert ({});
         bool ok = true;
         for (int i = 1; i < (int) d1.size(); ++i)
         {
             const int p1 = d1[(size_t) i].param;
             const int p2 = v1::destParam (i);
-            ok &= p2 >= 0 && ogro::paramDefs()[(size_t) p1].name == paramDefs()[(size_t) p2].name;
+            const auto one = v1::convert ({ { ogro::paramDefs()[(size_t) p1].id, 0.613f } });
+            int changed = -1;
+            for (size_t k = 0; k < one.values.size(); ++k)
+                if (one.values[k] != base.values[k]) changed = (int) k;
+            ok &= p2 >= 0 && changed == p2;
+            if (changed != p2) std::printf ("   destino %d (%s): importador %d, destino %d\n", i, ogro::paramDefs()[(size_t) p1].id.c_str(), changed, p2);
         }
-        all &= report ("destinos 1.0", ok, std::to_string (d1.size() - 1) + " destinos de la 1.0 traducidos por nombre");
+        all &= report ("destinos 1.0", ok, std::to_string (d1.size() - 1) + " destinos de la 1.0 van al mismo parametro que el importador");
     }
 
     // ---- 7) Importador: tipo de acorde, ring, macros, compases de MOTION y azar VIVO ----

@@ -220,7 +220,7 @@ public:
             // Destinos agrupados por pista en submenús
             const auto& dests = modDests();
             auto* root = box.getRootMenu();
-            root->addItem (1, "Nada");
+            root->addItem (1, "None");
             for (int t = -1; t < kTracks; ++t)
             {
                 juce::PopupMenu sub;
@@ -371,7 +371,7 @@ private:
 // Tonalidad: tónica + escala + MODO TONAL en un solo display (clic = menú)
 inline juce::String scaleShortName (int s)
 {
-    static const char* n[] = { "menor", "dórica", "frigia", "m. armónica", "mayor", "mixolidia", "penta m" };
+    static const char* n[] = { "minor", "dorian", "phrygian", "harm. minor", "major", "mixolydian", "penta m" };
     return T (n[juce::jlimit (0, 6, s)]);
 }
 class KeyDisplay : public juce::Component, public juce::SettableTooltipClient
@@ -387,7 +387,7 @@ public:
         auto r = getLocalBounds().toFloat();
         auto top = r.removeFromTop (16.0f);
         g.setColour (col::label);
-        drawSpaced (g, "TONALIDAD", top, labelFont (12.0f), 0.08f, juce::Justification::centredLeft);
+        drawSpaced (g, "KEY", top, labelFont (12.0f), 0.08f, juce::Justification::centredLeft);
         const bool tonal = proc.value (P::Tonal) > 0.5f;
         paint::led (g, { top.getRight() - 12.0f, top.getCentreY() - 3.5f, 12.0f, 7.0f }, col::ledGreen, tonal);
         g.setColour (tonal ? col::ink : col::dim);
@@ -454,7 +454,7 @@ public:
             builtSize = pool.size();
             box.clear (juce::dontSendNotification);
             auto* root = box.getRootMenu();
-            root->addItem (1, "Ninguno");
+            root->addItem (1, "None");
             const auto folder = pool.currentFolder();
             for (int c = 0; c < CatCount; ++c)
             {
@@ -500,6 +500,147 @@ private:
     juce::String title;
     bool chdOnly;
     int builtSize = -1;
+};
+
+// ---------------------------------------------------------------------------
+// Sonido de los acordes: ◀ ▶ recorre la lista (el sinte de OGRO y los acordes CHD de
+// Orbhitz), RANDOM tira uno y un clic en la pantalla abre la lista entera
+// ---------------------------------------------------------------------------
+class SoundBrowser : public juce::Component, public juce::SettableTooltipClient
+{
+public:
+    explicit SoundBrowser (Ogro2Processor& p) : proc (p)
+    {
+        prev.setButtonText (juce::String::fromUTF8 ("\u25c0"));
+        next.setButtonText (juce::String::fromUTF8 ("\u25b6"));
+        rnd.setButtonText ("RANDOM");
+        styleKey (prev, col::keyCream); styleKey (next, col::keyCream); styleKey (rnd, col::orange);
+        prev.onClick = [this] { step (-1); };
+        next.onClick = [this] { step (1); };
+        rnd.onClick = [this] {
+            const auto l = list();
+            if (l.empty()) return;
+            const int cur = current (l);
+            int k = 1 + juce::Random::getSystemRandom().nextInt ((int) l.size());
+            if (k == cur && l.size() > 1) k = 1 + (k % (int) l.size());
+            select (l, k);
+        };
+        prev.setTooltip (T ("Sonido anterior"));
+        next.setTooltip (T ("Sonido siguiente"));
+        rnd.setTooltip (T ("Un acorde de Orbhitz al azar"));
+        setTooltip (T ("Clic: lista de sonidos. OGRO SYNTH = el sinte de siempre; el resto son acordes de Orbhitz llevados a la nota de cada paso."));
+        for (auto* b : { &prev, &next, &rnd }) addAndMakeVisible (b);
+    }
+    // Índices del pool de los acordes CHD de la carpeta elegida, en orden alfabético
+    std::vector<int> list() const
+    {
+        auto& pool = SamplePool::get();
+        const auto folder = pool.currentFolder();
+        std::vector<int> l;
+        for (int i = 0; i < pool.size(); ++i)
+            if (const auto* e = pool.entry (i))
+                if (e->category == CatChd && e->path.rfind (folder, 0) == 0) l.push_back (i);
+        std::sort (l.begin(), l.end(), [&pool] (int a, int b) { return pool.entry (a)->name < pool.entry (b)->name; });
+        return l;
+    }
+    // 0 = sinte, k = el k-ésimo de la lista
+    int current (const std::vector<int>& l) const
+    {
+        if (proc.value (P::ChordSource) < 0.5f) return 0;
+        const auto name = proc.getSampleName (1).toStdString();
+        for (size_t k = 0; k < l.size(); ++k)
+            if (SamplePool::get().entry (l[k])->name == name) return (int) k + 1;
+        return 0;
+    }
+    void select (const std::vector<int>& l, int k)
+    {
+        if (k <= 0 || k > (int) l.size()) { proc.setValue (P::ChordSource, 0.0f); refresh(); return; }
+        proc.setSampleName (1, juce::String::fromUTF8 (SamplePool::get().entry (l[(size_t) k - 1])->name.c_str()));
+        if (proc.value (P::ChordSource) < 0.5f) proc.setValue (P::ChordSource, 1.0f);
+        refresh();
+    }
+    void step (int d)
+    {
+        const auto l = list();
+        const int n = (int) l.size() + 1;
+        select (l, ((current (l) + d) % n + n) % n);
+    }
+    void refresh()
+    {
+        const auto l = list();
+        const int k = current (l);
+        juce::String big, small;
+        if (k == 0 && proc.value (P::ChordSource) > 0.5f && proc.getSampleName (1).isNotEmpty())
+        {
+            big = proc.getSampleName (1);
+            small = T ("sample · no está en la carpeta");
+        }
+        else if (k == 0)
+        {
+            big = "OGRO SYNTH";
+            small = l.empty() ? T ("sinte · sin acordes de Orbhitz cargados") : T ("sinte · ") + juce::String ((int) l.size()) + T (" acordes más con ▶");
+        }
+        else
+        {
+            big = prettyName (proc.getSampleName (1));
+            small = T ("sample · ") + juce::String (k) + " / " + juce::String ((int) l.size());
+        }
+        if (big != bigText || small != smallText) { bigText = big; smallText = small; repaint(); }
+    }
+    static juce::String prettyName (juce::String n)
+    {
+        // "CHD-BrazDisk.mse" -> "BRAZ DISK"
+        if (n.endsWithIgnoreCase (".mse") || n.endsWithIgnoreCase (".wav")) n = n.dropLastCharacters (4);
+        if (n.startsWithIgnoreCase ("CHD")) n = n.substring (3).trimCharactersAtStart (" -_");
+        // "BrazDisk" -> "BRAZ DISK"
+        juce::String o;
+        for (int i = 0; i < n.length(); ++i)
+        {
+            const auto c = n[i];
+            if (i > 0 && juce::CharacterFunctions::isUpperCase (c) && (juce::CharacterFunctions::isLowerCase (n[i - 1]) || juce::CharacterFunctions::isDigit (n[i - 1])))
+                o << ' ';
+            o << juce::String::charToString (c == '_' ? ' ' : c);
+        }
+        return o.toUpperCase();
+    }
+    void paint (juce::Graphics& g) override
+    {
+        auto r = screen.toFloat();
+        paint::lcd (g, r);
+        auto in = r.reduced (12.0f, 3.0f);
+        paint::glowText (g, bigText, in.removeFromTop (in.getHeight() * 0.6f), lcdFont (27.0f), juce::Justification::bottomLeft);
+        g.setColour (col::phosphorDim);
+        g.setFont (lcdFont (16.0f));
+        g.drawText (smallText, in, juce::Justification::topLeft, true);
+    }
+    void resized() override
+    {
+        auto r = getLocalBounds();
+        rnd.setBounds (r.removeFromRight (78));
+        r.removeFromRight (6);
+        prev.setBounds (r.removeFromLeft (38));
+        next.setBounds (r.removeFromRight (38));
+        screen = r.reduced (4, 0);
+    }
+    void mouseUp (const juce::MouseEvent& e) override
+    {
+        if (! e.mouseWasClicked() || ! screen.contains (e.getPosition())) return;
+        const auto l = list();
+        const int cur = current (l);
+        juce::PopupMenu m;
+        m.addItem (1, "OGRO SYNTH", true, cur == 0);
+        for (size_t k = 0; k < l.size(); ++k)
+            m.addItem ((int) k + 2, prettyName (juce::String::fromUTF8 (SamplePool::get().entry (l[k])->name.c_str())), true, cur == (int) k + 1);
+        juce::Component::SafePointer<SoundBrowser> safe (this);
+        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMaximumNumColumns (3),
+                         [safe, l] (int id) { if (safe != nullptr && id > 0) safe->select (l, id - 1); });
+    }
+
+private:
+    Ogro2Processor& proc;
+    juce::TextButton prev, next, rnd;
+    juce::Rectangle<int> screen;
+    juce::String bigText, smallText;
 };
 
 // Arrastrar el patrón a Ableton como clip MIDI (Alt: solo la pista elegida)
@@ -748,7 +889,7 @@ public:
         g.setColour (col::track (track));
         g.fillRoundedRectangle (r.getX() + 25.0f, r.getCentreY() - 8.0f, 4.0f, 16.0f, 2.0f);
         g.setColour (selected ? col::violetText : col::ink);
-        drawSpaced (g, T (track == Melody ? "MELODÍA" : trackName (track)), { r.getX() + 36.0f, r.getY(), 96.0f, r.getHeight() },
+        drawSpaced (g, juce::String (trackName (track)), { r.getX() + 36.0f, r.getY(), 96.0f, r.getHeight() },
                     labelFont (14.0f), 0.04f, juce::Justification::centredLeft);
     }
     void resized() override
@@ -899,7 +1040,7 @@ public:
                          { c.x - R, c.y - 14.0f, R * 2, 30.0f }, lcdFont (30.0f), juce::Justification::centred);
         g.setColour (juce::Colour (0xff9c8cc8));
         g.setFont (textFont (12.0f));
-        g.drawText (T ("LIMITADOR ") + juce::String (lim, 1) + " dB", juce::Rectangle<float> (c.x - R, c.y + R * 0.22f, R * 2, 16.0f),
+        g.drawText (T ("LIMITER ") + juce::String (lim, 1) + " dB", juce::Rectangle<float> (c.x - R, c.y + R * 0.22f, R * 2, 16.0f),
                     juce::Justification::centred);
     }
 
@@ -922,6 +1063,36 @@ struct SeqContext
     PatternBank& bank() const { return proc.engine.bank; }
     void edit() const { proc.pushUndo(); }   // antes de cada edición (para deshacer)
 };
+
+// AUTO FILL: con PREVIEW o mientras suena el fill, las teclas y la pantalla muestran el paso
+// como va a sonar en el compás de fill (en naranja lo que pone el fill)
+const juce::Colour kFillColour { 0xffff9a3c };
+inline bool fillShown (Ogro2Processor& proc)
+{
+    return (int) proc.value (P::Fill) > 0 && (proc.fillPreview.load() || proc.engine.meters.fill.load());
+}
+inline Step viewStep (const SeqContext& ctx, int p, int t, int s, bool& fillHit)
+{
+    const Step st = ctx.bank().get (p, t, s);
+    fillHit = false;
+    if (! fillShown (ctx.proc)) return st;
+    const int style = (int) ctx.proc.value (P::FillStyle);
+    Step f = st;
+    if (style == FillPatternStyle)
+    {
+        const int fp = (int) ctx.proc.value (P::FillPat);
+        if (fp > 0) f = ctx.bank().get (fp - 1, t, s);
+        if (f.cond == CondNotFill) f.on = false;
+        fillHit = f.on && (fp > 0 || f.cond == CondFill);
+        return f;
+    }
+    static const int every[] = { 1, 2, 4, 8, 16 };
+    const int e = every[juce::jlimit (0, 4, (int) ctx.proc.value (P::Fill))];
+    const int bar = ctx.proc.engine.meters.bar.load();
+    f = fillStep (style, t, s % 16, st, (uint32_t) ctx.proc.value (P::Seed), (bar / e) * e + e - 1);
+    fillHit = f.on && (! st.on || f.ratchet != st.ratchet || f.vel != st.vel);
+    return f;
+}
 
 // Qué perilla se dibuja en el modo P-LOCK: un campo de la pista (sigue a la pista elegida)
 // o un parámetro global
@@ -980,13 +1151,15 @@ public:
         for (int i = 0; i < kViewSteps; ++i)
         {
             const int s = off + i;
-            const Step st = ctx.bank().get (p, t, s);
+            bool fillHit = false;
+            const Step st = viewStep (ctx, p, t, s, fillHit);
             const bool active = st.on && s < len;
             const bool here = playing && s == cur;
             auto cell = juce::Rectangle<float> ((float) i * w, 0.0f, w, (float) getHeight()).reduced (3.5f, 0.0f);
-            paint::led (g, { cell.getCentreX() - 6.0f, 1.0f, 12.0f, 7.0f }, here ? col::led : col::ledGreen, here || active);
+            paint::led (g, { cell.getCentreX() - 6.0f, 1.0f, 12.0f, 7.0f }, here ? col::led : (fillHit ? kFillColour : col::ledGreen), here || active);
             auto key = cell.withTrimmedTop (14.0f).withTrimmedBottom (18.0f);
             juce::Colour kc = st.vel >= 118 && active ? col::orange : col::stepKey (i);
+            if (fillHit && s < len) kc = kFillColour;
             if (s >= len) kc = kc.withMultipliedSaturation (0.2f).darker (0.25f).withAlpha (0.6f);
             paint::key (g, key, kc, active, false);
             auto face = active ? key.translated (0, 1.5f) : key;
@@ -1006,7 +1179,6 @@ public:
                 g.setFont (labelFont (12.0f));
                 juce::String txt;
                 if (t >= Bass && t != Texture) txt = stepNoteText (ctx.proc, t, st);
-                if (t == Chord && st.chordType > 0) txt += " " + juce::String (chordTypeName (st.chordType - 1));
                 if (st.ratchet > 1) txt = txt.isEmpty() ? "x" + juce::String (st.ratchet) : txt + " x" + juce::String (st.ratchet);
                 if (txt.isEmpty() && st.prob < 100) txt = juce::String (st.prob) + "%";
                 g.drawText (txt, face.reduced (2.0f, 0.0f).withTrimmedBottom (6.0f), juce::Justification::centred, false);
@@ -1033,15 +1205,14 @@ public:
     {
         const int s = stepAt (e.x);
         if (s < 0) return;
-        ctx.edit();
+        if (! e.mods.isPopupMenu()) ctx.edit();
         const int t = ctx.track(), p = ctx.pattern();
         Step st = ctx.bank().get (p, t, s);
         if (e.mods.isPopupMenu())
         {
-            if (! st.on) st.on = true;
-            st.vel = st.vel >= 118 ? 100 : 127;
-            ctx.bank().set (p, t, s, st);
             dragMode = -1;
+            stepMenu (s);
+            return;
         }
         else
         {
@@ -1065,6 +1236,63 @@ public:
         ctx.bank().set (p, t, s, st);
         repaint();
     }
+
+    std::function<void()> onEuclid;
+
+    // Clic derecho en un paso: lo que antes eran modos del secuenciador, en palabras simples
+    void stepMenu (int s)
+    {
+        const int t = ctx.track(), p = ctx.pattern();
+        const Step st = ctx.bank().get (p, t, s);
+        const bool pitched = t >= Bass;
+        juce::PopupMenu m, rep, len;
+        m.addSectionHeader ("STEP " + juce::String (s + 1));
+        m.addItem (1, "Accent", true, st.on && st.vel >= 118);
+        for (int r = 1; r <= 4; ++r) rep.addItem (10 + r, r == 1 ? juce::String ("Off") : "x" + juce::String (r), true, st.ratchet == r);
+        m.addSubMenu ("Repeat", rep);
+        if (pitched)
+        {
+            m.addItem (2, "Glide into next note", true, st.slide);
+            static const int gates[] = { 0, 16, 32, 63 };
+            static const char* names[] = { "Auto", "2 steps", "4 steps", "8 steps" };
+            for (int k = 0; k < 4; ++k) len.addItem (20 + k, names[k], true, st.gate == gates[k]);
+            m.addSubMenu ("Note length", len);
+            m.addItem (3, "Octave up" + (st.octave > 0 ? juce::String (" (now +") + juce::String (st.octave) + ")" : juce::String()), st.octave < 3);
+            m.addItem (4, "Octave down" + (st.octave < 0 ? juce::String (" (now ") + juce::String (st.octave) + ")" : juce::String()), st.octave > -3);
+        }
+        m.addSeparator();
+        m.addItem (30, "Always", true, st.cond == CondAlways);
+        m.addItem (31, "Only in fills", true, st.cond == CondFill);
+        m.addItem (32, "Never in fills", true, st.cond == CondNotFill);
+        m.addItem (33, "Every 2nd time", true, st.cond == CondRatioBase + 1);
+        m.addSeparator();
+        m.addItem (40, "Clear step");
+        if (onEuclid) m.addItem (41, "Euclid rhythm...");
+        juce::Component::SafePointer<StepKeys> safe (this);
+        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this), [safe, s, p, t] (int r) {
+            if (safe == nullptr || r <= 0) return;
+            if (r == 41) { if (safe->onEuclid) safe->onEuclid(); return; }
+            auto& c = safe->ctx;
+            c.edit();
+            Step x = c.bank().get (p, t, s);
+            static const int gates[] = { 0, 16, 32, 63 };
+            if (r == 1) { const bool acc = x.on && x.vel >= 118; x.on = true; x.vel = acc ? 100 : 127; }
+            else if (r > 10 && r <= 14) { x.ratchet = r - 10; x.on = true; }
+            else if (r == 2) x.slide = ! x.slide;
+            else if (r >= 20 && r < 24) x.gate = gates[r - 20];
+            else if (r == 3) x.octave = std::min (3, x.octave + 1);
+            else if (r == 4) x.octave = std::max (-3, x.octave - 1);
+            else if (r == 30) x.cond = CondAlways;
+            else if (r == 31) { x.cond = CondFill; x.on = true; }
+            else if (r == 32) { x.cond = CondNotFill; x.on = true; }
+            else if (r == 33) { x.cond = CondRatioBase + 1; x.on = true; }
+            else if (r == 40) { x = Step(); c.bank().clearLocks (p, t, s); }
+            c.bank().set (p, t, s, x);
+            safe->repaint();
+            if (safe->onEdited) safe->onEdited();
+        });
+    }
+    std::function<void()> onEdited;
 
 private:
     int stepAt (int x) const { return ctx.offset() + juce::jlimit (0, kViewSteps - 1, (int) ((float) x / ((float) getWidth() / kViewSteps))); }
@@ -1110,7 +1338,8 @@ public:
         for (int i = 0; i < kViewSteps; ++i)
         {
             const int s = off + i;
-            const Step st = ctx.bank().get (p, t, s);
+            bool fillHit = false;
+            const Step st = viewStep (ctx, p, t, s, fillHit);
             bool active = st.on && s < len;
             auto cr = juce::Rectangle<float> (in.getX() + w * (float) i, in.getY() + 14.0f, w, in.getHeight() - 14.0f).reduced (4.0f, 0.0f);
             juce::String label;
@@ -1174,12 +1403,13 @@ public:
             }
             if (! bar.isEmpty())
             {
+                const auto on = fillHit ? kFillColour : (mode == LaneMode::Lock ? juce::Colour (0xffb48cff) : col::phosphor);
                 if (active)
                 {
-                    g.setColour ((mode == LaneMode::Lock ? juce::Colour (0xffb48cff) : col::phosphor).withAlpha (0.25f));
+                    g.setColour (on.withAlpha (0.25f));
                     g.fillRoundedRectangle (bar.expanded (2.0f), 3.0f);
                 }
-                g.setColour (active ? (mode == LaneMode::Lock ? juce::Colour (0xffb48cff) : col::phosphor) : col::phosphorOff);
+                g.setColour (active ? on : col::phosphorOff);
                 g.fillRoundedRectangle (bar, 2.0f);
             }
             g.setColour (active ? col::phosphor : col::phosphorDim.withAlpha (0.55f));

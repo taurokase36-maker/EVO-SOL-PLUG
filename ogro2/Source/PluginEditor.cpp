@@ -15,7 +15,7 @@ const char* trackDescription (int t)
         "Hat abierto: lo corta el hat cerrado, como en las máquinas clásicas",
         "FM de 2 operadores con pitch: congas, toms, bleeps y campanas",
         "Filtro escalera de 4 polos · 5 formas, sub, acento y slide 303, legato",
-        "Polifónico: 2 sierras por nota, filtro con envolvente y chorus · en tono",
+        "Elegí un sonido y dale forma. Las notas quedan siempre en la escala.",
         "Pluck, lead, campana u órgano · poly o mono · síntesis limpia",
         "Samples de Orbhitz (HIT, PAD, SFX, CHD) · editables y en tono",
     };
@@ -23,7 +23,7 @@ const char* trackDescription (int t)
 }
 
 juce::String upperName (int t, int p) { return juce::String::fromUTF8 (soundParamInfo (t, p).name); }
-juce::String trackLabel (int t) { return t == Melody ? T ("MELODÍA") : juce::String (trackName (t)); }
+juce::String trackLabel (int t) { return juce::String (trackName (t)); }
 
 // Rótulo de tarjeta violeta en coordenadas locales
 void cardTitle (juce::Graphics& g, juce::Rectangle<int> r, const juce::String& s)
@@ -41,47 +41,40 @@ class TrackPage : public Page
 public:
     explicit TrackPage (Ogro2Processor& p)
         : proc (p),
-          level (p, P::track (0, P::Level), "NIVEL"),
-          pan (p, P::track (0, P::Pan), "PANEO", Theme::Violet, true),
+          level (p, P::track (0, P::Level), "LEVEL"),
+          pan (p, P::track (0, P::Pan), "PAN", Theme::Violet, true),
           dly (p, P::track (0, P::Delay), "DELAY"),
           rev (p, P::track (0, P::Reverb), "REVERB"),
           pump (p, P::track (0, P::Pump), "PUMP"),
-          ring (p, P::track (0, P::Ring), "RING"),
-          envA (p, P::track (Bass, P::EnvA), "ATAQUE"),
+          envA (p, P::track (Bass, P::EnvA), "ATTACK"),
           envS (p, P::track (Bass, P::EnvS), "SUSTAIN"),
           envR (p, P::track (Bass, P::EnvR), "RELEASE"),
-          chordType (p, P::sound (Chord, 0), "TIPO"),
-          melModel (p, P::sound (Melody, 0), "MODELO"),
-          bassOsc (p, P::BassOsc, "FORMA"),
+          chStart (p, P::ChordStart, "START"),
+          chLength (p, P::ChordLength, "LENGTH"),
+          chDrive (p, P::ChordDrive, "DRIVE"),
+          chSampleLevel (p, P::ChordSampleLevel, "SAMPLE"),
+          chReverse (p, P::ChordReverse, "REVERSE", col::orange),
+          chShuffle (p, P::ChordRandStep, "SHUFFLE", col::ledGreen),
+          browser (p),
+          melModel (p, P::sound (Melody, 0), "MODEL"),
+          bassOsc (p, P::BassOsc, "SHAPE"),
           bassSub (p, P::BassSub, "SUB"),
-          bassAccent (p, P::BassAccent, "ACENTO"),
+          bassAccent (p, P::BassAccent, "ACCENT"),
           bassLegato (p, P::BassLegato, "LEGATO", col::ledGreen),
-          chordMode (p, P::ChordMode, "MODO"),
-          chordInv (p, P::ChordInv, T ("INVERSIÓN")),
-          chordSpread (p, P::ChordSpread, "APERTURA"),
-          chordStrum (p, P::ChordStrum, "STRUM"),
-          chordLead (p, P::ChordLead, "VOICE LEAD.", col::ledGreen),
-          melVoices (p, P::MelVoices, "VOCES"),
-          melOctave (p, P::MelOctave, "OCTAVA"),
+          melVoices (p, P::MelVoices, "VOICES"),
+          melOctave (p, P::MelOctave, "OCTAVE"),
           texSample (p, 0, "SAMPLE", false),
-          texCat (p, P::TexCat, T ("CATEGORÍA")),
-          texRand (p, P::TexRandStep, "POR PASO", col::ledGreen),
-          texFollow (p, P::TexFollow, "EN TONO", col::ledGreen),
-          texRev (p, P::TexReverse, "REVERSA", col::orange),
-          chordSource (p, P::ChordSource, "FUENTE"),
-          chordSample (p, 1, "SAMPLE CHD", true),
-          chordRand (p, P::ChordRandStep, "POR PASO", col::ledGreen),
-          chordLevel (p, P::ChordSampleLevel, "NIVEL SAMPLE"),
-          stripType (p, P::track (0, P::StripType), "TIPO DE DRIVE"),
+          texCat (p, P::TexCat, "CATEGORY"),
+          texRand (p, P::TexRandStep, "EACH HIT", col::ledGreen),
+          texFollow (p, P::TexFollow, "IN KEY", col::ledGreen),
+          texRev (p, P::TexReverse, "REVERSE", col::orange),
+          stripType (p, P::track (0, P::StripType), "DRIVE TYPE"),
           stripCompType (p, P::track (0, P::StripCompType), "COMP")
     {
-        // Tira analógica (pestaña TIRA)
-        static const std::pair<int, const char*> stripKnobs[] = { { P::StripDrive, "DRIVE" }, { P::StripBody, "CUERPO" }, { P::StripBodyHz, "FREC." },
-                                                                  { P::StripNoise, "RUIDO" }, { P::StripTrans, "TRANSIENTE" }, { P::StripBright, "BRILLO" },
-                                                                  { P::StripComp, "COMP" } };
+        // Tira analógica (pestaña ANALOG)
         for (int k = 0; k < 7; ++k)
         {
-            auto* kn = strip.add (new Knob (p, P::track (0, stripKnobs[k].first), T (stripKnobs[k].second), Theme::Violet, stripKnobs[k].first == P::StripTrans));
+            auto* kn = strip.add (new Knob (p, P::track (0, stripFields()[k].first), stripFields()[k].second, Theme::Violet, stripFields()[k].first == P::StripTrans));
             kn->setRing (juce::Colour (0xfff2a466));
             kn->isLocked = [this, k] { return proc.isLocked (track, kSoundParams + k); };
             kn->onLockToggle = [this, k] { proc.toggleLock (track, kSoundParams + k); };
@@ -96,13 +89,13 @@ public:
             b->setColour (juce::TextButton::textColourOnId, juce::Colours::white);
             addAndMakeVisible (b);
         }
-        tabSound.setButtonText ("SONIDO");
-        tabStrip.setButtonText ("TIRA");
+        tabSound.setButtonText ("SOUND");
+        tabStrip.setButtonText ("ANALOG");
         tabSound.setTooltip (T ("Las perillas de sonido de la pista"));
         tabStrip.setTooltip (T ("Tira analógica de la pista: drive (cinta, válvula, transistor, diodo), cuerpo, ruido, transiente, brillo y compresor"));
         tabSound.onClick = [this] { tab = 0; trackChanged (track); };
         tabStrip.onClick = [this] { tab = 1; trackChanged (track); };
-        diceButton.setButtonText ("VARIAR");
+        diceButton.setButtonText ("VARY");
         styleKey (diceButton, col::keyBlue);
         diceButton.setTooltip (T ("Dado de sonido: mueve al azar las perillas de esta pista que no tienen candado (clic en el candadito de cada perilla). "
                                   "Clic derecho: más fuerte. Se deshace con Cmd+Z de Ableton."));
@@ -110,7 +103,6 @@ public:
             const bool strong = juce::ModifierKeys::currentModifiers.isPopupMenu() || juce::ModifierKeys::currentModifiers.isShiftDown();
             proc.rollSoundDice (track, strong ? 0.6f : 0.25f);
         };
-        diceButton.setTriggeredOnMouseDown (false);
         addAndMakeVisible (diceButton);
         for (int i = 0; i < kSoundParams; ++i)
         {
@@ -119,53 +111,50 @@ public:
             kn->onLockToggle = [this, i] { proc.toggleLock (track, i); };
             addAndMakeVisible (kn);
         }
-        for (auto* c : std::initializer_list<juce::Component*> { &level, &pan, &dly, &rev, &pump, &ring, &audition })
+        for (auto* c : std::initializer_list<juce::Component*> { &level, &pan, &dly, &rev, &pump, &audition })
             addAndMakeVisible (c);
-        for (auto* c : std::initializer_list<juce::Component*> { &envA, &envS, &envR, &chordType, &melModel, &bassOsc, &bassSub, &bassAccent,
-                                                                 &bassLegato, &chordMode, &chordInv, &chordSpread, &chordStrum, &chordLead,
+        for (auto* c : std::initializer_list<juce::Component*> { &envA, &envS, &envR, &melModel, &bassOsc, &bassSub, &bassAccent, &bassLegato,
                                                                  &melVoices, &melOctave, &texSample, &texDice, &texCat, &texRand, &texFollow,
-                                                                 &texRev, &texFilter, &chordSource, &chordSample, &chordDice, &chordRand, &chordLevel,
-                                                                 &tabVoicing, &tabSample })
+                                                                 &texRev, &texFilter, &chStart, &chLength, &chDrive, &chSampleLevel, &chReverse,
+                                                                 &chShuffle, &chLayer, &browser })
             addChildComponent (c);
-        for (auto* b : { &texDice, &chordDice }) { b->setButtonText ("DADO"); styleKey (*b, col::orange); }
+        // Acordes: el sonido sale de la lista; SHUFFLE cambia de acorde de Orbhitz en cada golpe
+        chShuffle.button.setTooltip (T ("Cada golpe toca un acorde de Orbhitz distinto (sale de la semilla: con azar FIJO se repite igual)"));
+        chReverse.button.setTooltip (T ("El sample suena al revés"));
+        chStart.slider.setTooltip (T ("Desde dónde empieza a sonar el sample"));
+        chLength.slider.setTooltip (T ("Cuánto del sample suena (corto = stab)"));
+        chDrive.slider.setTooltip (T ("Saturación del sample"));
+        chSampleLevel.slider.setTooltip (T ("Volumen del sample frente al sinte (con + SYNTH)"));
+        chLayer.setButtonText ("+ SYNTH");
+        chLayer.setClickingTogglesState (false);
+        styleKey (chLayer, col::keyCream);
+        chLayer.setColour (juce::TextButton::buttonOnColourId, col::violet);
+        chLayer.setColour (juce::TextButton::textColourOnId, juce::Colours::white);
+        chLayer.setTooltip (T ("Suma el sinte de OGRO debajo del sample (capas)"));
+        chLayer.onClick = [this] { proc.setValue (P::ChordSource, (int) proc.value (P::ChordSource) == 2 ? 1.0f : 2.0f); };
+        texDice.setButtonText ("RANDOM");
+        styleKey (texDice, col::orange);
         texDice.setTooltip (T ("Un sample al azar de la categoría elegida"));
-        chordDice.setTooltip (T ("Un acorde de Orbhitz (CHD) al azar"));
         texDice.onClick = [this] { proc.rollSampleDice (0); texSample.refresh(); };
-        chordDice.onClick = [this] { proc.rollSampleDice (1); chordSample.refresh(); };
-        texRand.button.setTooltip (T ("Cada golpe elige un sample distinto de la categoría (sale de la semilla: con AZAR FIJO se repite igual)"));
+        texRand.button.setTooltip (T ("Cada golpe elige un sample distinto de la categoría (sale de la semilla: con azar FIJO se repite igual)"));
         texFollow.button.setTooltip (T ("El sample se transpone a la tonalidad y la NOTA de cada paso mueve la altura (los samples sin altura clara no se transponen)"));
-        chordRand.button.setTooltip (T ("Cada acorde elige un sample CHD; en modo diatónico prefiere menores o mayores según el grado"));
-        chordSource.box.setTooltip (T ("Síntesis: las sierras de siempre. Sample: un acorde de Orbhitz llevado a la raíz de cada paso. Capas: los dos juntos."));
         texFilter.setClickingTogglesState (false);
         styleKey (texFilter, col::keyCream);
         texFilter.setTooltip (T ("Tipo de filtro: LADDER (4 polos, con carácter) o SVF (12 dB, limpio)"));
         texFilter.onClick = [this] { proc.setValue (P::TexFilter, proc.value (P::TexFilter) < 0.5f ? 1.0f : 0.0f); };
-        for (auto* b : { &tabVoicing, &tabSample })
-        {
-            styleKey (*b, col::keyCream);
-            b->setColour (juce::TextButton::buttonOnColourId, col::violet);
-            b->setColour (juce::TextButton::textColourOnId, juce::Colours::white);
-        }
-        tabVoicing.setButtonText ("VOICING");
-        tabSample.setButtonText ("SAMPLE");
-        tabVoicing.onClick = [this] { chordTab = 0; trackChanged (track); };
-        tabSample.onClick = [this] { chordTab = 1; trackChanged (track); };
         level.setTravel (420);
         for (auto* k : { &dly, &rev, &pump }) k->setRing (juce::Colour (0xfff2a466));
-        ring.slider.setTooltip (T ("Cuánto pasa esta pista por el ring mod (la portadora se ajusta en el panel FX)"));
-        envS.slider.setTooltip (T ("Con SUSTAIN en 0 la nota cae sola (como en la 1.0). Con sustain, dura lo que el paso o la nota MIDI y después suelta en RELEASE."));
-        audition.setButtonText ("PROBAR");
+        envS.slider.setTooltip (T ("Con SUSTAIN en 0 la nota cae sola con DECAY. Con sustain, dura lo que el paso o la nota MIDI y después suelta en RELEASE."));
+        audition.setButtonText ("PLAY");
         styleKey (audition, col::orange);
         audition.onClick = [this] { proc.engine.audition (track); };
         audition.setTooltip (T ("Dispara el sonido para escucharlo (también con el transporte parado)"));
         pump.slider.setTooltip (T ("Cuánto se agacha esta pista con cada kick (sidechain fantasma, aunque el kick esté muteado)"));
-        bassOsc.box.setTooltip (T ("Clásica: la perilla ONDA va de sierra a cuadrada y sub (como la 1.0). Las otras formas usan ONDA como timbre: ancho del pulso, desafinación, brillo o índice de FM."));
+        bassOsc.box.setTooltip (T ("Classic: la perilla WAVE va de sierra a cuadrada y sub (como la 1.0). Las otras formas usan WAVE como timbre: ancho del pulso, desafinación, brillo o índice de FM."));
         bassAccent.box.setTooltip (T ("303: los acentos suben volumen y filtro, cierran el filtro más rápido y se acumulan si van seguidos; el slide tarda siempre lo mismo"));
         bassLegato.button.setTooltip (T ("Si una nota empieza mientras la anterior sigue (gate largo o nota MIDI apretada), se liga sin volver a disparar"));
-        chordMode.box.setTooltip (T ("Diatónico: el acorde se arma con las notas de la escala (siempre en tono). Paralelo: el mismo acorde se transpone entero (chord memory, como la 1.0)."));
-        chordLead.button.setTooltip (T ("Elige la inversión que menos se mueve respecto del acorde anterior"));
         melVoices.box.setTooltip (T ("Poly: hasta 4 notas a la vez. Mono: una sola. Mono legato: las notas que se pisan se ligan con GLIDE."));
-        for (auto* c : { &chordType, &melModel }) c->box.getProperties().set ("maxFont", 20.0);
+        melModel.box.getProperties().set ("maxFont", 20.0);
         trackChanged (0);
     }
     juce::String title() const override { return trackLabel (track); }
@@ -176,60 +165,67 @@ public:
         if (track == Texture || track == Chord)
         {
             texSample.refresh();
-            chordSample.refresh();
+            browser.refresh();
             texFilter.setButtonText (proc.value (P::TexFilter) < 0.5f ? "LADDER" : "SVF");
             const auto st = proc.sampleStatus (track == Texture ? 0 : 1);
             if (st != status) { status = st; repaint (0, 0, getWidth(), 34); }
+            // La lista de sonidos cambia la fuente: sinte, sample o capas (cambian las perillas)
+            const int src = (int) proc.value (P::ChordSource);
+            if (track == Chord && src != chordSource) trackChanged (track);
         }
     }
 
     void trackChanged (int t) override
     {
         track = t;
+        chordSource = (int) proc.value (P::ChordSource);
+        chordView = t == Chord && tab == 0;
         for (int i = 0; i < kSoundParams; ++i) sound[i]->bind (P::sound (t, i), upperName (t, i));
-        static const std::pair<int, const char*> stripFields[] = { { P::StripDrive, "DRIVE" }, { P::StripBody, "CUERPO" }, { P::StripBodyHz, "FREC." },
-                                                                   { P::StripNoise, "RUIDO" }, { P::StripTrans, "TRANSIENTE" }, { P::StripBright, "BRILLO" },
-                                                                   { P::StripComp, "COMP" } };
-        for (int k = 0; k < 7; ++k) strip[k]->bind (P::track (t, stripFields[k].first), T (stripFields[k].second));
+        for (int k = 0; k < 7; ++k) strip[k]->bind (P::track (t, stripFields()[k].first), stripFields()[k].second);
         stripType.bind (P::track (t, P::StripType));
         stripCompType.bind (P::track (t, P::StripCompType));
         tabSound.setToggleState (tab == 0, juce::dontSendNotification);
         tabStrip.setToggleState (tab == 1, juce::dontSendNotification);
-        level.bind (P::track (t, P::Level), "NIVEL");
-        pan.bind (P::track (t, P::Pan), "PANEO");
+        level.bind (P::track (t, P::Level), "LEVEL");
+        pan.bind (P::track (t, P::Pan), "PAN");
         dly.bind (P::track (t, P::Delay), "DELAY");
         rev.bind (P::track (t, P::Reverb), "REVERB");
         pump.bind (P::track (t, P::Pump), "PUMP");
-        ring.bind (P::track (t, P::Ring), "RING");
         hasEnv = t >= Bass;
         hasAttack = hasEnv && t != Chord;
-        hasExtras = t >= Bass || tab == 1;
-        envA.setVisible (hasAttack);
+        hasExtras = (t >= Bass && t != Chord) || tab == 1;
+        envA.setVisible (hasAttack && ! chordView);
         envS.setVisible (hasEnv);
         envR.setVisible (hasEnv);
         if (hasEnv)
         {
-            if (hasAttack) envA.bind (P::track (t, P::EnvA), "ATAQUE");
+            if (hasAttack) envA.bind (P::track (t, P::EnvA), "ATTACK");
             envS.bind (P::track (t, P::EnvS), "SUSTAIN");
             envR.bind (P::track (t, P::EnvR), "RELEASE");
         }
-        // El tipo de acorde y el modelo de la melodía son listas: se eligen en pantalla
         const bool snd = tab == 0;
-        for (int i = 1; i < kSoundParams; ++i) sound[i]->setVisible (snd);
-        sound[0]->setVisible (snd && t != Chord && t != Melody);
-        chordType.setVisible (snd && t == Chord);
+        const bool sample = chordSource > 0, layer = chordSource == 2;
+        for (int i = 0; i < kSoundParams; ++i)
+        {
+            bool vis = snd && ! (i == 0 && (t == Chord || t == Melody));
+            // Acordes: DETUNE y CHORUS son del sinte
+            if (chordView && (i == 5 || i == 6)) vis = ! sample || layer;
+            sound[i]->setVisible (vis);
+        }
         melModel.setVisible (snd && t == Melody);
         for (auto* k : strip) k->setVisible (! snd);
         stripType.setVisible (! snd);
         stripCompType.setVisible (! snd);
         for (auto* c : std::initializer_list<juce::Component*> { &bassOsc, &bassSub, &bassAccent, &bassLegato }) c->setVisible (snd && t == Bass);
-        for (auto* c : std::initializer_list<juce::Component*> { &chordMode, &chordInv, &chordSpread, &chordStrum, &chordLead }) c->setVisible (snd && t == Chord && chordTab == 0);
-        for (auto* c : std::initializer_list<juce::Component*> { &chordSource, &chordSample, &chordDice, &chordRand, &chordLevel }) c->setVisible (snd && t == Chord && chordTab == 1);
-        for (auto* c : std::initializer_list<juce::Component*> { &tabVoicing, &tabSample }) c->setVisible (snd && t == Chord);
-        tabVoicing.setToggleState (chordTab == 0, juce::dontSendNotification);
-        tabSample.setToggleState (chordTab == 1, juce::dontSendNotification);
+        browser.setVisible (chordView);
+        chShuffle.setVisible (chordView && sample);
+        chLayer.setVisible (chordView && sample);
+        chLayer.setToggleState (layer, juce::dontSendNotification);
+        for (auto* c : std::initializer_list<juce::Component*> { &chStart, &chLength, &chDrive, &chReverse }) c->setVisible (chordView && sample);
+        chSampleLevel.setVisible (chordView && layer);
         for (auto* c : std::initializer_list<juce::Component*> { &melVoices, &melOctave }) c->setVisible (snd && t == Melody);
         for (auto* c : std::initializer_list<juce::Component*> { &texSample, &texDice, &texCat, &texRand, &texFollow, &texRev, &texFilter }) c->setVisible (snd && t == Texture);
+        browser.refresh();
         resized();
         repaint();
     }
@@ -245,14 +241,24 @@ public:
         drawSpaced (g, trackLabel (track), { 18.0f, 0.0f, 200.0f, 32.0f }, titleFont (19.0f), 0.1f, juce::Justification::centredLeft);
         const float nameW = (float) juce::GlyphArrangement::getStringWidthInt (titleFont (19.0f), trackLabel (track)) * 1.1f + 34.0f;
         g.setColour (col::violetValue);
-        g.setFont (textFont (14.0f));
-        const bool warn = (track == Texture || (track == Chord && proc.value (P::ChordSource) > 0.5f)) && status.isNotEmpty();
+        const bool warn = (track == Texture || (track == Chord && chordSource > 0)) && status.isNotEmpty();
         if (warn) g.setColour (juce::Colour (0xffffb35c));
         g.setFont (textFont (13.0f));
-        g.drawText (warn ? status : (tab == 1 ? T ("Tira analógica: todo en 0 = la pista suena sin procesar") : T (trackDescription (track))),
-                    juce::Rectangle<float> (nameW, 0.0f, (float) getWidth() - nameW - 306.0f, 32.0f), juce::Justification::centredLeft, true);
-        // Fila de controles propios (bajo, acordes, melodía)
-        if (hasExtras)
+        g.drawFittedText (warn ? status : (tab == 1 ? T ("Tira analógica: todo en 0 = la pista suena sin procesar") : T (trackDescription (track))),
+                          juce::Rectangle<int> ((int) nameW, 0, getWidth() - (int) nameW - 300, 32), juce::Justification::centredLeft, 2);
+        if (chordView)
+        {
+            paint::violetCard (g, soundBox.toFloat(), "Sound");
+            paint::violetCard (g, toneBox.toFloat(), "Tone");
+            if (chordSource == 0)
+            {
+                g.setColour (col::violetValue);
+                g.setFont (textFont (13.0f));
+                g.drawFittedText (T ("Sinte de OGRO: 2 sierras por nota. Pasá con ▶ a los acordes de Orbhitz."),
+                                  soundBox.withTrimmedLeft (soundBox.getWidth() - 186).reduced (8, 18), juce::Justification::centredLeft, 3);
+            }
+        }
+        else if (hasExtras)
         {
             g.setColour (juce::Colours::white.withAlpha (0.06f));
             g.fillRoundedRectangle (extrasBox.toFloat(), 10.0f);
@@ -260,156 +266,156 @@ public:
             {
                 g.setColour (col::violetValue);
                 g.setFont (textFont (13.0f));
-                g.drawFittedText (T ("Candadito en cada perilla: el dado (VARIAR) no la mueve. La tira se puede automatizar, modular y poner en p-locks."),
+                g.drawFittedText (T ("Candadito en cada perilla: VARY no la mueve. La tira se puede automatizar y modular."),
                                   extrasBox.reduced (10, 4).withTrimmedLeft (290), juce::Justification::centredLeft, 3);
             }
             else if (track == Melody)
             {
                 g.setColour (col::violetValue);
                 g.setFont (textFont (13.0f));
-                g.drawFittedText (T ("PLUCK: cuerda pulsada (TIMBRE apaga la cuerda) · LEAD: 2 sierras + sub · CAMPANA: FM (TIMBRE = relación, ENV = brillo) · ÓRGANO: 6 armónicos (TIMBRE = drawbars)"),
+                g.drawFittedText (T ("PLUCK: cuerda pulsada (TIMBRE apaga la cuerda) · LEAD: 2 sierras + sub · BELL: FM (TIMBRE = relación, ENV = brillo) · ORGAN: 6 armónicos (TIMBRE = drawbars)"),
                                   extrasBox.reduced (10, 4).withTrimmedLeft (240), juce::Justification::centredLeft, 3);
             }
         }
         // Tarjetas de abajo
-        paint::violetCard (g, mixBox.toFloat(), T ("Mezcla"));
-        paint::violetCard (g, sendBox.toFloat(), T ("Envíos"));
-        if (hasEnv) paint::violetCard (g, envBox.toFloat(), T ("Envolvente"));
-        paint::violetCard (g, ringBox.toFloat(), T ("Ring"));
+        paint::violetCard (g, mixBox.toFloat(), "Mix");
+        paint::violetCard (g, sendBox.toFloat(), "Sends");
+        if (hasEnv) paint::violetCard (g, envBox.toFloat(), "Envelope");
         // Traza de cobre: camino de la señal hacia los efectos
         const float ty = (float) dly.getBounds().getCentreY() - 4.0f;
         paint::copperTrace (g, { (float) dly.getBounds().getCentreX(), ty }, { (float) pump.getBounds().getCentreX(), ty }, 4.0f);
-        if (! hasEnv)
-        {
-            g.setColour (col::violetValue);
-            g.setFont (textFont (13.0f));
-            g.drawFittedText (T ("Cuánto pasa por el ring modulator. La portadora se ajusta en el panel FX."),
-                              ringBox.reduced (12).withTrimmedTop (34).withTrimmedLeft (84), juce::Justification::topLeft, 6);
-        }
     }
     void resized() override
     {
-        audition.setBounds (getWidth() - 96, 0, 96, 32);
-        diceButton.setBounds (getWidth() - 172, 0, 72, 32);
-        tabStrip.setBounds (getWidth() - 232, 2, 56, 28);
-        tabSound.setBounds (getWidth() - 302, 2, 66, 28);
+        const int W = getWidth();
+        audition.setBounds (W - 72, 0, 72, 32);
+        diceButton.setBounds (W - 140, 0, 64, 32);
+        tabStrip.setBounds (W - 214, 2, 70, 28);
+        tabSound.setBounds (W - 288, 2, 70, 28);
         // Tira: 7 perillas y las dos listas abajo
         {
-            const int w7 = getWidth() / 7;
+            const int w7 = W / 7;
             for (int k = 0; k < 7; ++k) strip[k]->setBounds (k * w7, 42, w7, 100);
             stripType.setBounds (10, 152, 150, 50);
             stripCompType.setBounds (170, 152, 100, 50);
         }
+        if (chordView) { layoutChords(); return; }
         const int kh = hasExtras ? 100 : 104;
-        if (track == Chord || track == Melody)
+        if (track == Melody)
         {
-            // La lista (tipo / modelo) ocupa más lugar que una perilla
-            const int cw = 126, w7 = (getWidth() - cw) / (kSoundParams - 1);
+            // La lista de modelos ocupa más lugar que una perilla
+            const int cw = 126, w7 = (W - cw) / (kSoundParams - 1);
             for (int i = 1; i < kSoundParams; ++i) sound[i]->setBounds (cw + (i - 1) * w7, 42, w7, kh);
-            chordType.setBounds (4, 62, cw - 10, 50);
             melModel.setBounds (4, 62, cw - 10, 50);
         }
         else
         {
-            const int w = getWidth() / kSoundParams;
+            const int w = W / kSoundParams;
             for (int i = 0; i < kSoundParams; ++i) sound[i]->setBounds (i * w, 42, w, kh);
         }
-        // Controles propios de bajo, acordes y melodía
-        extrasBox = { 0, 148, getWidth(), 58 };
+        // Controles propios de bajo, melodía y texturas
+        extrasBox = { 0, 148, W, 58 };
         {
             const int ey = extrasBox.getY() + 4, eh = 50;
             auto place = [ey, eh] (juce::Component& c, int x, int cw) { c.setBounds (x, ey, cw, eh); };
             place (bassOsc, 10, 150); place (bassSub, 172, 136); place (bassAccent, 320, 150);
-            bassLegato.setBounds (482, ey + 18, getWidth() - 492, 30);
-            // Acordes: pestañas VOICING / SAMPLE a la izquierda
-            tabVoicing.setBounds (6, ey, 64, 25);
-            tabSample.setBounds (6, ey + 26, 64, 25);
-            place (chordMode, 76, 104); place (chordInv, 184, 112); place (chordSpread, 300, 96); place (chordStrum, 400, 86);
-            chordLead.setBounds (490, ey + 18, getWidth() - 496, 30);
-            place (chordSource, 76, 104); place (chordSample, 184, 160);
-            chordDice.setBounds (348, ey + 18, 52, 30);
-            chordRand.setBounds (404, ey + 18, 96, 30);
-            place (chordLevel, 506, getWidth() - 512);
+            bassLegato.setBounds (482, ey + 18, W - 492, 30);
             place (melVoices, 10, 128); place (melOctave, 146, 84);
-            // Texturas
             place (texSample, 6, 140);
-            texDice.setBounds (150, ey + 18, 48, 30);
-            place (texCat, 202, 72);
-            texRand.setBounds (278, ey + 18, 88, 30);
-            texFollow.setBounds (370, ey + 18, 84, 30);
-            texRev.setBounds (458, ey + 18, 84, 30);
-            texFilter.setBounds (546, ey + 18, getWidth() - 546, 30);
+            texDice.setBounds (150, ey + 18, 64, 30);
+            place (texCat, 218, 80);
+            texRand.setBounds (302, ey + 18, 90, 30);
+            texFollow.setBounds (396, ey + 18, 76, 30);
+            texRev.setBounds (476, ey + 18, 76, 30);
+            texFilter.setBounds (556, ey + 18, W - 556, 30);
         }
         const int y = hasExtras ? 214 : 162, h = getHeight() - y;
-        const int ky = y + (hasExtras ? 30 : 40), kh2 = hasExtras ? h - 34 : 112;
+        const int kh2 = juce::jmin (h - 34, 124), ky = y + 30 + (h - 34 - kh2) / 2;
         if (hasEnv)
         {
-            mixBox = { 0, y, 150, h };
-            sendBox = { 158, y, 210, h };
-            envBox = { 376, y, 152, h };
-            ringBox = { 536, y, getWidth() - 536, h };
-            level.setBounds (mixBox.getX() + 4, ky, 70, kh2);
-            pan.setBounds (mixBox.getX() + 76, ky, 70, kh2);
-            dly.setBounds (sendBox.getX() + 4, ky, 67, kh2);
-            rev.setBounds (sendBox.getX() + 71, ky, 67, kh2);
-            pump.setBounds (sendBox.getX() + 138, ky, 67, kh2);
-            if (hasAttack)
-            {
-                envA.setBounds (envBox.getX() + 2, ky, 50, kh2);
-                envS.setBounds (envBox.getX() + 51, ky, 50, kh2);
-                envR.setBounds (envBox.getX() + 100, ky, 50, kh2);
-            }
-            else
-            {
-                envS.setBounds (envBox.getX() + 6, ky, 70, kh2);
-                envR.setBounds (envBox.getX() + 76, ky, 70, kh2);
-            }
-            ring.setBounds (ringBox.getX() + 4, ky, ringBox.getWidth() - 8, kh2);
+            mixBox = { 0, y, 160, h };
+            sendBox = { 168, y, 220, h };
+            envBox = { 396, y, W - 396, h };
+            placeRow ({ &level, &pan }, mixBox, ky, kh2);
+            placeRow ({ &dly, &rev, &pump }, sendBox, ky, kh2);
+            if (hasAttack) placeRow ({ &envA, &envS, &envR }, envBox, ky, kh2);
+            else placeRow ({ &envS, &envR }, envBox, ky, kh2);
         }
         else
         {
-            mixBox = { 0, y, 196, h };
-            sendBox = { 208, y, 236, h };
-            ringBox = { 456, y, getWidth() - 456, h };
-            level.setBounds (mixBox.getX() + 8, ky, 86, kh2);
-            pan.setBounds (mixBox.getX() + 100, ky, 86, kh2);
-            dly.setBounds (sendBox.getX() + 6, ky, 74, kh2);
-            rev.setBounds (sendBox.getX() + 81, ky, 74, kh2);
-            pump.setBounds (sendBox.getX() + 156, ky, 74, kh2);
-            ring.setBounds (ringBox.getX() + 6, ky, 74, kh2);
+            mixBox = { 0, y, 240, h };
+            sendBox = { 248, y, W - 248, h };
+            placeRow ({ &level, &pan }, mixBox, ky, kh2);
+            placeRow ({ &dly, &rev, &pump }, sendBox, ky, kh2);
         }
     }
 
 private:
+    static const std::array<std::pair<int, const char*>, 7>& stripFields()
+    {
+        static const std::array<std::pair<int, const char*>, 7> f { { { P::StripDrive, "DRIVE" }, { P::StripBody, "BODY" }, { P::StripBodyHz, "FREQ" },
+                                                                    { P::StripNoise, "NOISE" }, { P::StripTrans, "TRANSIENT" }, { P::StripBright, "BRIGHT" },
+                                                                    { P::StripComp, "COMP" } } };
+        return f;
+    }
+    // Reparte componentes en partes iguales dentro de una tarjeta
+    static void placeRow (std::initializer_list<juce::Component*> cs, juce::Rectangle<int> box, int y, int h)
+    {
+        const int n = (int) cs.size(), w = (box.getWidth() - 8) / juce::jmax (1, n);
+        int i = 0;
+        for (auto* c : cs) c->setBounds (box.getX() + 4 + i++ * w, y, w, h);
+    }
+    // ACORDES: SOUND (lista de sonidos) · TONE · ENVELOPE / MIX / SENDS
+    void layoutChords()
+    {
+        const int W = getWidth();
+        const bool sample = chordSource > 0, layer = chordSource == 2;
+        soundBox = { 0, 40, W, 84 };
+        browser.setBounds (10, 64, sample ? 420 : W - 206, 52);
+        chShuffle.setBounds (440, 64, W - 448, 24);
+        chLayer.setBounds (440, 92, W - 448, 24);
+        toneBox = { 0, 132, W, 112 };
+        const int ty = 150, th = 92;
+        if (! sample) placeRow ({ sound[2], sound[3], sound[4], sound[5], sound[6] }, toneBox, ty, th);
+        else if (! layer) placeRow ({ &chStart, &chLength, sound[2], sound[3], sound[4], &chDrive }, toneBox.withTrimmedRight (82), ty, th);
+        else placeRow ({ &chStart, &chLength, sound[2], sound[3], sound[4], &chDrive, sound[5], sound[6] }, toneBox.withTrimmedRight (82), ty, th);
+        chReverse.setBounds (W - 84, ty + 30, 78, 28);
+        const int y = 252, h = getHeight() - y, ky = y + 26, kh = h - 28;
+        envBox = { 0, y, 236, h };
+        mixBox = { 244, y, 160, h };
+        sendBox = { 412, y, W - 412, h };
+        placeRow ({ sound[7], sound[1], &envS, &envR }, envBox, ky, kh);
+        if (layer) placeRow ({ &level, &pan, &chSampleLevel }, mixBox, ky, kh);
+        else placeRow ({ &level, &pan }, mixBox, ky, kh);
+        placeRow ({ &dly, &rev, &pump }, sendBox, ky, kh);
+    }
+
     Ogro2Processor& proc;
     int track = 0;
     juce::OwnedArray<Knob> sound;
-    Knob level, pan, dly, rev, pump, ring, envA, envS, envR;
-    Choice chordType, melModel, bassOsc;
+    Knob level, pan, dly, rev, pump, envA, envS, envR;
+    Knob chStart, chLength, chDrive, chSampleLevel;
+    Toggle chReverse, chShuffle;
+    juce::TextButton chLayer;
+    SoundBrowser browser;
+    Choice melModel, bassOsc;
     HSlider bassSub;
     Choice bassAccent;
     Toggle bassLegato;
-    Choice chordMode, chordInv;
-    HSlider chordSpread, chordStrum;
-    Toggle chordLead;
     Choice melVoices, melOctave;
     SampleChoice texSample;
     Choice texCat;
     Toggle texRand, texFollow, texRev;
-    Choice chordSource;
-    SampleChoice chordSample;
-    Toggle chordRand;
-    HSlider chordLevel;
-    juce::TextButton texDice, chordDice, texFilter, tabVoicing, tabSample;
-    int chordTab = 0;
+    juce::TextButton texDice, texFilter;
     juce::OwnedArray<Knob> strip;
     Choice stripType, stripCompType;
     juce::TextButton tabSound, tabStrip, diceButton;
-    int tab = 0;
+    int tab = 0, chordSource = 0;
+    bool chordView = false;
     juce::String status;
     juce::TextButton audition;
     bool hasEnv = false, hasAttack = false, hasExtras = false;
-    juce::Rectangle<int> mixBox, sendBox, envBox, ringBox, extrasBox;
+    juce::Rectangle<int> mixBox, sendBox, envBox, extrasBox, soundBox, toneBox;
 };
 
 // ---------------------------------------------------------------------------
@@ -420,15 +426,15 @@ class FxPage : public Page
 public:
     explicit FxPage (Ogro2Processor& p)
         : proc (p),
-          dlyDiv (p, P::DlyDiv, "TIEMPO"),
-          dlyFb (p, P::DlyFb, "FEEDBACK"), dlyTone (p, P::DlyTone, "TONO"), dlyRet (p, P::DlyRet, "RETORNO"),
-          revSize (p, P::RevSize, T ("TAMAÑO")), revDecay (p, P::RevDecay, "DECAY"), revRet (p, P::RevRet, "RETORNO"),
-          pumpRel (p, P::PumpRel, "TIEMPO"),
-          busComp (p, P::BusComp, T ("COMPRESIÓN")), busCrudo (p, P::BusCrudo, "CRUDO"),
+          dlyDiv (p, P::DlyDiv, "TIME"),
+          dlyFb (p, P::DlyFb, "FEEDBACK"), dlyTone (p, P::DlyTone, "TONE"), dlyRet (p, P::DlyRet, "RETURN"),
+          revSize (p, P::RevSize, T ("SIZE")), revDecay (p, P::RevDecay, "DECAY"), revRet (p, P::RevRet, "RETURN"),
+          pumpRel (p, P::PumpRel, "TIME"),
+          busComp (p, P::BusComp, T ("COMP")), busCrudo (p, P::BusCrudo, "RAW"),
           gr (T ("GR"), true, 18.0f),
-          ringOn (p, P::RingOn, "RING", col::ledGreen), ringFreq (p, P::RingFreq, "FREC."), ringWave (p, P::RingWave, ""),
-          ringMix (p, P::RingMix, "MEZCLA"), ringSpread (p, P::RingSpread, T ("ESTÉREO")),
-          pumpSource (p, P::PumpSource, "FUENTE"), pumpThresh (p, P::PumpScThresh, "UMBRAL")
+          ringOn (p, P::RingOn, "RING", col::ledGreen), ringFreq (p, P::RingFreq, "FREQ"), ringWave (p, P::RingWave, ""),
+          ringMix (p, P::RingMix, "MIX"), ringSpread (p, P::RingSpread, T ("STEREO")),
+          pumpSource (p, P::PumpSource, "SOURCE"), pumpThresh (p, P::PumpScThresh, "THRESHOLD")
     {
         addAndMakeVisible (pumpSource);
         addAndMakeVisible (pumpThresh);
@@ -450,7 +456,7 @@ public:
         paint::violetCard (g, b2.toFloat(), "Reverb");
         paint::violetCard (g, b3.toFloat(), "Pump");
         paint::violetCard (g, b4.toFloat(), T ("Drum bus"));
-        paint::violetCard (g, b5.toFloat(), T ("Ring mod · portadora"));
+        paint::violetCard (g, b5.toFloat(), T ("Ring mod · carrier"));
     }
     void resized() override
     {
@@ -518,7 +524,7 @@ public:
             amt->setTooltip (T ("Cantidad (doble clic = 0)"));
         }
     }
-    juce::String title() const override { return T ("MODULACIÓN"); }
+    juce::String title() const override { return "MODULATION"; }
     void tick() override
     {
         for (auto* s : scopes) s->repaint();
@@ -528,8 +534,8 @@ public:
 
     void paint (juce::Graphics& g) override
     {
-        paint::violetCard (g, lfoBox.toFloat(), T ("LFOs sincronizados"));
-        paint::violetCard (g, matBox.toFloat(), T ("Matriz · fuente → destino → cantidad"));
+        paint::violetCard (g, lfoBox.toFloat(), T ("Synced LFOs"));
+        paint::violetCard (g, matBox.toFloat(), T ("Matrix · source → target → amount"));
         g.setColour (col::violetRing);
         for (int l = 0; l < P::kLfos; ++l)
             drawSpaced (g, juce::String (l + 1), { (float) lfoBox.getX() + 8.0f, (float) rowY (l), 16.0f, 54.0f }, titleFont (14.0f), 0.0f,
@@ -585,13 +591,13 @@ class GroovePage : public Page
 public:
     explicit GroovePage (Ogro2Processor& p)
         : proc (p),
-          groove (p, P::Groove, "PLANTILLA"),
-          amount (p, P::GrooveAmt, "CANTIDAD"),
-          humanize (p, P::Humanize, "HUMANIZAR"),
+          groove (p, P::Groove, "TEMPLATE"),
+          amount (p, P::GrooveAmt, "AMOUNT"),
+          humanize (p, P::Humanize, "HUMANIZE"),
           swing (p, P::Swing, "SWING"),
-          poly (p, P::PolyMode, "POLIRRITMOS"),
-          genre (p, P::Genre, T ("INVENTAR SEGÚN")),
-          mutate (p, P::Mutate, "MUTAR")
+          poly (p, P::PolyMode, "POLYRHYTHMS"),
+          genre (p, P::Genre, T ("INVENT STYLE")),
+          mutate (p, P::Mutate, "MUTATE")
     {
         for (auto* c : std::initializer_list<juce::Component*> { &groove, &amount, &humanize, &swing, &poly, &genre, &mutate })
             addAndMakeVisible (c);
@@ -604,7 +610,7 @@ public:
                                 "Continuos: siguen girando desde el principio del tema (como la 1.0)"));
         for (int t = 0; t < kTracks; ++t)
         {
-            auto* o = own.add (new Toggle (p, P::track (t, P::SwingOwn), "PROPIO", col::track (t)));
+            auto* o = own.add (new Toggle (p, P::track (t, P::SwingOwn), "OWN", col::track (t)));
             o->button.setTooltip (T ("Esta pista usa su propio swing en vez del general"));
             addAndMakeVisible (o);
             auto* a = amts.add (new juce::Slider (juce::Slider::LinearHorizontal, juce::Slider::TextBoxRight));
@@ -623,9 +629,9 @@ public:
     }
     void paint (juce::Graphics& g) override
     {
-        paint::violetCard (g, tplBox.toFloat(), T ("Plantilla de groove"));
-        paint::violetCard (g, genBox.toFloat(), T ("Polirritmos e INVENTAR"));
-        paint::violetCard (g, swBox.toFloat(), T ("Swing por pista"));
+        paint::violetCard (g, tplBox.toFloat(), T ("Groove template"));
+        paint::violetCard (g, genBox.toFloat(), T ("Polyrhythms and INVENT"));
+        paint::violetCard (g, swBox.toFloat(), T ("Swing per track"));
         g.setFont (labelFont (12.0f));
         for (int t = 0; t < kTracks; ++t)
         {
@@ -786,13 +792,13 @@ class ArrangePage : public Page
 public:
     explicit ArrangePage (Ogro2Processor& p)
         : proc (p),
-          chainOn (p, P::Chain, "CADENA", col::ledGreen),
+          chainOn (p, P::Chain, "CHAIN", col::ledGreen),
           chain (p),
-          change (p, P::PatChange, T ("CAMBIO DE PATRÓN")),
+          change (p, P::PatChange, T ("PATTERN CHANGE")),
           fill (p, P::Fill, "FILL"),
-          fillPat (p, P::FillPat, T ("FILL: PATRÓN")),
-          every (p, P::BfxEvery, "FX CADA"),
-          len (p, P::BfxLen, "LARGO"),
+          fillPat (p, P::FillPat, T ("FILL PATTERN")),
+          every (p, P::BfxEvery, "FX EVERY"),
+          len (p, P::BfxLen, "LENGTH"),
           rate (p, P::BfxStutterRate, "STUTTER")
     {
         for (auto* c : std::initializer_list<juce::Component*> { &chainOn, &chain, &change, &fill, &fillPat, &every, &len, &rate, &amount, &fireNow, &clearChain })
@@ -808,11 +814,11 @@ public:
         amount.setColour (juce::Slider::trackColourId, col::orange);
         amountAtt = std::make_unique<APVTS::SliderAttachment> (p.state, juce::String (paramDefs()[P::BfxAmount].id), amount);
         amount.setTooltip (T ("Intensidad de todos los efectos de fin de compás"));
-        fireNow.setButtonText ("TIRAR FX");
+        fireNow.setButtonText ("FIRE FX");
         styleKey (fireNow, col::orange);
         fireNow.setTooltip (T ("Dispara ahora los efectos de fin de compás (según su probabilidad), por el largo elegido"));
         fireNow.onClick = [this] { proc.engine.fireBarFxNow(); };
-        clearChain.setButtonText ("BORRAR");
+        clearChain.setButtonText ("CLEAR");
         styleKey (clearChain, col::keyCream);
         clearChain.setTooltip (T ("Vacía la cadena"));
         clearChain.onClick = [this] { proc.pushUndo(); proc.engine.bank.setChain ({}); chain.repaint(); };
@@ -828,7 +834,7 @@ public:
             addAndMakeVisible (tg);
         }
     }
-    juce::String title() const override { return "ARREGLO"; }
+    juce::String title() const override { return "ARRANGE"; }
     void tick() override
     {
         chain.repaint();
@@ -837,11 +843,11 @@ public:
     }
     void paint (juce::Graphics& g) override
     {
-        paint::violetCard (g, chainBox.toFloat(), T ("Cadena de patrones"));
-        paint::violetCard (g, fillBox.toFloat(), T ("Cambio y fills"));
-        paint::violetCard (g, fxBox.toFloat(), T ("FX de fin de compás"));
+        paint::violetCard (g, chainBox.toFloat(), T ("Pattern chain"));
+        paint::violetCard (g, fillBox.toFloat(), T ("Change and fills"));
+        paint::violetCard (g, fxBox.toFloat(), T ("Bar-end FX"));
         g.setColour (col::violetText);
-        drawSpaced (g, "CANTIDAD", { (float) fxBox.getX() + 12.0f, (float) fxBox.getY() + 94.0f, 80.0f, 22.0f }, labelFont (12.0f), 0.06f,
+        drawSpaced (g, "AMOUNT", { (float) fxBox.getX() + 12.0f, (float) fxBox.getY() + 94.0f, 80.0f, 22.0f }, labelFont (12.0f), 0.06f,
                     juce::Justification::centredLeft);
         g.setFont (labelFont (12.0f));
         for (int k = 0; k < P::kBfx; ++k)
@@ -902,16 +908,16 @@ public:
         : proc (p),
           morphOn (p, P::MorphOn, "MORPH", col::ledGreen),
           morph (p, P::Morph, "MORPH  A  ->  B", Theme::Violet),
-          drift (p, P::Drift, "DERIVA"),
-          driftBars (p, P::DriftBars, "CICLO"),
-          character (p, P::Character, T ("CARÁCTER")),
-          console (p, P::Console, "CONSOLA", col::orange)
+          drift (p, P::Drift, "DRIFT"),
+          driftBars (p, P::DriftBars, "CYCLE"),
+          character (p, P::Character, T ("CHARACTER")),
+          console (p, P::Console, "CONSOLE", col::orange)
     {
         for (auto* c : std::initializer_list<juce::Component*> { &morphOn, &morph, &drift, &driftBars, &character, &console })
             addAndMakeVisible (c);
         morph.setTitleSize (12.0f);
         morph.setTravel (520);
-        static const char* names[] = { "GUARDAR A", "GUARDAR B", "IR A  A", "IR A  B" };
+        static const char* names[] = { "STORE A", "STORE B", "RECALL A", "RECALL B" };
         for (int i = 0; i < 4; ++i)
         {
             auto* b = buttons.add (new juce::TextButton (names[i]));
@@ -935,7 +941,7 @@ public:
                                      "escalones) y, con CALIDAD ALTA, osciladores todavía más limpios."));
         console.button.setTooltip (T ("Suma de consola: un poco de saturación y diafonía al sumar las pistas (sutil, apagada por defecto)"));
     }
-    juce::String title() const override { return "ESCENAS"; }
+    juce::String title() const override { return "SCENES"; }
     void tick() override
     {
         const int st = (proc.hasScene (0) ? 1 : 0) + (proc.hasScene (1) ? 2 : 0);
@@ -943,16 +949,16 @@ public:
     }
     void paint (juce::Graphics& g) override
     {
-        paint::violetCard (g, sceneBox.toFloat(), T ("Escenas A / B y MORPH"));
-        paint::violetCard (g, driftBox.toFloat(), "Deriva lenta");
-        paint::violetCard (g, charBox.toFloat(), T ("Carácter y consola"));
+        paint::violetCard (g, sceneBox.toFloat(), T ("Scenes A / B and MORPH"));
+        paint::violetCard (g, driftBox.toFloat(), "Slow drift");
+        paint::violetCard (g, charBox.toFloat(), T ("Character and console"));
         for (int w = 0; w < 2; ++w)
         {
             const auto r = juce::Rectangle<float> ((float) sceneBox.getX() + 14.0f + (float) w * 136.0f, (float) sceneBox.getY() + 118.0f, 126.0f, 16.0f);
             paint::led (g, { r.getX(), r.getCentreY() - 3.5f, 12.0f, 7.0f }, col::ledGreen, proc.hasScene (w));
             g.setColour (col::violetValue);
             g.setFont (textFont (12.0f));
-            g.drawText (juce::String (w == 0 ? "A" : "B") + (proc.hasScene (w) ? T (": guardada") : T (": vacía")), r.withTrimmedLeft (18.0f),
+            g.drawText (juce::String (w == 0 ? "A" : "B") + (proc.hasScene (w) ? T (": stored") : T (": empty")), r.withTrimmedLeft (18.0f),
                         juce::Justification::centredLeft);
         }
         g.setColour (col::violetValue);
@@ -993,13 +999,13 @@ class MasterPage : public Page
 public:
     explicit MasterPage (Ogro2Processor& p)
         : proc (p),
-          filter (p, P::MFilter, "FILTRO DJ", Theme::Violet, true), reso (p, P::MReso, "RESO"),
-          lowcut (p, P::MLowCut, "LOW-CUT"), body (p, P::MBody, "CUERPO", Theme::Violet, true),
-          pres (p, P::MPres, "PRESENCIA", Theme::Violet, true), air (p, P::MAir, "AIRE"),
-          comp (p, P::MComp, T ("COMPRESIÓN")), color (p, P::MColor, "COLOR"),
-          warmth (p, P::MWarmth, "CALOR"), parallel (p, P::MParallel, "MEZCLA"),
-          texture (p, P::MTexture, "TEXTURA"),
-          quality (p, P::Quality, "CALIDAD"),
+          filter (p, P::MFilter, "DJ FILTER", Theme::Violet, true), reso (p, P::MReso, "RESO"),
+          lowcut (p, P::MLowCut, "LOW-CUT"), body (p, P::MBody, "BODY", Theme::Violet, true),
+          pres (p, P::MPres, "PRESENCE", Theme::Violet, true), air (p, P::MAir, "AIR"),
+          comp (p, P::MComp, T ("COMP")), color (p, P::MColor, "COLOR"),
+          warmth (p, P::MWarmth, "CALOR"), parallel (p, P::MParallel, "MIX"),
+          texture (p, P::MTexture, "TEXTURE"),
+          quality (p, P::Quality, "QUALITY"),
           grComp ("COMP", true, 12.0f), grLim ("LIMIT", true, 12.0f)
     {
         addAndMakeVisible (quality);
@@ -1019,10 +1025,10 @@ public:
     }
     void paint (juce::Graphics& g) override
     {
-        paint::violetCard (g, fBox.toFloat(), "Filtro DJ");
-        paint::violetCard (g, eqBox.toFloat(), T ("EQ estilo EVO SOL"));
-        paint::violetCard (g, dynBox.toFloat(), T ("Dinámica · FET + óptico + saturación"));
-        paint::violetCard (g, texBox.toFloat(), "Textura");
+        paint::violetCard (g, fBox.toFloat(), "DJ filter");
+        paint::violetCard (g, eqBox.toFloat(), T ("EQ (EVO SOL style)"));
+        paint::violetCard (g, dynBox.toFloat(), T ("Dynamics · FET + opto + saturation"));
+        paint::violetCard (g, texBox.toFloat(), "Texture");
     }
     void resized() override
     {
@@ -1112,7 +1118,7 @@ Content::Content (Ogro2Processor& p) : proc (p), ctx { p }, lane (ctx), keys (ct
     pages.add (new ScenesPage (p));
     pages.add (new MasterPage (p));
     for (auto* pg : pages) addChildComponent (pg);
-    backButton.setButtonText (T ("‹  PISTA"));
+    backButton.setButtonText (T ("‹  TRACK"));
     styleKey (backButton, juce::Colours::white.withAlpha (0.9f));
     backButton.setTooltip (T ("Volver al sonido de la pista elegida"));
     backButton.onClick = [this] { showPage (PageTrack); };
@@ -1133,19 +1139,20 @@ Content::Content (Ogro2Processor& p) : proc (p), ctx { p }, lane (ctx), keys (ct
         k->slider.setTooltip (T (macroTips[m]) + T (" · al medio no cambia nada · doble clic: al medio"));
         addAndMakeVisible (k);
     }
-    static const char* panelNames[] = { "FX", "MOD", "GROOVE", "ARREGLO", "ESCENAS", "MASTER" };
+    static const char* panelNames[] = { "FX", "MOD", "ARRANGE", "SCENES", "MASTER" };
+    static const int panelPages[] = { PageFx, PageMod, PageArrange, PageScenes, PageMaster };
     static const char* panelTips[] = { "Delay, reverb, pump, drum bus y portadora del ring mod", "LFOs y matriz de modulación",
-                                       "Plantillas de groove, humanizar, swing por pista y polirritmos",
                                        "Cadena de patrones, cambio de patrón, fills y efectos de fin de compás",
                                        "Escenas A/B con MORPH, deriva lenta, carácter (ORIGINAL / LIMPIO) y suma de consola",
                                        "Filtro DJ, EQ, compresión, textura y calidad del master" };
-    for (int i = 0; i < 6; ++i)
+    for (int i = 0; i < 5; ++i)
     {
         auto* b = panelButtons.add (new juce::TextButton (panelNames[i]));
         styleKey (*b, col::keyCream);
         b->setColour (juce::TextButton::buttonOnColourId, col::ink);
         b->setTooltip (T (panelTips[i]));
-        b->onClick = [this, i] { showPage (currentPage == i + 1 ? (int) PageTrack : i + 1); };
+        const int pg = panelPages[i];
+        b->onClick = [this, pg] { showPage (currentPage == pg ? (int) PageTrack : pg); };
         addAndMakeVisible (b);
     }
     depthButton.setTooltip (T ("Recorrido de las macros: x2 (el doble que la 1.0) o x1 (como la 1.0, lo usan los presets importados)"));
@@ -1153,28 +1160,32 @@ Content::Content (Ogro2Processor& p) : proc (p), ctx { p }, lane (ctx), keys (ct
     depthButton.onClick = [this] { proc.setValue (P::MacroDepth, proc.value (P::MacroDepth) > 0.5f ? 0.0f : 1.0f); };
     addAndMakeVisible (depthButton);
     addAndMakeVisible (disc);
-    ceiling = std::make_unique<Knob> (p, P::MCeiling, "TECHO", Theme::Cream);
-    volume = std::make_unique<Knob> (p, P::MVol, "VOLUMEN", Theme::Cream);
+    ceiling = std::make_unique<Knob> (p, P::MCeiling, "CEILING", Theme::Cream);
+    volume = std::make_unique<Knob> (p, P::MVol, "VOLUME", Theme::Cream);
     addAndMakeVisible (*ceiling);
     addAndMakeVisible (*volume);
 
     // ---- Groove ----
     swing = std::make_unique<Knob> (p, P::Swing, "SWING", Theme::Cream);
     addAndMakeVisible (*swing);
-    randomButton.setClickingTogglesState (false);
-    styleKey (randomButton, col::violet, juce::Colours::white);
-    randomButton.onClick = [this] { proc.setValue (P::RandomMode, proc.value (P::RandomMode) < 0.5f ? 1.0f : 0.0f); };
-    randomButton.setTooltip (T ("FIJO: el azar (probabilidades, S&H, VARIA, ruido) sale de la semilla y cada render sale igual. "
-                               "VIVO: cambia cada vez, como en la 1.0."));
-    addAndMakeVisible (randomButton);
-    addAndMakeVisible (seedBox);
+    grooveAmt = std::make_unique<Knob> (p, P::GrooveAmt, "AMOUNT", Theme::Cream);
+    grooveAmt->slider.setTooltip (T ("Cuánto se nota el FEEL"));
+    addAndMakeVisible (*grooveAmt);
+    feel = std::make_unique<Choice> (p, P::Groove, "FEEL", Theme::Cream);
+    feel->box.setTooltip (T ("Plantilla de groove: Straight (recto), MPC 60, Shuffle 909, Loose (Villalobos) o Push (garage)"));
+    addAndMakeVisible (*feel);
+    styleKey (grooveMore, col::keyCream);
+    grooveMore.setColour (juce::TextButton::buttonOnColourId, col::ink);
+    grooveMore.setTooltip (T ("Más groove: humanizar, swing por pista, polirritmos, patrón de fill y efectos de fin de compás"));
+    grooveMore.onClick = [this] { showPage (currentPage == PageGroove ? (int) PageTrack : (int) PageGroove); };
+    addAndMakeVisible (grooveMore);
     styleKey (lenMinus, col::keyCream);
     styleKey (lenPlus, col::keyCream);
     lenMinus.onClick = [this] { proc.pushUndo(); auto& b = proc.engine.bank; b.setLength (ctx.pattern(), ctx.track(), b.getLength (ctx.pattern(), ctx.track()) - 1); lengthChanged(); };
     lenPlus.onClick = [this] { proc.pushUndo(); auto& b = proc.engine.bank; b.setLength (ctx.pattern(), ctx.track(), b.getLength (ctx.pattern(), ctx.track()) + 1); lengthChanged(); };
-    lenMinus.setTooltip (T ("Largo de la pista: con largos distintos se arman polirritmos"));
+    lenMinus.setTooltip (T ("Largo de la pista en pasos: con largos distintos se arman polirritmos"));
     lenPlus.setTooltip (T ("Largo de la pista: con largos distintos se arman polirritmos"));
-    inventButton.setButtonText ("INVENTAR");
+    inventButton.setButtonText ("INVENT");
     styleKey (inventButton, col::orange);
     inventButton.setTooltip (T ("Genera un patrón nuevo para esta pista, con sentido musical según el género (▾ para elegirlo o inventar todas)"));
     inventButton.onClick = [this] {
@@ -1186,7 +1197,7 @@ Content::Content (Ogro2Processor& p) : proc (p), ctx { p }, lane (ctx), keys (ct
     styleKey (inventMenu, col::orange);
     inventMenu.setTooltip (T ("Género de INVENTAR e inventar todas las pistas"));
     inventMenu.onClick = [this] { showInventMenu(); };
-    mutateButton.setButtonText ("MUTAR");
+    mutateButton.setButtonText ("MUTATE");
     styleKey (mutateButton, col::keyBlue);
     mutateButton.setTooltip (T ("Cambia un poco el patrón de esta pista sin perder el esqueleto (cuánto: GROOVE > MUTAR). Clic derecho: todas las pistas."));
     mutateButton.onClick = [this] {
@@ -1198,9 +1209,9 @@ Content::Content (Ogro2Processor& p) : proc (p), ctx { p }, lane (ctx), keys (ct
             mutatePattern (proc.engine.bank, ctx.pattern(), ctx.track(), proc.value (P::Mutate), seed, proc.value (P::Tonal) > 0.5f);
     };
     mutateButton.setTriggeredOnMouseDown (false);
-    clearButton.setButtonText ("LIMPIAR");
-    copyButton.setButtonText ("COPIAR");
-    pasteButton.setButtonText ("PEGAR");
+    clearButton.setButtonText ("CLEAR");
+    copyButton.setButtonText ("COPY");
+    pasteButton.setButtonText ("PASTE");
     for (auto* b : { &clearButton, &copyButton, &pasteButton }) styleKey (*b, col::keyCream);
     clearButton.setTooltip (T ("Borra los pasos de esta pista en el patrón actual"));
     copyButton.setTooltip (T ("Copia el patrón completo (todas las pistas)"));
@@ -1222,31 +1233,38 @@ Content::Content (Ogro2Processor& p) : proc (p), ctx { p }, lane (ctx), keys (ct
     // ---- Secuenciador ----
     addAndMakeVisible (lane);
     addAndMakeVisible (keys);
-    static const char* modes[] = { "VEL", "NOTA", "PROB", "RATCH", "LIGA", "OCT", "NUDGE", "GATE", "COND", "P-LOCK", "MOTION", "TIPO" };
+    static const char* modes[] = { "VELOCITY", "NOTE", "CHANCE", "MOTION" };
     static const char* modeTips[] = {
-        "Velocidad de cada paso (arrastrá)",
-        "Nota de cada paso en semitonos (bajo y acordes muestran la nota)",
+        "Qué tan fuerte suena cada paso (arrastrá). Clic derecho en una tecla: acento, repetir, glide, largo, octava, fills...",
+        "Nota de cada paso (arrastrá arriba / abajo). Siempre queda en la escala.",
         "Probabilidad de que suene cada paso",
-        "Repeticiones dentro del paso (1 a 8)",
-        "Ligado: bajo y acordes cambian de nota sin re-disparar (glide)",
-        "Octava de cada paso (de -3 a +3)",
-        "Corrimiento fino de cada paso: hasta medio paso antes o después",
-        "Largo de la nota en pasos (AUTO = lo que dura el paso). Con SUSTAIN, el bajo y los acordes duran eso.",
-        "Condición: que suene solo en el fill, en ciertas vueltas (1:2, 3:4...), si sonó el paso anterior... (clic en el paso)",
-        "P-LOCK: un valor propio de una perilla en cada paso (elegí la perilla arriba). Clic derecho borra.",
         "MOTION: curvas de automatización dibujadas de 1 a 8 compases",
-        "TIPO: acorde propio de cada paso en ACORDES (como un p-lock del tipo)",
     };
-    for (int i = 0; i < 12; ++i)
+    for (int i = 0; i < 4; ++i)
     {
         auto* b = modeButtons.add (new juce::TextButton (modes[i]));
         styleKey (*b, col::keyCream);
         b->setColour (juce::TextButton::buttonOnColourId, col::ink);
         b->setColour (juce::TextButton::textColourOnId, juce::Colours::white);
         b->setTooltip (T (modeTips[i]));
-        b->onClick = [this, i] { setLaneMode ((LaneMode) i); };
+        b->onClick = [this, i] { setLaneMode (kViews[i]); };
         addAndMakeVisible (b);
     }
+    keys.onEuclid = [this] { showEuclid(); };
+    keys.onEdited = [this] { lane.repaint(); };
+    // AUTO FILL: cada cuántos compases, qué estilo y PREVIEW para verlo antes
+    fillEvery = std::make_unique<Choice> (p, P::Fill, "EVERY", Theme::Cream);
+    fillStyle = std::make_unique<Choice> (p, P::FillStyle, "STYLE", Theme::Cream);
+    fillEvery->box.setTooltip (T ("Cada cuántos compases hay un fill (el último compás de cada grupo)"));
+    fillStyle->box.setTooltip (T ("ROLL: redoble al final · BREAK: se vacía la segunda mitad · BUILD: sube · RANDOM: golpes de más al azar · "
+                                  "CUSTOM: suena el patrón de fill o los pasos marcados \"Only in fills\" (MORE en GROOVE)"));
+    for (auto* c : { fillEvery.get(), fillStyle.get() }) { c->box.getProperties().set ("maxFont", 15.0); addAndMakeVisible (*c); }
+    previewButton.setClickingTogglesState (true);
+    styleKey (previewButton, col::keyCream);
+    previewButton.setColour (juce::TextButton::buttonOnColourId, kFillColour);
+    previewButton.setTooltip (T ("Muestra en las teclas cómo suena el compás de fill (en naranja lo que agrega)"));
+    previewButton.onClick = [this] { proc.fillPreview = previewButton.getToggleState(); lane.repaint(); keys.repaint(); };
+    addAndMakeVisible (previewButton);
     addChildComponent (lockChoice);
     for (auto* b : { &page1, &page2 })
     {
@@ -1267,11 +1285,11 @@ Content::Content (Ogro2Processor& p) : proc (p), ctx { p }, lane (ctx), keys (ct
     styleKey (euclidButton, col::keyBlue);
     euclidButton.setTooltip (T ("Ritmo euclidiano: reparte N golpes lo más parejo posible en la pista"));
     euclidButton.onClick = [this] { showEuclid(); };
-    addAndMakeVisible (euclidButton);
+    addChildComponent (euclidButton);   // ahora está en el clic derecho de las teclas
     addAndMakeVisible (midiButton);
 
     // MOTION en el secuenciador
-    static const char* shapeNames[] = { "RAMPA", "SENO", "TRI", "AZAR", "PLANO" };
+    static const char* shapeNames[] = { "RAMP", "SINE", "TRI", "RANDOM", "FLAT" };
     for (int l = 0; l < kLanes; ++l)
     {
         auto* b = motionLaneButtons.add (new juce::TextButton ("M" + juce::String (l + 1)));
@@ -1365,6 +1383,11 @@ void Content::showFileMenu()
     m.addItem (11, T ("Las notas MIDI de bajo, acordes y melodía toman la nota del patrón"), true, proc.value (P::MidiNotes) > 0.5f);
     m.addItem (12, T ("Olvidar todas las perillas aprendidas (MIDI learn)"));
     m.addSeparator();
+    m.addSectionHeader (T ("AZAR  ·  semilla #") + juce::String ((int) proc.value (P::Seed)));
+    m.addItem (13, T ("FIJO: probabilidades, fills RANDOM y VARY salen de la semilla (cada render igual)"), true, proc.value (P::RandomMode) < 0.5f);
+    m.addItem (14, T ("VIVO: cambia en cada vuelta, como la 1.0"), true, proc.value (P::RandomMode) > 0.5f);
+    m.addItem (15, T ("Semilla nueva"));
+    m.addSeparator();
     m.addSectionHeader (T ("SAMPLES  ·  ") + proc.getSampleFolder().getFullPathName().replace (juce::File::getSpecialLocation (juce::File::userHomeDirectory).getFullPathName(), "~"));
     m.addItem (4, T ("Carpeta de samples..."));
     const bool canCopy = Ogro2Processor::orbhitzSource().isDirectory() && ! Ogro2Processor::defaultSampleFolder().isDirectory();
@@ -1413,6 +1436,9 @@ void Content::showFileMenu()
         else if (r == 10) proc.setValue (P::SeqOn, proc.value (P::SeqOn) > 0.5f ? 0.0f : 1.0f);
         else if (r == 11) proc.setValue (P::MidiNotes, proc.value (P::MidiNotes) > 0.5f ? 0.0f : 1.0f);
         else if (r == 12) proc.forgetAllMidi();
+        else if (r == 13) proc.setValue (P::RandomMode, 0.0f);
+        else if (r == 14) proc.setValue (P::RandomMode, 1.0f);
+        else if (r == 15) proc.setValue (P::Seed, (float) juce::Random::getSystemRandom().nextInt ({ 1, 10000 }));
         else if (r == 3)
         {
             const auto v1Dir = juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("OGRO Presets");
@@ -1430,12 +1456,12 @@ void Content::showFileMenu()
 void Content::setLaneMode (LaneMode m)
 {
     lane.setMode (m);
-    for (int k = 0; k < modeButtons.size(); ++k) modeButtons[k]->setToggleState (k == (int) m, juce::dontSendNotification);
+    for (int k = 0; k < modeButtons.size(); ++k) modeButtons[k]->setToggleState (kViews[k] == m, juce::dontSendNotification);
     const bool motion = m == LaneMode::Motion;
     lane.setVisible (! motion);
     keys.setVisible (! motion);
-    lockChoice.setVisible (m == LaneMode::Lock);
-    for (auto* b : std::initializer_list<juce::Component*> { &page1, &page2, &euclidButton, &midiButton }) b->setVisible (! motion);
+    lockChoice.setVisible (false);
+    for (auto* b : std::initializer_list<juce::Component*> { &page1, &page2, &midiButton }) b->setVisible (! motion);
     for (auto* b : motionLaneButtons) b->setVisible (motion);
     for (auto* b : motionShapes) b->setVisible (motion);
     setMotionLane (motionLane);
@@ -1518,7 +1544,9 @@ void Content::showPage (int i)
 {
     currentPage = i;
     for (int k = 0; k < pages.size(); ++k) pages[k]->setVisible (k == i);
-    for (int k = 0; k < panelButtons.size(); ++k) panelButtons[k]->setToggleState (k + 1 == i, juce::dontSendNotification);
+    static const int panelPages[] = { PageFx, PageMod, PageArrange, PageScenes, PageMaster };
+    for (int k = 0; k < panelButtons.size(); ++k) panelButtons[k]->setToggleState (panelPages[k] == i, juce::dontSendNotification);
+    grooveMore.setToggleState (i == PageGroove, juce::dontSendNotification);
     backButton.setVisible (i != PageTrack);
     repaint (window.expanded (8));
 }
@@ -1559,18 +1587,20 @@ void Content::resized()
     for (int m = 0; m < 4; ++m)
         macros[m]->setBounds (macroCard.getX() + 10 + (m % 2) * 148, macroCard.getY() + 40 + (m / 2) * 86, 146, 80);
     depthButton.setBounds (macroCard.getRight() - 52, macroCard.getY() + 8, 42, 24);
-    const int bw = macroCard.getWidth() / 6;
-    for (int i = 0; i < 6; ++i) panelButtons[i]->setBounds (macroCard.getX() + i * bw, 360, bw - 3, 32);
+    const int bw = macroCard.getWidth() / 5;
+    for (int i = 0; i < 5; ++i) panelButtons[i]->setBounds (macroCard.getX() + i * bw, 360, bw - 3, 32);
     disc.setBounds (masterCard.getX() + 6, masterCard.getY() + 4, 128, 128);
     ceiling->setBounds (masterCard.getX() + 142, masterCard.getY() + 14, 80, 110);
     volume->setBounds (masterCard.getX() + 224, masterCard.getY() + 14, 80, 110);
 
     // Groove
-    swing->setBounds (grooveCard.getX() + 10, grooveCard.getY() + 36, 84, 104);
-    lenMinus.setBounds (grooveCard.getX() + 108, grooveCard.getY() + 56, 32, 32);
-    lenPlus.setBounds (grooveCard.getX() + 188, grooveCard.getY() + 56, 32, 32);
-    randomButton.setBounds (grooveCard.getX() + 108, grooveCard.getY() + 108, 54, 30);
-    seedBox.setBounds (grooveCard.getX() + 166, grooveCard.getY() + 108, 54, 28);
+    const int gx0 = grooveCard.getX(), gy0 = grooveCard.getY();
+    grooveMore.setBounds (grooveCard.getRight() - 64, gy0 + 8, 54, 24);
+    swing->setBounds (gx0 + 4, gy0 + 34, 78, 108);
+    feel->setBounds (gx0 + 86, gy0 + 34, grooveCard.getWidth() - 96, 50);
+    grooveAmt->setBounds (gx0 + 84, gy0 + 86, 62, 62);
+    lenMinus.setBounds (gx0 + 150, gy0 + 110, 22, 28);
+    lenPlus.setBounds (gx0 + 200, gy0 + 110, 22, 28);
     inventButton.setBounds (grooveCard.getX() + 12, grooveCard.getY() + 150, 104, 40);
     inventMenu.setBounds (grooveCard.getX() + 118, grooveCard.getY() + 150, 26, 40);
     mutateButton.setBounds (grooveCard.getX() + 150, grooveCard.getY() + 150, grooveCard.getWidth() - 162, 40);
@@ -1579,27 +1609,31 @@ void Content::resized()
     copyButton.setBounds (grooveCard.getX() + 16 + third, grooveCard.getY() + 198, third, 32);
     pasteButton.setBounds (grooveCard.getX() + 20 + 2 * third, grooveCard.getY() + 198, third, 32);
 
-    // Secuenciador: modos a la izquierda (2 columnas), pantalla y teclas a la derecha
+    // Secuenciador: 4 vistas arriba, AUTO FILL a la izquierda, pantalla y teclas a la derecha
     const int sx = seqCard.getX(), sy = seqCard.getY();
     for (int i = 0; i < modeButtons.size(); ++i)
-        modeButtons[i]->setBounds (sx + 12 + (i % 2) * 62, sy + 46 + (i / 2) * 31, 60, 29);
-    const int gx = sx + 142, gw = seqCard.getRight() - 14 - gx;
+        modeButtons[i]->setBounds (sx + 300 + i * 92, sy + 10, 88, 30);
+    fillCard = { sx + 12, sy + 46, 128, 188 };
+    fillEvery->setBounds (fillCard.getX() + 6, fillCard.getY() + 22, fillCard.getWidth() - 12, 46);
+    fillStyle->setBounds (fillCard.getX() + 6, fillCard.getY() + 70, fillCard.getWidth() - 12, 46);
+    previewButton.setBounds (fillCard.getX() + 8, fillCard.getBottom() - 34, fillCard.getWidth() - 16, 28);
+    const int gx = sx + 152, gw = seqCard.getRight() - 14 - gx;
     lane.setBounds (gx, sy + 48, gw, 84);
     keys.setBounds (gx, sy + 138, gw, 96);
     lockChoice.setBounds (sx + 300, sy + 12, 200, 28);
-    midiButton.setBounds (sx + 638, sy + 10, 60, 30);
-    page1.setBounds (sx + 704, sy + 10, 52, 30);
-    page2.setBounds (sx + 758, sy + 10, 56, 30);
-    undoButton.setBounds (sx + 822, sy + 10, 34, 30);
-    redoButton.setBounds (sx + 858, sy + 10, 34, 30);
+    midiButton.setBounds (sx + 690, sy + 10, 64, 30);
+    page1.setBounds (sx + 760, sy + 10, 52, 30);
+    page2.setBounds (sx + 814, sy + 10, 56, 30);
+    undoButton.setBounds (sx + 878, sy + 10, 38, 30);
+    redoButton.setBounds (sx + 920, sy + 10, 38, 30);
     euclidButton.setBounds (sx + 898, sy + 10, 64, 30);
     for (int l = 0; l < kLanes; ++l)
     {
-        motionLaneButtons[l]->setBounds (sx + 300 + l * 38, sy + 10, 36, 30);
-        motionDest[l]->setBounds (sx + 458, sy + 12, 150, 26);
-        motionBars[l]->setBounds (sx + 614, sy + 12, 104, 26);
-        motionDepth[l]->setBounds (sx + 762, sy + 12, 54, 26);
-        motionCanvas[l]->setBounds (gx, sy + 48, gw, 150);
+        motionLaneButtons[l]->setBounds (gx + l * 38, sy + 48, 36, 28);
+        motionDest[l]->setBounds (gx + 160, sy + 49, 190, 26);
+        motionBars[l]->setBounds (gx + 356, sy + 49, 110, 26);
+        motionDepth[l]->setBounds (gx + 520, sy + 49, 120, 26);
+        motionCanvas[l]->setBounds (gx, sy + 80, gw, 118);
     }
     const int shw = (gw - 4 * 6) / 5;
     for (int sh = 0; sh < 5; ++sh) motionShapes[sh]->setBounds (gx + sh * (shw + 6), sy + 204, shw, 30);
@@ -1691,7 +1725,7 @@ void Content::paint (juce::Graphics& g)
 
     // Rótulos de la cabecera
     g.setColour (col::label);
-    drawSpaced (g, T ("PATRÓN"), { 640.0f, 22.0f, 120.0f, 14.0f }, labelFont (12.0f), 0.08f, juce::Justification::centredLeft);
+    drawSpaced (g, "PATTERN", { 640.0f, 22.0f, 120.0f, 14.0f }, labelFont (12.0f), 0.08f, juce::Justification::centredLeft);
     const int playingPattern = proc.engine.meters.pattern.load();
     const bool isPlaying = proc.engine.meters.playing.load();
     for (int i = 0; i < kPatterns; ++i)
@@ -1701,7 +1735,7 @@ void Content::paint (juce::Graphics& g)
     for (auto r : { trackCard, macroCard, masterCard, grooveCard, seqCard }) paint::card (g, r.toFloat());
     paint::violetWindow (g, window.toFloat());
     g.setColour (col::ink);
-    drawSpaced (g, "PISTAS", { (float) trackCard.getX() + 14.0f, (float) trackCard.getY() + 10.0f, 200.0f, 18.0f }, titleFont (12.0f), 0.16f,
+    drawSpaced (g, "TRACKS", { (float) trackCard.getX() + 14.0f, (float) trackCard.getY() + 10.0f, 200.0f, 18.0f }, titleFont (12.0f), 0.16f,
                 juce::Justification::centredLeft);
     drawSpaced (g, "MACROS", { (float) macroCard.getX() + 14.0f, (float) macroCard.getY() + 10.0f, 200.0f, 18.0f }, titleFont (12.0f), 0.16f,
                 juce::Justification::centredLeft);
@@ -1726,37 +1760,65 @@ void Content::paint (juce::Graphics& g)
     drawSpaced (g, "GROOVE", { (float) grooveCard.getX() + 26.0f, (float) grooveCard.getY() + 10.0f, 200.0f, 20.0f }, titleFont (12.0f), 0.16f,
                 juce::Justification::centredLeft);
     g.setColour (col::label);
-    drawSpaced (g, "LARGO", { (float) grooveCard.getX() + 108.0f, (float) grooveCard.getY() + 36.0f, 110.0f, 18.0f }, labelFont (12.0f), 0.08f,
+    drawSpaced (g, "LENGTH", { (float) grooveCard.getX() + 150.0f, (float) grooveCard.getY() + 90.0f, 72.0f, 18.0f }, labelFont (12.0f), 0.08f,
                 juce::Justification::centredLeft);
-    drawSpaced (g, "AZAR", { (float) grooveCard.getX() + 108.0f, (float) grooveCard.getY() + 90.0f, 110.0f, 18.0f }, labelFont (12.0f), 0.08f,
-                juce::Justification::centredLeft);
-    auto lenR = juce::Rectangle<float> ((float) grooveCard.getX() + 144.0f, (float) grooveCard.getY() + 56.0f, 40.0f, 32.0f);
-    paint::lcd (g, lenR, 6.0f);
-    paint::glowText (g, juce::String (proc.engine.bank.getLength (ctx.pattern(), t)), lenR, lcdFont (28.0f), juce::Justification::centred);
+    auto lenR = juce::Rectangle<float> ((float) grooveCard.getX() + 173.0f, (float) grooveCard.getY() + 110.0f, 26.0f, 28.0f);
+    paint::lcd (g, lenR, 5.0f);
+    paint::glowText (g, juce::String (proc.engine.bank.getLength (ctx.pattern(), t)), lenR, lcdFont (22.0f), juce::Justification::centred);
 
     // Secuenciador
     g.setColour (col::track (t));
     g.fillRoundedRectangle ((float) seqCard.getX() + 14.0f, (float) seqCard.getY() + 18.0f, 5.0f, 14.0f, 2.5f);
     g.setColour (col::ink);
-    drawSpaced (g, T ("SECUENCIA · ") + trackLabel (t), { (float) seqCard.getX() + 26.0f, (float) seqCard.getY() + 14.0f, 270.0f, 22.0f },
+    drawSpaced (g, T ("SEQUENCE · ") + trackLabel (t), { (float) seqCard.getX() + 26.0f, (float) seqCard.getY() + 14.0f, 270.0f, 22.0f },
                 titleFont (12.0f), 0.14f, juce::Justification::centredLeft);
     if (lane.getMode() == LaneMode::Motion)
     {
         g.setColour (col::label);
-        drawSpaced (g, "PROF.", { (float) seqCard.getX() + 724.0f, (float) seqCard.getY() + 14.0f, 40.0f, 22.0f }, labelFont (11.0f), 0.06f,
+        drawSpaced (g, "DEPTH", { (float) lane.getX() + 472.0f, (float) seqCard.getY() + 50.0f, 48.0f, 22.0f }, labelFont (11.0f), 0.06f,
                     juce::Justification::centredLeft);
     }
-    else if (lane.getMode() == LaneMode::Lock)
+    // AUTO FILL: compases del ciclo (el último es el fill) y el que suena ahora
+    g.setColour (juce::Colours::white.withAlpha (0.5f));
+    g.fillRoundedRectangle (fillCard.toFloat(), 12.0f);
+    g.setColour (kFillColour.darker (0.45f));
+    drawSpaced (g, "AUTO FILL", { (float) fillCard.getX() + 10.0f, (float) fillCard.getY() + 4.0f, 110.0f, 18.0f }, titleFont (11.0f), 0.1f,
+                juce::Justification::centredLeft);
     {
-        g.setColour (col::label);
-        g.setFont (textFont (12.0f));
-        g.drawText (T ("clic derecho: borrar"), juce::Rectangle<int> (seqCard.getX() + 506, seqCard.getY() + 12, 128, 28), juce::Justification::centredLeft);
+        static const int every[] = { 0, 2, 4, 8, 16 };
+        const int e = every[juce::jlimit (0, 4, (int) proc.value (P::Fill))];
+        const bool playing = proc.engine.meters.playing.load();
+        const int bar = proc.engine.meters.bar.load();
+        auto cells = juce::Rectangle<float> ((float) fillCard.getX() + 10.0f, (float) fillCard.getY() + 122.0f, (float) fillCard.getWidth() - 20.0f, 24.0f);
+        if (e == 0)
+        {
+            g.setColour (col::caption);
+            g.setFont (textFont (12.0f));
+            g.drawText ("no fills", cells, juce::Justification::centred);
+        }
+        else
+        {
+            const float cw = cells.getWidth() / (float) e;
+            for (int b = 0; b < e; ++b)
+            {
+                auto c = juce::Rectangle<float> (cells.getX() + cw * (float) b, cells.getY(), cw, cells.getHeight()).reduced (e > 8 ? 0.5f : 1.5f, 0.0f);
+                const bool isFill = b == e - 1, now = playing && bar % e == b;
+                g.setColour (now ? (isFill ? kFillColour : col::ink) : (isFill ? kFillColour.withAlpha (0.35f) : juce::Colours::white.withAlpha (0.8f)));
+                g.fillRoundedRectangle (c, 4.0f);
+                if (e <= 8)
+                {
+                    g.setColour (now ? juce::Colours::white : col::ink.withAlpha (0.7f));
+                    g.setFont (labelFont (11.0f));
+                    g.drawText (isFill ? juce::String ("F") : juce::String (b + 1), c, juce::Justification::centred);
+                }
+            }
+        }
     }
     // Fill sonando
     if (proc.engine.meters.fill.load())
     {
-        g.setColour (col::orange);
-        drawSpaced (g, "FILL", { (float) seqCard.getX() + 592.0f, (float) seqCard.getY() + 14.0f, 44.0f, 22.0f }, titleFont (11.0f), 0.1f,
+        g.setColour (kFillColour);
+        drawSpaced (g, "FILL", { (float) seqCard.getX() + 240.0f, (float) seqCard.getY() + 14.0f, 50.0f, 22.0f }, titleFont (11.0f), 0.1f,
                     juce::Justification::centredLeft);
     }
 }
@@ -1800,7 +1862,9 @@ void Content::timerCallback()
     undoButton.setEnabled (proc.canUndo());
     redoButton.setEnabled (proc.canRedo());
     const bool fillNow = m.fill.load();
-    if (fillNow != lastFill) { lastFill = fillNow; repaint (seqCard.withHeight (44)); }
+    if (fillNow != lastFill) { lastFill = fillNow; repaint (seqCard.withHeight (44)); lane.repaint(); }
+    if (m.bar.load() != lastBar) { lastBar = m.bar.load(); repaint (fillCard); }
+    if (previewButton.getToggleState() != proc.fillPreview.load()) previewButton.setToggleState (proc.fillPreview.load(), juce::dontSendNotification);
     const auto rev = proc.engine.bank.revision.load();
     if (rev != lastRevision)
     {
@@ -1811,11 +1875,9 @@ void Content::timerCallback()
     }
     // Patrones editados: avisamos al host (como mucho dos veces por segundo)
     if (stateDirty && blink % 15 == 0) { proc.notifyStateChanged(); stateDirty = false; }
-    randomButton.setButtonText (proc.value (P::RandomMode) < 0.5f ? "FIJO" : "VIVO");
     keyDisplay.refresh();
     if (proc.midiLearnParam() != shownLearn) { shownLearn = proc.midiLearnParam(); repaint (tube.expanded (0, 8)); }
     depthButton.setButtonText (proc.value (P::MacroDepth) > 0.5f ? "x2" : "x1");
-    seedBox.repaint();
     if (auto* pg = pages[currentPage]) pg->tick();
     disc.set (juce::jmax (m.outL.load(), m.outR.load()), m.limGr.load());
     repaint (juce::Rectangle<int> (636, 36, 270, 14));

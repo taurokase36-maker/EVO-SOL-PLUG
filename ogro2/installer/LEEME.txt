@@ -27,7 +27,15 @@ ESTADO: VERSIÓN 2.0 (todas las fases)
   las próximas versiones (y suena igual).
 - En el logo vas a ver un "2": así sabés cuál es cuál.
 
-QUÉ PROBAR EN ESTA VERSIÓN (fase 7)
+QUÉ PROBAR EN ESTA VERSIÓN (interfaz simple)
+1. CHORDS: ◀ ▶ en SOUND para pasar por los acordes de Orbhitz (o RANDOM). Después TONE
+   (LENGTH corto = stab, CUTOFF, DRIVE, REVERSE) y ENVELOPE (DECAY y SUSTAIN).
+2. AUTO FILL (izquierda de la secuencia): EVERY "Every 4 bars", STYLE ROLL / BREAK / BUILD /
+   RANDOM. PREVIEW muestra en naranja lo que agrega el fill; en play se marca el compás.
+3. Clic derecho en una tecla de paso: acento, repetir, glide, largo, octava, solo en fills...
+4. GROOVE (abajo a la izquierda): SWING, FEEL y AMOUNT. MORE abre el resto.
+
+QUÉ PROBAR DE LA FASE 7
 1. Presets: clic en el nombre del preset > sección "OGRO 2 · MINIMAL 127" (8 nuevos a
    127 BPM). Los 12 de la 1.0 siguen abajo.
 2. Salidas separadas: en otra pista de Ableton, "Audio From" > OGRO 2 > KICK (o la que

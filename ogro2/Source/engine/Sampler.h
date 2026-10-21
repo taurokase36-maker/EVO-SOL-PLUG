@@ -19,6 +19,8 @@ struct SampleParams
     bool ladder = true;
     float drive = 0.0f;
     float attackMs = 2.0f, sustain = 1.0f, releaseMs = 300.0f;
+    float decayMs = 0.0f;                // caída hasta el sustain (0 = la de siempre, ~23 ms)
+    float filterEnvMs = 300.0f;          // cuánto tarda en cerrarse la envolvente del filtro
     float gain = 1.0f;
 };
 
@@ -101,7 +103,7 @@ public:
             const SampleEntry& e = *v.e;
             const int ch = e.channels;
             const double baseInc = e.sampleRate / fs;
-            const float penvC = decayCoef (120.0f, fs), fenvC = decayCoef (300.0f, fs);
+            const float penvC = decayCoef (120.0f, fs), fenvC = decayCoef (v.p.filterEnvMs, fs);
             const float driveGain = 1.0f + v.p.drive * 8.0f, driveNorm = 1.0f / (1.0f + v.p.drive * 2.5f);
             for (int i = 0; i < n; ++i)
             {
@@ -122,7 +124,7 @@ public:
                 else if (v.p.sustain > 0.0f && ! v.releasing)
                 {
                     if ((v.gateLeft -= 1.0) <= 0.0) v.releasing = true;
-                    v.amp += 0.001f * (v.p.sustain - v.amp);
+                    v.amp += v.decK * (v.p.sustain - v.amp);
                 }
                 else v.amp *= v.relC;
                 v.penv *= penvC;
@@ -152,7 +154,7 @@ private:
         SampleParams p;
         bool active = false, attack = false, releasing = false, filterOn = false;
         double pos = 0.0, inc = 1.0, first = 0.0, last = 0.0, gateLeft = 0.0;
-        float amp = 0.0f, fenv = 0.0f, penv = 0.0f, gain = 1.0f, atkC = 0.1f, relC = 0.999f;
+        float amp = 0.0f, fenv = 0.0f, penv = 0.0f, gain = 1.0f, atkC = 0.1f, relC = 0.999f, decK = 0.001f;
         uint32_t age = 0;
         Svf fl, fr;
         Ladder ll, lr;
@@ -161,6 +163,7 @@ private:
     {
         v.atkC = 1.0f - (float) std::exp (-1.0 / (std::max (0.5f, v.p.attackMs) * 0.001 * fs));
         v.relC = decayCoef (std::max (5.0f, v.p.releaseMs), fs);
+        v.decK = v.p.decayMs > 0.0f ? 1.0f - decayCoef (std::max (5.0f, v.p.decayMs), fs) : 0.001f;
     }
     inline float sampleAt (const SampleEntry& e, int ch, int frame, int c) const noexcept
     {

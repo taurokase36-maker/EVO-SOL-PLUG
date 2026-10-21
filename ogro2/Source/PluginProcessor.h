@@ -12,7 +12,7 @@ class Ogro2Processor : public juce::AudioProcessor, private juce::Timer
 public:
     // Versión del formato del estado guardado (sesiones y presets). Subirla solo con migración.
     // 1: fase 1 · 2: fase 3 (tonalidad, melodía, texturas; migración con ParamDef::compat)
-    static constexpr int kStateVersion = 2;
+    static constexpr int kStateVersion = 3;
     // Salidas separadas: la principal + una por pista (10) + 2 reservadas para versiones 2.x
     static constexpr int kAuxOutputs = 12;
 
@@ -114,6 +114,7 @@ public:
     ogro2::Engine engine;
     std::atomic<int> selectedTrack { 0 };
     std::atomic<int> seqPage { 0 };      // vista del secuenciador: pasos 1-16 o 17-32
+    std::atomic<bool> fillPreview { false };   // PREVIEW de AUTO FILL: las teclas muestran el compás de fill
 
 private:
     static BusesProperties createBuses();

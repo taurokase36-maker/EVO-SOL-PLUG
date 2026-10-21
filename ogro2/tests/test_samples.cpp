@@ -269,6 +269,29 @@ int main()
         std::snprintf (buf, sizeof (buf), "sample Am7 en el grado III: suena %s%s", pcs[a.rootMidi % 12], analysisQualities()[(size_t) a.quality].c_str());
         all &= report ("acordes sample", a.rootMidi % 12 == 0 && rms (out, 0, out.size()) > 0.01, buf);
     }
+    // ---- 6b) ACORDES con sample: DECAY baja hasta el SUSTAIN; START / LENGTH / REVERSA ----
+    {
+        auto renderChord = [&] (float decay, float start, float length, bool reverse) {
+            Engine eng;
+            eng.bank.clearAll();
+            Step s; s.on = true; s.vel = 110; s.gate = 32;
+            eng.bank.set (0, Chord, 0, s);
+            eng.setSelectedSample (Engine::SlotChord, am);
+            auto v = defaults(); v[P::ChordSource] = 1;
+            v[(size_t) P::sound (Chord, 2)] = 1.0f;
+            v[(size_t) P::sound (Chord, 1)] = decay;
+            v[(size_t) P::track (Chord, P::EnvS)] = 0.2f;
+            v[P::ChordStart] = start; v[P::ChordLength] = length; v[P::ChordReverse] = reverse ? 1.0f : 0.0f;
+            return render (eng, v, kBar / 2);
+        };
+        const auto fast = renderChord (0.0f, 0.0f, 1.0f, false), slow = renderChord (0.8f, 0.0f, 1.0f, false);
+        const size_t at = (size_t) (0.15 * kFs);
+        const double rf = rms (fast, at, at + 2000), rs = rms (slow, at, at + 2000);
+        const auto cut = renderChord (0.0f, 0.0f, 0.05f, false);
+        const double tail = rms (cut, (size_t) (0.25 * kFs), (size_t) (0.3 * kFs));
+        std::snprintf (buf, sizeof (buf), "a 150 ms: DECAY corto %.4f, largo %.4f; LENGTH 5 %% calla despues (%.5f)", rf, rs, tail);
+        all &= report ("acordes envolvente", rs > rf * 1.5 && tail < 1e-4, buf);
+    }
 
     // ---- 7) Azar por paso (FIJO): repetible y usa más de un sample ----
     {

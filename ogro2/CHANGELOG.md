@@ -2,6 +2,44 @@
 
 Formato: cada fase del desarrollo suma una entrada. La versión publicada será la 2.0.0.
 
+## 2.0.0 (en desarrollo) — Interfaz simple (después de probar la 2.0.8)
+
+### Acordes: elegir un sonido y darle vida
+- Página CHORDS nueva: **SOUND** con ◀ ▶ y RANDOM recorre el sinte de OGRO y los 60 acordes
+  de Orbhitz (CHD); clic en la pantalla abre la lista entera. SHUFFLE cambia de acorde en
+  cada golpe y + SYNTH suma el sinte debajo.
+- **TONE**: START, LENGTH, CUTOFF, RESO, ENV, DRIVE y REVERSE del sample (con el sinte:
+  CUTOFF, RESO, ENV, DETUNE y CHORUS). **ENVELOPE**: ATTACK, DECAY, SUSTAIN y RELEASE; el
+  DECAY ahora sí lleva el sample hasta el SUSTAIN (antes caía siempre en ~23 ms) y la
+  envolvente del filtro sigue al DECAY. MIX y SENDS como en las otras pistas.
+- Fuera de la vista: tipos de acorde (m9, sus2...), modo, inversión, apertura, strum y
+  voice leading (los presets que los usan suenan igual).
+
+### Fills automáticos que se ven
+- Tarjeta **AUTO FILL** a la izquierda de la secuencia: EVERY (cada 2, 4, 8 o 16 compases),
+  STYLE (ROLL, BREAK, BUILD, RANDOM o CUSTOM = el patrón de fill / los pasos "Only in
+  fills" de antes), el compás que suena y PREVIEW: las teclas muestran en naranja lo que
+  agrega el fill. Mientras suena el fill también se ve.
+- Las sesiones de la 2.0.8 que tenían fills siguen con CUSTOM (suenan igual). Los presets
+  arrancan en ROLL.
+
+### Secuencia más simple
+- Solo 4 vistas: VELOCITY · NOTE · CHANCE · MOTION. LIGA, OCT, NUDGE, GATE, COND, P-LOCK,
+  RATCH y TIPO salen de la vista.
+- **Clic derecho en una tecla**: Accent, Repeat (x2-x4), Glide, Note length, Octave up/down,
+  Always / Only in fills / Never in fills / Every 2nd time, Clear step y Euclid rhythm.
+- MOTION: los carriles, el destino y el largo pasan adentro de la pantalla.
+
+### Groove, paneles y nombres en inglés
+- Tarjeta GROOVE: SWING, FEEL (plantilla), AMOUNT, LENGTH, INVENT, MUTATE, CLEAR/COPY/PASTE
+  y MORE (humanizar, swing por pista, polirritmos...). El azar FIJO/VIVO y la semilla
+  pasan al menú ≡.
+- Paneles: FX · MOD · ARRANGE · SCENES · MASTER.
+- Nombres de parámetros, pistas y listas en inglés (también los que ve Ableton). Los IDs no
+  cambian: las sesiones y automatizaciones guardadas siguen andando. Los macros (CALOR,
+  MOVIMIENTO, ESPACIO, CRUDEZA) quedan igual.
+- Estado versión 3.
+
 ## 2.0.0 (en desarrollo) — Fase 7: ruteo, MIDI y presets nuevos
 
 ### Salidas separadas

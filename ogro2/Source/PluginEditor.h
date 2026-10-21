@@ -25,11 +25,14 @@ public:
     void resized() override;
     void mouseDown (const juce::MouseEvent&) override;
     void setPage (int i) { showPage (i); } // para capturas y tests
-    void setSeqMode (int m) { setLaneMode ((LaneMode) m); }
+    // Vistas del secuenciador: 0 VELOCITY, 1 NOTE, 2 CHANCE, 3 MOTION
+    void setSeqMode (int m) { setLaneMode (kViews[juce::jlimit (0, 3, m)]); }
+    void setFillPreview (bool on) { proc.fillPreview = on; }
     void setInspectorTab (int t) { pages[0]->setTab (t); }
     void refreshNow() { timerCallback(); }
 
 private:
+    static constexpr LaneMode kViews[4] = { LaneMode::Vel, LaneMode::Note, LaneMode::Prob, LaneMode::Motion };
     enum PageId { PageTrack = 0, PageFx, PageMod, PageGroove, PageArrange, PageScenes, PageMaster, PageCount };
 
     void timerCallback() override;
@@ -73,9 +76,14 @@ private:
     std::unique_ptr<Knob> ceiling, volume;
 
     // Groove y secuenciador
-    std::unique_ptr<Knob> swing;
-    juce::TextButton randomButton { "FIJO" };
-    SeedBox seedBox { proc };
+    std::unique_ptr<Knob> swing, grooveAmt;
+    std::unique_ptr<Choice> feel;
+    juce::TextButton grooveMore { "MORE" };
+    // AUTO FILL (tarjeta a la izquierda del secuenciador)
+    std::unique_ptr<Choice> fillEvery, fillStyle;
+    juce::TextButton previewButton { "PREVIEW" };
+    juce::Rectangle<int> fillCard;
+    int lastBar = -1;
     bool stateDirty = false;
     juce::TextButton lenMinus { T ("−") }, lenPlus { "+" }, inventButton, inventMenu { T ("▾") }, mutateButton, clearButton, copyButton, pasteButton;
     juce::OwnedArray<juce::TextButton> modeButtons;

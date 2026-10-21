@@ -51,6 +51,7 @@ inline State convert (const std::vector<std::pair<std::string, float>>& old)
     for (auto& d : st.laneDst) d = -1;
     // Lo nuevo de OGRO 2 queda como sonaba antes (MODO TONAL apagado, acordes en paralelo...)
     for (size_t i = 0; i < defs.size(); ++i) if (defs[i].hasCompat()) st.values[i] = defs[i].compat;
+    st.values[P::FillStyle] = 1.0f;   // ROLL: la 1.0 no tenía fills; si se prenden, que se escuchen
     // Valores de la 1.0 que cambiaron de valor por defecto
     st.values[P::Tempo] = 124.0f;
     st.values[P::RandomMode] = 1.0f; // VIVO: el azar de la 1.0

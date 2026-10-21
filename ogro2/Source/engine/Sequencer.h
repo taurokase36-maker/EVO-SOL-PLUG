@@ -82,7 +82,7 @@ inline bool condRatio (int c, int& a, int& b)
 }
 inline std::string condLabel (int c)
 {
-    static const char* fixed[] = { "", "FILL", "!FILL", "PRE", "!PRE", "VEC", "!VEC", "1a", "!1a" };
+    static const char* fixed[] = { "", "FILL", "!FILL", "PRE", "!PRE", "NEI", "!NEI", "1st", "!1st" };
     int a = 0, b = 0;
     if (c >= 0 && c < CondRatioBase) return fixed[c];
     if (condRatio (c, a, b)) return std::to_string (a) + ":" + std::to_string (b);
@@ -97,6 +97,50 @@ inline std::string condName (int c)
     if (c >= 0 && c < CondRatioBase) return fixed[c];
     if (condRatio (c, a, b)) return "Vuelta " + std::to_string (a) + " de cada " + std::to_string (b);
     return "";
+}
+
+// Fills automáticos: cómo cambia cada paso en el compás de fill (q = paso dentro del compás, 0..15).
+// Estilo 0 = el de antes (condiciones FILL o tocar otro patrón entero).
+enum FillStyleId { FillPatternStyle = 0, FillRoll, FillBreak, FillBuild, FillRandom, FillStyleCount };
+inline Step fillStep (int style, int t, int q, Step st, uint32_t seed, int64_t bar)
+{
+    switch (style)
+    {
+        case FillRoll:   // redoble de clap y rim al final, hats al doble, el bombo respira
+            if (q >= 12)
+            {
+                if (t == Clap || t == Rim) { st.on = true; st.ratchet = std::min (4, q - 10); st.vel = 70 + (q - 12) * 16; st.prob = 100; st.cond = 0; }
+                else if (t == HatC) { st.on = true; st.ratchet = 2; st.vel = std::max (st.vel, 80); st.prob = 100; }
+                else if (t == HatO) st.on = false;
+                else if (t == Kick && q == 14) st.on = false;
+            }
+            break;
+        case FillBreak:  // la segunda mitad se vacía: sin bombo ni bajo, un acorde largo y un clap al final
+            if (q >= 8)
+            {
+                if (t == Kick || t == Bass || t == HatO) st.on = false;
+                else if (t == Clap) { st.on = q == 15; st.vel = 120; st.ratchet = 1; st.prob = 100; }
+                else if (t == Chord) { st.on = q == 8; st.gate = 40; st.prob = 100; }
+                else if (t == Melody || t == Texture) st.on = st.on && q < 12;
+            }
+            break;
+        case FillBuild:  // sube: hats cada vez más fuertes, claps cada vez más seguidos
+            if (t == HatC) { st.on = true; st.vel = 50 + q * 4; st.ratchet = q >= 12 ? 2 : 1; st.prob = 100; }
+            else if (t == Clap && q >= 8) { st.on = (q % 2 == 0) || q >= 12; st.vel = 70 + q * 3; st.ratchet = q >= 14 ? 2 : 1; st.prob = 100; }
+            else if (t == Perc && q >= 12) { st.on = true; st.ratchet = 3; st.vel = 90; st.prob = 100; }
+            else if (t == Kick && q >= 14) { st.on = true; st.vel = 110; }
+            break;
+        case FillRandom: // golpes fantasma y repeticiones al azar (de la semilla: se repite igual)
+            if (t <= Perc && t != Kick)
+            {
+                const uint32_t h = hash32 (seed, 0xF111u + (uint32_t) t, (uint32_t) q, (uint32_t) bar);
+                if (! st.on && h % 100u < 14u) { st.on = true; st.vel = 55 + (int) ((h >> 8) % 50u); st.prob = 100; }
+                if (st.on && (h >> 16) % 100u < 18u) st.ratchet = 2 + (int) ((h >> 24) % 2u);
+            }
+            break;
+        default: break;
+    }
+    return st;
 }
 
 // P-lock: valor propio de una perilla en un paso (índice de parámetro + valor normalizado)
@@ -463,7 +507,8 @@ public:
     void setTrackSwing (int t, bool own, float amt) { trackSwingOwn[clampv (t, 0, kTracks - 1)] = own; trackSwing[clampv (t, 0, kTracks - 1)] = clampv (amt, 0.5f, 0.75f); }
     void setGroove (int type, float amount, float humanizeMs) { groove = type; grooveAmt = clampv (amount, 0.0f, 1.0f); humanize = std::max (0.0f, humanizeMs); }
     void setPatternMode (int change, bool continuousPoly, bool chainOn) { patChange = change; polyContinuous = continuousPoly; chain = chainOn; }
-    void setFill (int everyBars, int fillPattern) { fillEvery = everyBars; fillPat = fillPattern; }
+    void setFill (int everyBars, int fillPattern, int style = FillPatternStyle) { fillEvery = everyBars; fillPat = fillPattern; fillStyle = style; }
+    int64_t currentBar() const { return curBar; }
     void setBarFx (int everyBars, int lenSteps) { bfxEvery = everyBars; bfxLen = clampv (lenSteps, 1, 4); }
     void requestPattern (int p) { wantedPattern = clampv (p, 0, kPatterns - 1); }
     // Secuenciador interno apagado: el reloj sigue (posición, fills, FX de fin de compás) pero
@@ -586,7 +631,7 @@ private:
             if (bar % fillEvery == fillEvery - 1)
             {
                 sl.fill = true;
-                if (fillPat > 0) { sl.pattern = fillPat - 1; sl.startK = bar * 16; }
+                if (fillStyle == FillPatternStyle && fillPat > 0) { sl.pattern = fillPat - 1; sl.startK = bar * 16; }
             }
         }
         return sl;
@@ -656,7 +701,7 @@ private:
                 }
             }
             const Slot sl = slotFor (k, bank);
-            if (kpos >= start && kpos < end) { lastFill = sl.fill; playing = sl.pattern; }
+            if (kpos >= start && kpos < end) { lastFill = sl.fill; playing = sl.pattern; curBar = k / 16; }
             const int64_t relK = relative (k, sl.startK);
             double gOffset = 0.0; float gVel = 1.0f;
             grooveFor (k, gOffset, gVel);
@@ -666,7 +711,8 @@ private:
                 const int len = bank.getLength (sl.pattern, t);
                 const int64_t pos = polyContinuous ? k : relK;
                 const int s = (int) (pos % len);
-                const Step st = bank.get (sl.pattern, t, s);
+                Step st = bank.get (sl.pattern, t, s);
+                if (sl.fill && fillStyle != FillPatternStyle) st = fillStep (fillStyle, t, (int) (k % 16), st, seed, k / 16);
                 float sw = trackSwingOwn[t] ? trackSwing[t] : swing;
                 if (groove == 2) sw = 0.5f + std::round ((sw - 0.5f) * 24.0f) / 24.0f;   // 909: el swing va en saltos
                 const double swingOffset = odd ? (sw - 0.5) * 2.0 * stepLen : 0.0;
@@ -772,7 +818,8 @@ private:
     float grooveAmt = 1.0f, humanize = 0.0f;
     int patChange = ChangeAtBar;
     bool polyContinuous = false, chain = false;
-    int fillEvery = 0, fillPat = 0, bfxEvery = 0, bfxLen = 2;
+    int fillEvery = 0, fillPat = 0, fillStyle = FillPatternStyle, bfxEvery = 0, bfxLen = 2;
+    int64_t curBar = 0;
     bool fixedRandom = true, enabled = true;
     uint32_t seed = 1;
     int wantedPattern = 0, curPattern = -1, playing = -1;

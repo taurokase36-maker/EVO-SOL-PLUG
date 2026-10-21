@@ -19,7 +19,7 @@ enum Track : int { Kick = 0, Clap, Rim, HatC, HatO, Perc, Bass, Chord, Melody, T
 
 inline const char* trackName (int t)
 {
-    static const char* names[] = { "KICK", "CLAP", "RIM", "HAT C", "HAT A", "PERC", "BAJO", "ACORDES", "MELODIA", "TEXTURAS" };
+    static const char* names[] = { "KICK", "CLAP", "RIM", "HAT C", "HAT O", "PERC", "BASS", "CHORDS", "MELODY", "TEXTURES" };
     return names[clampv (t, 0, kTracks - 1)];
 }
 
@@ -68,8 +68,8 @@ constexpr int kChordTypes = 23;
 constexpr int kMaxChordNotes = 6;
 inline const std::vector<std::string>& chordTypeNames()
 {
-    static const std::vector<std::string> n { "m7", "m9", "m11", "maj7", "maj9", "9", "sus7", "5ta+8va",
-                                              "m", "M", "m6", "add9", "m add9", "sus2", "sus4", "Cuartas",
+    static const std::vector<std::string> n { "m7", "m9", "m11", "maj7", "maj9", "9", "sus7", "5th+8va",
+                                              "m", "M", "m6", "add9", "m add9", "sus2", "sus4", "Fourths",
                                               "m9 Detroit", "m11 Detroit", "6/9", "7", "dim", "m7b5", "maj7#11" };
     return n;
 }
@@ -132,7 +132,7 @@ inline const int* chordDegrees (int i, int& count)
 // Escalas (la lista solo crece al final)
 inline const std::vector<std::string>& scaleNames()
 {
-    static const std::vector<std::string> n { "Menor", "Dorica", "Frigia", "Menor armonica", "Mayor", "Mixolidia", "Pentatonica menor" };
+    static const std::vector<std::string> n { "Minor", "Dorian", "Phrygian", "Harmonic minor", "Major", "Mixolydian", "Minor pentatonic" };
     return n;
 }
 inline const int* scaleSteps (int i, int& count)
@@ -186,34 +186,34 @@ inline ParamInfo soundParamInfo (int t, int p)
 {
     static const ParamInfo tab[kTracks][kSoundParams] = {
         // KICK
-        { { "TONO", 0.38f }, { "DECAY", 0.45f }, { "PUNCH", 0.5f }, { "CURVA", 0.35f },
-          { "CLICK", 0.35f }, { "DRIVE", 0.35f }, { "COLOR", 0.6f }, { "VARIA", 0.2f } },
+        { { "TONE", 0.38f }, { "DECAY", 0.45f }, { "PUNCH", 0.5f }, { "CURVE", 0.35f },
+          { "CLICK", 0.35f }, { "DRIVE", 0.35f }, { "COLOR", 0.6f }, { "VARY", 0.2f } },
         // CLAP
-        { { "TONO", 0.45f }, { "DECAY", 0.35f }, { "SPREAD", 0.4f }, { "GOLPES", 0.5f },
-          { "GRANO", 0.4f }, { "DRIVE", 0.3f }, { "ROOM", 0.3f }, { "VARIA", 0.25f } },
+        { { "TONE", 0.45f }, { "DECAY", 0.35f }, { "SPREAD", 0.4f }, { "HITS", 0.5f },
+          { "GRAIN", 0.4f }, { "DRIVE", 0.3f }, { "ROOM", 0.3f }, { "VARY", 0.25f } },
         // RIM
-        { { "TONO", 0.5f }, { "DECAY", 0.2f }, { "RUIDO", 0.15f }, { "CUERPO", 0.5f },
-          { "CLICK", 0.6f }, { "DRIVE", 0.4f }, { "BRILLO", 0.5f }, { "VARIA", 0.2f } },
+        { { "TONE", 0.5f }, { "DECAY", 0.2f }, { "NOISE", 0.15f }, { "BODY", 0.5f },
+          { "CLICK", 0.6f }, { "DRIVE", 0.4f }, { "BRIGHT", 0.5f }, { "VARY", 0.2f } },
         // HAT C
-        { { "TONO", 0.5f }, { "DECAY", 0.25f }, { "METAL", 0.6f }, { "FILTRO", 0.5f },
-          { "RESO", 0.3f }, { "DRIVE", 0.3f }, { "AIRE", 0.4f }, { "VARIA", 0.3f } },
-        // HAT A
-        { { "TONO", 0.5f }, { "DECAY", 0.35f }, { "METAL", 0.6f }, { "FILTRO", 0.45f },
-          { "RESO", 0.3f }, { "DRIVE", 0.3f }, { "AIRE", 0.4f }, { "VARIA", 0.25f } },
+        { { "TONE", 0.5f }, { "DECAY", 0.25f }, { "METAL", 0.6f }, { "FILTER", 0.5f },
+          { "RESO", 0.3f }, { "DRIVE", 0.3f }, { "AIR", 0.4f }, { "VARY", 0.3f } },
+        // HAT O
+        { { "TONE", 0.5f }, { "DECAY", 0.35f }, { "METAL", 0.6f }, { "FILTER", 0.45f },
+          { "RESO", 0.3f }, { "DRIVE", 0.3f }, { "AIR", 0.4f }, { "VARY", 0.25f } },
         // PERC
-        { { "TONO", 0.35f }, { "DECAY", 0.3f }, { "FM", 0.25f }, { "RATIO", 0.3f },
-          { "PITCH", 0.3f }, { "DRIVE", 0.25f }, { "RUIDO", 0.15f }, { "VARIA", 0.25f } },
-        // BAJO
-        { { "OCTAVA", 0.375f }, { "DECAY", 0.35f }, { "CORTE", 0.3f }, { "RESO", 0.35f },
-          { "ENV", 0.45f }, { "DRIVE", 0.35f }, { "ONDA", 0.2f }, { "GLIDE", 0.25f } },
-        // ACORDES
-        { { "TIPO", 0.1875f }, { "DECAY", 0.35f }, { "CORTE", 0.45f }, { "RESO", 0.2f },
-          { "ENV", 0.4f }, { "DETUNE", 0.35f }, { "CHORUS", 0.5f }, { "ATAQUE", 0.05f } },
-        // MELODIA
-        { { "MODELO", 0.0f }, { "DECAY", 0.4f }, { "CORTE", 0.55f }, { "RESO", 0.2f },
+        { { "TONE", 0.35f }, { "DECAY", 0.3f }, { "FM", 0.25f }, { "RATIO", 0.3f },
+          { "PITCH", 0.3f }, { "DRIVE", 0.25f }, { "NOISE", 0.15f }, { "VARY", 0.25f } },
+        // BASS
+        { { "OCTAVE", 0.375f }, { "DECAY", 0.35f }, { "CUTOFF", 0.3f }, { "RESO", 0.35f },
+          { "ENV", 0.45f }, { "DRIVE", 0.35f }, { "WAVE", 0.2f }, { "GLIDE", 0.25f } },
+        // CHORDS
+        { { "TYPE", 0.1875f }, { "DECAY", 0.35f }, { "CUTOFF", 0.45f }, { "RESO", 0.2f },
+          { "ENV", 0.4f }, { "DETUNE", 0.35f }, { "CHORUS", 0.5f }, { "ATTACK", 0.05f } },
+        // MELODY
+        { { "MODEL", 0.0f }, { "DECAY", 0.4f }, { "CUTOFF", 0.55f }, { "RESO", 0.2f },
           { "ENV", 0.4f }, { "TIMBRE", 0.4f }, { "VIBRATO", 0.15f }, { "GLIDE", 0.2f } },
-        // TEXTURAS (samples)
-        { { "INICIO", 0.0f }, { "LARGO", 1.0f }, { "PITCH", 0.5f }, { "CORTE", 1.0f },
+        // TEXTURES (samples)
+        { { "START", 0.0f }, { "LENGTH", 1.0f }, { "PITCH", 0.5f }, { "CUTOFF", 1.0f },
           { "RESO", 0.1f }, { "ENV", 0.0f }, { "DRIVE", 0.0f }, { "P.ENV", 0.5f } },
     };
     return tab[clampv (t, 0, kTracks - 1)][clampv (p, 0, kSoundParams - 1)];
@@ -287,7 +287,7 @@ namespace maps
 // Modelos de la voz de melodía (la lista solo crece al final)
 inline const std::vector<std::string>& melodyModelNames()
 {
-    static const std::vector<std::string> n { "Pluck", "Lead", "Campana", "Organo" };
+    static const std::vector<std::string> n { "Pluck", "Lead", "Bell", "Organ" };
     return n;
 }
 
@@ -352,7 +352,7 @@ inline std::string describeSound (int t, int p, float n)
                 case 1: return fmtMs (synthDecay (n));
                 case 2: return fmtHz (bassCut (n));
                 case 4: return fmt ("%.1f oct", envOct (n));
-                case 6: return n < 0.34f ? "SIERRA" : (n < 0.67f ? "CUADRADA" : "SUB");
+                case 6: return n < 0.34f ? "SAW" : (n < 0.67f ? "SQUARE" : "SUB");
                 case 7: return fmtMs (glideMs (n));
                 default: return fmtPct (n);
             }

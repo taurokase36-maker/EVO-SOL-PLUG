@@ -125,7 +125,7 @@ int main()
         eng.bank.set (0, Rim, 0, f);
         eng.bank.set (0, Clap, 0, nf);
         auto v = defaults();
-        v[P::Fill] = 2; v[P::FillPat] = 0;
+        v[P::Fill] = 2; v[P::FillPat] = 0; v[P::FillStyle] = FillPatternStyle;
         const auto r = run (eng, v, kBar * 8);
         const bool ok = barsOf (r.trig[Rim]) == std::set<int> { 3, 7 } && barsOf (r.trig[Clap]) == std::set<int> { 0, 1, 2, 4, 5, 6 };
         all &= report ("fill", ok, "FILL en " + list (barsOf (r.trig[Rim])) + ", !FILL en " + list (barsOf (r.trig[Clap])));
@@ -138,6 +138,65 @@ int main()
         const auto r2 = run (e2, v, kBar * 8);
         const bool ok2 = barsOf (r2.trig[Rim]) == std::set<int> { 0, 1, 2, 4, 5, 6 } && barsOf (r2.trig[Clap]) == std::set<int> { 3, 7 };
         all &= report ("fill", ok2, "patron B como fill: A en " + list (barsOf (r2.trig[Rim])) + ", B en " + list (barsOf (r2.trig[Clap])));
+    }
+
+    // ---- 2b) Fills automáticos: cada estilo cambia solo el compás de fill ----
+    {
+        auto groove = [] (Engine& e)
+        {
+            e.bank.clearAll();
+            for (int q = 0; q < 16; q += 4) e.bank.set (0, Kick, q, hit());
+            for (int q = 2; q < 16; q += 4) e.bank.set (0, HatC, q, hit (80));
+            e.bank.set (0, Clap, 4, hit()); e.bank.set (0, Clap, 12, hit());
+        };
+        auto inBar = [] (const std::vector<int64_t>& t, int bar, int fromStep, int toStep)
+        {
+            int n = 0;
+            for (auto s : t)
+            {
+                const int64_t k = (s + kStep / 2) / kStep;
+                n += k >= bar * 16 + fromStep && k < bar * 16 + toStep;
+            }
+            return n;
+        };
+        auto v = defaults();
+        v[P::Fill] = 2;
+        Run byStyle[FillStyleCount];
+        for (int st = 0; st < FillStyleCount; ++st)
+        {
+            Engine e; groove (e);
+            v[P::FillStyle] = (float) st;
+            byStyle[st] = run (e, v, kBar * 4);
+        }
+        const auto& plain = byStyle[FillPatternStyle];
+        bool same = true;   // los compases 0-2 no cambian con ningún estilo
+        for (int st = 1; st < FillStyleCount; ++st) same &= maxDiff (plain, byStyle[st], 0, kBar * 3 - kStep) < 1e-6;
+        all &= report ("autofill", same, "los compases que no son fill suenan igual con los 5 estilos");
+
+        const auto& roll = byStyle[FillRoll];
+        const bool okRoll = inBar (roll.trig[Clap], 3, 12, 16) > inBar (plain.trig[Clap], 3, 12, 16) + 4;
+        std::snprintf (buf, sizeof (buf), "ROLL: claps en el último cuarto %d (sin fill %d)", inBar (roll.trig[Clap], 3, 12, 16), inBar (plain.trig[Clap], 3, 12, 16));
+        all &= report ("autofill", okRoll, buf);
+
+        const auto& brk = byStyle[FillBreak];
+        const bool okBreak = inBar (brk.trig[Kick], 3, 8, 16) == 0 && inBar (brk.trig[Kick], 3, 0, 8) == 2;
+        std::snprintf (buf, sizeof (buf), "BREAK: bombos en la 2a mitad %d, en la 1a %d", inBar (brk.trig[Kick], 3, 8, 16), inBar (brk.trig[Kick], 3, 0, 8));
+        all &= report ("autofill", okBreak, buf);
+
+        const auto& bld = byStyle[FillBuild];
+        const bool okBuild = inBar (bld.trig[HatC], 3, 0, 16) >= 16 && inBar (bld.trig[Clap], 3, 8, 16) > 2;
+        std::snprintf (buf, sizeof (buf), "BUILD: hats %d en el compás, claps en la 2a mitad %d", inBar (bld.trig[HatC], 3, 0, 16), inBar (bld.trig[Clap], 3, 8, 16));
+        all &= report ("autofill", okBuild, buf);
+
+        Engine e; groove (e);
+        v[P::FillStyle] = FillRandom;
+        const auto again = run (e, v, kBar * 4);
+        const auto& rnd = byStyle[FillRandom];
+        int extra = 0;
+        for (int t = 0; t <= Perc; ++t) extra += inBar (rnd.trig[t], 3, 0, 16) - inBar (plain.trig[t], 3, 0, 16);
+        const bool okRnd = maxDiff (rnd, again, 0, kBar * 4) < 1e-6 && extra > 0;
+        std::snprintf (buf, sizeof (buf), "RANDOM: %d golpes de más y se repite igual con la misma semilla", extra);
+        all &= report ("autofill", okRnd, buf);
     }
 
     // ---- 3) PRE: suena solo si el paso anterior con probabilidad sonó ----

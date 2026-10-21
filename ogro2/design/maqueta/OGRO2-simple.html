@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>OGRO 2 · maqueta simple</title>
+<style>
+@font-face{font-family:Michroma;src:url(../../Resources/fonts/MichromaRegular.ttf)}
+@font-face{font-family:SG;src:url(../../Resources/fonts/SpaceGroteskMedium.ttf);font-weight:500}
+@font-face{font-family:SG;src:url(../../Resources/fonts/SpaceGroteskBold.ttf);font-weight:700}
+@font-face{font-family:VT;src:url(../../Resources/fonts/VT323Regular.ttf)}
+*{box-sizing:border-box}
+body{margin:0;background:#07060A;font-family:SG,sans-serif}
+.screen{width:1280px;height:820px;padding:12px;position:relative;overflow:hidden;background:#07060A}
+.chassis{position:absolute;inset:12px;border-radius:22px;background-color:#E9E3D6;
+  background-image:linear-gradient(rgba(0,0,0,.045) 1px,transparent 1px),linear-gradient(90deg,rgba(0,0,0,.045) 1px,transparent 1px);background-size:12px 12px}
+.abs{position:absolute}
+.card{position:absolute;background:#E3DDD0;border-radius:14px;box-shadow:inset 0 1px 3px rgba(0,0,0,.14),0 1px 0 rgba(255,255,255,.85)}
+.title{font-family:Michroma;font-size:12px;letter-spacing:.16em;color:#1E1A24}
+.lbl{font-size:12px;font-weight:700;letter-spacing:.08em;color:#2A2531;text-transform:uppercase}
+.cap{font-size:12px;color:#6E6878}
+.phos{background:#121807;border-radius:8px;box-shadow:inset 0 3px 10px rgba(0,0,0,.85),inset 0 0 0 1px rgba(216,245,90,.1);font-family:VT;color:#D8F55A;text-shadow:0 0 6px rgba(216,245,90,.5);display:flex;align-items:center;justify-content:center}
+.key{position:absolute;border-radius:7px;font-weight:700;font-size:12px;letter-spacing:.05em;color:#1E1A24;display:flex;align-items:center;justify-content:center;
+  background:linear-gradient(#F7F3EA,#E2DACB);box-shadow:0 2px 0 rgba(0,0,0,.22),inset 0 1px 0 rgba(255,255,255,.8)}
+.key.blue{background:linear-gradient(#D9E4F2,#B7C8DE)}
+.key.orange{background:linear-gradient(#F6AD6A,#E58A3F);color:#2A1408}
+.key.on{background:linear-gradient(#2A2531,#17131D);color:#fff;box-shadow:inset 0 2px 3px rgba(0,0,0,.5)}
+.key.violet{background:linear-gradient(#7C52F2,#5A2FD6);color:#fff}
+.violet{position:absolute;background:linear-gradient(165deg,rgba(84,44,184,.96),rgba(44,16,108,.97));border:1px solid rgba(200,174,255,.5);border-radius:18px;box-shadow:0 12px 32px rgba(70,30,180,.32),inset 0 1px 0 rgba(255,255,255,.22)}
+.vcard{position:absolute;background:rgba(18,6,46,.42);border:1px solid rgba(200,174,255,.18);border-radius:12px}
+.vlbl{font-size:12px;font-weight:700;letter-spacing:.08em;color:#F3EDFF;text-transform:uppercase}
+.vval{font-size:12px;color:#CDBEFF}
+.copper{position:absolute;border-radius:8px;background:linear-gradient(180deg,#F8D0A3 0,#E2945A 22%,#B6622C 55%,#7A3913 82%,#DA8C50 100%)}
+.led{position:absolute;width:10px;height:7px;border-radius:2px;background:#5D5A4E}
+.led.g{background:#A8F04A;box-shadow:0 0 6px #A8F04A}
+.led.o{background:#FF9A3C;box-shadow:0 0 6px #FF9A3C}
+.note{position:absolute;padding:6px 10px;border-radius:9px;background:#FFF7C9;border:1px solid #E3C75C;font-size:12.5px;line-height:1.35;color:#3A3020;box-shadow:0 4px 10px rgba(0,0,0,.18);z-index:20}
+.note b{color:#7A3913}
+.menu{position:absolute;background:#2A1E4C;border:1px solid #8A6CF0;border-radius:8px;box-shadow:0 10px 30px rgba(0,0,0,.45);padding:6px 0;z-index:30;color:#EDE6FF;font-size:13px}
+.menu .it{padding:5px 16px;white-space:nowrap}
+.menu .sec{padding:6px 16px 3px;font-size:11px;letter-spacing:.12em;color:#A893E8}
+.menu .it.sel{background:#5A2FD6}
+.menu .sep{height:1px;background:rgba(200,174,255,.25);margin:5px 0}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+const P = new URLSearchParams (location.search);
+const SCREEN = P.get ('s') || '1';
+const root = document.getElementById ('root');
+function el (parent, cls, style, html) { const d = document.createElement ('div'); if (cls) d.className = cls; Object.assign (d.style, style || {}); if (html !== undefined) d.innerHTML = html; parent.appendChild (d); return d; }
+function px (o) { const r = {}; for (const k in o) r[k] = typeof o[k] === 'number' ? o[k] + 'px' : o[k]; return r; }
+// Perilla cromada con aro de valor (v: 0..1)
+function knob (p, x, y, size, label, value, v, theme, ring) {
+  const violet = theme !== 'cream';
+  const c = el (p, 'abs', px ({ left: x, top: y, width: size + 24, height: size + 44 }));
+  el (c, violet ? 'vlbl' : 'lbl', px ({ position: 'absolute', left: 0, right: 0, top: 0, textAlign: 'center' }), label);
+  const k = el (c, 'abs', px ({ left: 12, top: 18, width: size, height: size }));
+  const a0 = -135, a1 = a0 + 270 * v;
+  el (k, 'abs', px ({ inset: -6, borderRadius: '50%', background: `conic-gradient(from ${a0}deg, ${ring || (violet ? '#B48CFF' : '#6B3FF0')} 0deg ${270 * v}deg, ${violet ? 'rgba(255,255,255,.13)' : 'rgba(30,26,36,.13)'} ${270 * v}deg 270deg, transparent 270deg)`,
+    WebkitMask: 'radial-gradient(circle, transparent 62%, #000 63%)' }));
+  const body = el (k, 'abs', px ({ inset: 4, borderRadius: '50%', background: 'radial-gradient(circle at 34% 28%,#FFF 0,#EFEFF4 13%,#BBBBC6 36%,#6C6C7A 64%,#2B2B35 100%)', boxShadow: '0 4px 7px rgba(0,0,0,.42)' }));
+  el (body, 'abs', px ({ left: '50%', top: 4, width: 3, height: (size - 8) / 2 - 4, marginLeft: -1.5, background: '#17131D', borderRadius: 2, transformOrigin: '50% 100%', transform: `rotate(${a1}deg)` }));
+  el (c, violet ? 'vval' : 'cap', px ({ position: 'absolute', left: 0, right: 0, top: size + 26, textAlign: 'center' }), value);
+  return c;
+}
+function key (p, x, y, w, h, text, cls, extra) { const k = el (p, 'key ' + (cls || ''), px (Object.assign ({ left: x, top: y, width: w, height: h }, extra || {})), text); return k; }
+function phos (p, x, y, w, h, text, size) { return el (p, 'phos abs', px ({ left: x, top: y, width: w, height: h, fontSize: size || 24 }), text); }
+function note (p, x, y, w, html) { return el (p, 'note', px ({ left: x, top: y, width: w }), html); }
+
+const scr = el (root, 'screen');
+el (scr, 'chassis');
+
+// ── Cabecera ──
+const logo = el (scr, 'abs', px ({ left: 38, top: 24, width: 204, height: 58, borderRadius: 12, background: 'linear-gradient(#1f3b70,#3e679c 55%,#6e9bc4)' }));
+el (logo, 'abs', px ({ left: 12, top: 8, fontFamily: 'Michroma', fontSize: 34, color: '#EEF0F6', textShadow: '0 2px 0 rgba(0,0,0,.5)' }), 'OGRO');
+el (logo, 'abs', px ({ left: 178, top: 6, fontFamily: 'Michroma', fontSize: 20, color: '#EEF0F6' }), '2');
+el (scr, 'abs cap', px ({ left: 40, top: 86, fontSize: 10, letterSpacing: '.2em' }), 'EVO THE SUN · GROOVEBOX &nbsp; v2.1');
+key (scr, 268, 35, 32, 50, '‹'); key (scr, 540, 35, 32, 50, '›'); key (scr, 576, 35, 40, 50, '≡');
+const pd = phos (scr, 304, 32, 232, 56, '', 26);
+pd.style.flexDirection = 'column'; pd.innerHTML = '<div style="font-size:28px">MADRUGADA</div><div style="font-size:16px;color:#93AD36;text-shadow:none">minimal 127 · hipnótico</div>';
+el (scr, 'abs lbl', px ({ left: 640, top: 22 }), 'PATTERN');
+'ABCDEFGH'.split ('').forEach ((c, i) => { key (scr, 640 + i * 33, 52, 31, 33, c, i === 0 ? 'violet' : ((i >> 1) % 2 ? '' : 'blue')); el (scr, 'led ' + (i === 0 ? 'g' : ''), px ({ left: 650 + i * 33, top: 40 })); });
+el (scr, 'abs', px ({ left: 920, top: 28, width: 66, height: 66, borderRadius: '50%', background: 'radial-gradient(circle at 40% 35%,#C7B3FF,#7A4DF2 45%,#3B1A9E)', boxShadow: '0 0 18px rgba(122,77,242,.7)' }), '<div style="position:absolute;left:26px;top:20px;width:0;height:0;border-left:20px solid #fff;border-top:13px solid transparent;border-bottom:13px solid transparent"></div>');
+const bpm = phos (scr, 994, 36, 124, 52, '', 30); bpm.style.flexDirection = 'column'; bpm.innerHTML = '<div style="font-size:34px">127.0</div><div style="font-size:14px;color:#93AD36;text-shadow:none">BPM · ABLETON</div>';
+el (scr, 'abs lbl', px ({ left: 1134, top: 22 }), 'KEY');
+phos (scr, 1134, 40, 116, 48, 'B minor', 24);
+el (scr, 'copper', px ({ left: 28, top: 108, width: 1224, height: 16 }));
+
+// ── Pistas ──
+const trk = el (scr, 'card', px ({ left: 28, top: 138, width: 232, height: 398 }));
+el (trk, 'abs title', px ({ left: 14, top: 10 }), 'TRACKS');
+const names = ['KICK', 'CLAP', 'RIM', 'HAT C', 'HAT O', 'PERC', 'BASS', 'CHORDS', 'MELODY', 'TEXTURES'];
+const cols = ['#e0533b', '#f08a3c', '#e8b730', '#7fa8d1', '#5e8cc0', '#4fb08c', '#b48cff', '#e58fd0', '#5ec4e8', '#b59e6a'];
+names.forEach ((n, i) => {
+  const sel = i === 7;
+  const r = el (trk, 'abs', px ({ left: 8, top: 34 + i * 36, width: 216, height: 33, borderRadius: 9, background: sel ? 'linear-gradient(#3A1B8E,#2A1170)' : 'rgba(255,255,255,.55)' }));
+  el (r, 'abs', px ({ left: 10, top: 12, width: 9, height: 9, borderRadius: '50%', background: sel ? '#5A3BC0' : '#7A7769' }));
+  el (r, 'abs', px ({ left: 25, top: 9, width: 4, height: 16, borderRadius: 2, background: cols[i] }));
+  el (r, 'abs', px ({ left: 36, top: 8, fontWeight: 700, fontSize: 13, letterSpacing: '.04em', color: sel ? '#F3EDFF' : '#1E1A24' }), n);
+  el (r, 'abs', px ({ left: 126, top: 3, width: 27, height: 27, borderRadius: '50%', background: 'radial-gradient(circle at 34% 28%,#FFF,#BBBBC6 40%,#2B2B35)', boxShadow: `0 0 0 3px ${cols[i]}55` }));
+  key (r, 160, 5, 24, 23, 'M'); key (r, 188, 5, 24, 23, 'S');
+});
+
+// ── Columna derecha (macros sin cambios) ──
+const mac = el (scr, 'card', px ({ left: 940, top: 138, width: 312, height: 214 }));
+el (mac, 'abs title', px ({ left: 14, top: 10 }), 'MACROS');
+[['CALOR', 'filtros + saturación', '#e5391c'], ['MOVIMIENTO', 'LFO + MOTION', '#f08a3c'], ['ESPACIO', 'delay + reverb', '#3f7fc4'], ['CRUDEZA', 'batería más sucia', '#d9a21b']].forEach ((m, i) => {
+  const x = 10 + (i % 2) * 148, y = 40 + Math.floor (i / 2) * 86;
+  knob (mac, x - 12, y - 18 + 8, 52, '', '', 0.5, 'cream', m[2]);
+  el (mac, 'abs lbl', px ({ left: x + 70, top: y + 4, fontSize: 12.5 }), m[0]);
+  el (mac, 'abs cap', px ({ left: x + 70, top: y + 20, width: 76 }), m[1]);
+  phos (mac, x + 70, y + 52, 52, 22, '0%', 20);
+});
+['FX', 'MOD', 'ARRANGE', 'SCENES', 'MASTER'].forEach ((b, i) => key (scr, 940 + i * 62.4, 360, 59, 32, b));
+const mst = el (scr, 'card', px ({ left: 940, top: 400, width: 312, height: 136 }));
+el (mst, 'abs', px ({ left: 6, top: 4, width: 128, height: 128, borderRadius: '50%', background: 'radial-gradient(circle at 45% 40%,#2a2a33,#0c0c10 70%)', boxShadow: '0 0 0 3px #7A4DF2, 0 0 16px rgba(122,77,242,.6)' }),
+  '<div style="position:absolute;top:44px;width:100%;text-align:center;font-family:VT;font-size:30px;color:#D8F55A">-8.2 dB</div><div style="position:absolute;top:28px;width:100%;text-align:center;color:#C9B3FF;font-family:Michroma;font-size:10px;letter-spacing:.18em">MASTER</div>');
+knob (mst, 140, 14, 52, 'CEILING', '-0.3 dB', 0.95, 'cream');
+knob (mst, 222, 14, 52, 'VOLUME', '+0.0 dB', 0.8, 'cream');
+
+// ── Inspector: ACORDES como SONIDOS ──
+const win = el (scr, 'violet', px ({ left: 276, top: 138, width: 648, height: 398 }));
+el (win, 'abs', px ({ left: 18, top: 16, width: 5, height: 24, borderRadius: 3, background: '#e58fd0' }));
+el (win, 'abs', px ({ left: 32, top: 14, fontFamily: 'Michroma', fontSize: 19, letterSpacing: '.1em', color: '#F3EDFF' }), 'CHORDS');
+el (win, 'abs vval', px ({ left: 168, top: 20, fontSize: 13.5 }), 'Elegí un sonido y dale forma. Las notas quedan siempre en la escala.');
+key (win, 510, 12, 56, 30, 'SOUND', 'violet'); key (win, 568, 12, 56, 30, 'ANALOG');
+
+// Selector de sonido
+const snd = el (win, 'vcard', px ({ left: 18, top: 52, width: 612, height: 86 }));
+el (snd, 'abs vlbl', px ({ left: 12, top: 9 }), 'SOUND');
+key (snd, 12, 32, 36, 44, '◀');
+const disp = phos (snd, 52, 30, 280, 48, '', 30);
+disp.style.flexDirection = 'column'; disp.innerHTML = '<div style="font-size:32px;line-height:28px">DEEP PAD</div><div style="font-size:16px;color:#93AD36;text-shadow:none">synth · 12 / 70</div>';
+key (snd, 336, 32, 36, 44, '▶');
+key (snd, 378, 32, 62, 44, 'RANDOM', 'orange');
+el (snd, 'abs vlbl', px ({ left: 454, top: 9 }), 'NOTES');
+['3', '4', '5'].forEach ((n, i) => key (snd, 454 + i * 34, 32, 31, 26, n, i === 1 ? 'violet' : ''));
+// tecladito con las notas que suenan
+const kb = el (snd, 'abs', px ({ left: 454, top: 62, width: 146, height: 18 }));
+for (let i = 0; i < 14; ++i) el (kb, 'abs', px ({ left: i * 10.4, top: 0, width: 9.6, height: 18, borderRadius: 2, background: [0, 2, 4, 6].includes (i) ? '#D8F55A' : '#F3EDFF', boxShadow: [0, 2, 4, 6].includes (i) ? '0 0 6px #D8F55A' : 'none' }));
+
+// Tono
+const tone = el (win, 'vcard', px ({ left: 18, top: 146, width: 612, height: 112 }));
+el (tone, 'abs vlbl', px ({ left: 12, top: 8 }), 'TONE');
+[['SHAPE', 'warm', 0.3], ['CUTOFF', '1.8 kHz', 0.55], ['RESO', '20 %', 0.2], ['ENV', '2.0 oct', 0.4], ['DETUNE', '11 ct', 0.35], ['CHORUS', '60 %', 0.6]].forEach ((k, i) => knob (tone, 34 + i * 96, 22, 46, k[0], k[1], k[2]));
+// Envolvente / mezcla / envíos
+const env = el (win, 'vcard', px ({ left: 18, top: 266, width: 250, height: 118 }));
+el (env, 'abs vlbl', px ({ left: 12, top: 8 }), 'ENVELOPE');
+[['ATTACK', '120 ms', 0.45], ['DECAY', '600 ms', 0.5], ['SUSTAIN', '60 %', 0.6], ['RELEASE', '1.2 s', 0.7]].forEach ((k, i) => knob (env, 2 + i * 60, 26, 40, k[0], k[1], k[2]));
+const mix = el (win, 'vcard', px ({ left: 276, top: 266, width: 140, height: 118 }));
+el (mix, 'abs vlbl', px ({ left: 12, top: 8 }), 'MIX');
+knob (mix, 6, 26, 40, 'LEVEL', '+0.0 dB', 0.89); knob (mix, 70, 26, 40, 'PAN', 'C', 0.5);
+const snds = el (win, 'vcard', px ({ left: 424, top: 266, width: 206, height: 118 }));
+el (snds, 'abs vlbl', px ({ left: 12, top: 8 }), 'SENDS');
+[['DELAY', '30 %', 0.3, '#f2a466'], ['REVERB', '25 %', 0.25, '#f2a466'], ['PUMP', '35 %', 0.35, '#f2a466']].forEach ((k, i) => knob (snds, 2 + i * 66, 26, 40, k[0], k[1], k[2], undefined, k[3]));
+
+// ── Groove (abajo a la izquierda) ──
+const gr = el (scr, 'card', px ({ left: 28, top: 552, width: 232, height: 240 }));
+el (gr, 'abs title', px ({ left: 26, top: 10 }), 'GROOVE');
+el (gr, 'abs', px ({ left: 14, top: 13, width: 5, height: 14, borderRadius: 3, background: '#7A4DF2' }));
+knob (gr, 0, 34, 50, 'SWING', '55 %', 0.4, 'cream');
+el (gr, 'abs lbl', px ({ left: 84, top: 36 }), 'FEEL');
+phos (gr, 84, 54, 136, 28, 'Villalobos', 20);
+knob (gr, 70, 88, 40, 'AMOUNT', '60 %', 0.6, 'cream');
+el (gr, 'abs lbl', px ({ left: 148, top: 90 }), 'LENGTH');
+key (gr, 148, 110, 22, 26, '−'); phos (gr, 172, 110, 26, 26, '16', 20); key (gr, 200, 110, 22, 26, '+');
+key (gr, 12, 156, 132, 36, 'INVENT ▾', 'orange'); key (gr, 150, 156, 70, 36, 'MUTATE', 'blue');
+key (gr, 12, 198, 64, 30, 'CLEAR'); key (gr, 84, 198, 64, 30, 'COPY'); key (gr, 156, 198, 64, 30, 'PASTE');
+
+// ── Secuencia ──
+const seq = el (scr, 'card', px ({ left: 276, top: 552, width: 976, height: 240 }));
+el (seq, 'abs', px ({ left: 14, top: 18, width: 5, height: 14, borderRadius: 3, background: '#e58fd0' }));
+el (seq, 'abs title', px ({ left: 26, top: 16 }), 'SEQUENCE · CHORDS');
+['VELOCITY', 'NOTE', 'CHANCE', 'MOTION'].forEach ((t, i) => key (seq, 300 + i * 92, 10, 88, 30, t, i === 0 ? 'on' : ''));
+key (seq, 690, 10, 64, 30, 'MIDI ⇣', 'blue'); key (seq, 760, 10, 52, 30, '1-16', 'on'); key (seq, 814, 10, 56, 30, '17-32');
+key (seq, 878, 10, 38, 30, '↶'); key (seq, 920, 10, 38, 30, '↷');
+// Tarjeta FILL
+const fill = el (seq, 'abs', px ({ left: 12, top: 46, width: 128, height: 188, borderRadius: 12, background: 'rgba(255,255,255,.5)' }));
+el (fill, 'abs lbl', px ({ left: 10, top: 8, color: '#B6622C' }), 'AUTO FILL');
+el (fill, 'abs cap', px ({ left: 10, top: 30 }), 'EVERY');
+phos (fill, 10, 46, 108, 26, '4 BARS', 20);
+el (fill, 'abs cap', px ({ left: 10, top: 78 }), 'STYLE');
+phos (fill, 10, 94, 108, 26, 'ROLL', 20);
+['1', '2', '3', 'F'].forEach ((b, i) => { const k = key (fill, 10 + i * 27, 128, 24, 22, b, i === 3 ? 'orange' : (i === 1 ? 'on' : '')); k.style.fontSize = '11px'; });
+key (fill, 10, 156, 108, 26, 'PREVIEW');
+// Pantalla de fósforo (velocidad)
+const lane = el (seq, 'abs phos', px ({ left: 152, top: 48, width: 810, height: 84, display: 'block' }));
+for (let s = 0; s < 16; ++s) {
+  const on = [0, 8].includes (s), fillHit = [13, 14, 15].includes (s);
+  const w = 810 / 16;
+  el (lane, 'abs', px ({ left: s * w + 8, top: 2, width: w - 16, textAlign: 'center', fontSize: 16, color: on || fillHit ? '#D8F55A' : '#4b5a1c' }), on ? '100' : (fillHit ? (60 + s * 2) : '100'));
+  if (on || fillHit) el (lane, 'abs', px ({ left: s * w + 8, top: on ? 22 : 40, width: w - 16, bottom: 6, borderRadius: 3, background: fillHit ? '#FF9A3C' : '#D8F55A', boxShadow: `0 0 8px ${fillHit ? '#FF9A3C' : '#D8F55A'}` }));
+  else el (lane, 'abs', px ({ left: s * w + 8, top: 22, width: w - 16, bottom: 6, borderRadius: 3, background: '#2b3512' }));
+}
+// Teclas de pasos
+for (let s = 0; s < 16; ++s) {
+  const w = 810 / 16, x = 152 + s * w;
+  const on = [0, 8].includes (s), fillHit = [13, 14, 15].includes (s);
+  el (seq, 'led ' + (on ? 'g' : (fillHit ? 'o' : '')), px ({ left: x + w / 2 - 5, top: 140 }));
+  const k = key (seq, x + 4, 152, w - 8, 60, on ? 'Bm' : (fillHit ? 'fill' : ''), fillHit ? 'orange' : ((s >> 2) % 2 ? '' : 'blue'), on ? { boxShadow: 'inset 0 2px 3px rgba(0,0,0,.3)', transform: 'translateY(1.5px)' } : {});
+  k.style.fontSize = '11px';
+  el (seq, 'abs cap', px ({ left: x, top: 216, width: w, textAlign: 'center', fontWeight: 700, color: s % 4 === 0 ? '#1E1A24' : '#8E889A' }), s + 1);
+}
+
+// ── Notas explicativas (solo en la maqueta) ──
+if (SCREEN === '1') {
+  note (scr, 520, 116, 300, '<b>SOUND</b>: ◀ ▶ para pasar sonidos (sintes y los 60 acordes de Orbhitz), RANDOM tira uno al azar. Las notas salen solas de la escala; NOTES = acorde de 3, 4 o 5 notas.');
+  note (scr, 20, 470, 230, '<b>GROOVE</b> abajo a la izquierda: SWING, FEEL (Recto, MPC, 909, Villalobos, Garage) y cuánto.');
+  note (scr, 120, 640, 168, '<b>AUTO FILL</b>: cada 4 compases arma un fill (ROLL, BREAK, BUILD, RANDOM). El compás 4 se marca y las teclas naranjas muestran lo que va a sonar. PREVIEW lo muestra antes.');
+  note (scr, 560, 505, 300, 'Solo 4 vistas: <b>VELOCITY · NOTE · CHANCE · MOTION</b>. LIGA, P-LOCK, COND, NUDGE, GATE, OCT y TIPO salen de acá.');
+  note (scr, 1000, 300, 250, 'Macros sin cambios. Paneles: FX · MOD · ARRANGE (cadena de patrones y FX de fin de compás) · SCENES · MASTER.');
+}
+if (SCREEN === '2') {
+  // Lista de sonidos de acordes abierta
+  const m = el (scr, 'menu', px ({ left: 340, top: 228, width: 320 }));
+  m.innerHTML = '<div class="sec">SYNTH</div>' +
+    ['Classic Stab', 'Detroit Stab', 'Dub Chord', 'Deep Pad', 'Warm Strings', 'Organ', 'E-Piano', 'Glass Bell', 'Pluck', 'Soft Brass', 'Hoover', 'Vox Pad'].map ((n, i) => `<div class="it${i === 3 ? ' sel' : ''}">${n}</div>`).join ('') +
+    '<div class="sep"></div><div class="sec">ORBHITZ (60)</div>' + ['Stabbers', 'Classics', 'Vox Alone', 'Sly Timez', 'Mod Strings', '… y 55 más'].map (n => `<div class="it">${n}</div>`).join ('');
+  // Menú del paso (clic derecho)
+  const st = el (scr, 'menu', px ({ left: 760, top: 470, width: 230 }));
+  st.innerHTML = '<div class="sec">STEP 9</div><div class="it">Repeat ×2</div><div class="it">Repeat ×3</div><div class="it">Repeat ×4</div><div class="sep"></div>' +
+    '<div class="it">Glide to next</div><div class="it">Longer note</div><div class="it">Octave up</div><div class="it">Octave down</div><div class="sep"></div>' +
+    '<div class="it">Only in fills</div><div class="it">Never in fills</div><div class="it">Every 2nd time</div><div class="sep"></div><div class="it">Clear step</div>';
+  note (scr, 30, 250, 280, '<b>Lista de sonidos</b>: sintes con nombre que se entiende y los acordes de Orbhitz en la misma lista. Elegís uno y después lo ajustás con TONE / ENVELOPE / SENDS.');
+  note (scr, 1000, 560, 250, '<b>Clic derecho en una tecla</b>: lo poco que hace falta por paso, en palabras simples. Nada más que eso.');
+}
+</script>
+</body>
+</html>
