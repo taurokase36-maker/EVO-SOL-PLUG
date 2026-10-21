@@ -147,6 +147,30 @@ int main()
         all &= report ("migracion", c.value (P::Tonal) == 1.0f && c.value (P::ChordMode) == 0.0f, "estado v2: valores por defecto de OGRO 2");
     }
 
+    // ---- Fase 5: escenas A/B, candados y dado de sonido ----
+    {
+        Ogro2Processor a;
+        const int cut = P::sound (Bass, 2), dec = P::sound (Bass, 1);
+        a.setValue (cut, 0.2f);
+        a.storeScene (0);
+        a.setValue (cut, 0.9f);
+        a.storeScene (1);
+        a.toggleLock (Bass, 2);
+        juce::MemoryBlock mb;
+        a.getStateInformation (mb);
+        Ogro2Processor b;
+        b.setStateInformation (mb.getData(), (int) mb.getSize());
+        bool ok = b.hasScene (0) && b.hasScene (1) && std::abs (b.engine.snapshotValue (0, cut) - 0.2f) < 1e-5f
+                  && std::abs (b.engine.snapshotValue (1, cut) - 0.9f) < 1e-5f && b.isLocked (Bass, 2) && ! b.isLocked (Bass, 1);
+        b.recallScene (0);
+        ok &= std::abs (b.value (cut) - 0.2f) < 1e-5f;
+        const float before = b.value (cut), beforeDec = b.value (dec);
+        bool moved = false;
+        for (int k = 0; k < 5; ++k) { b.rollSoundDice (Bass, 1.0f); moved |= std::abs (b.value (dec) - beforeDec) > 1e-4f; }
+        ok &= b.value (cut) == before && moved;
+        all &= report ("escenas", ok, "A y B en el estado, IR A A, candado respetado por el dado");
+    }
+
     // ---- Samples por nombre: viajan en el estado y si faltan la sesión abre igual y avisa ----
     {
         Ogro2Processor a;

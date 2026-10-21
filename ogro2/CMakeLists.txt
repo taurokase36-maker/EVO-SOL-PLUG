@@ -22,7 +22,15 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(JUCE)
 
+# Número de build (lo pasa GitHub Actions): cambia la versión del bundle en cada compilación,
+# así Ableton y macOS no se quedan con la anterior en caché, y se muestra en el plugin.
+set(OGRO2_BUILD_NUMBER "0" CACHE STRING "Número de build (Actions)")
+set(OGRO2_BUILD_ID "local" CACHE STRING "Commit del build")
+math(EXPR OGRO2_PATCH "${OGRO2_BUILD_NUMBER} % 250")
+set(OGRO2_FULL_VERSION "${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}.${OGRO2_PATCH}")
+
 juce_add_plugin(OGRO2
+    VERSION ${OGRO2_FULL_VERSION}
     COMPANY_NAME "EVO THE SUN"
     BUNDLE_ID com.evothesun.ogro2
     PLUGIN_MANUFACTURER_CODE Evts
@@ -67,6 +75,7 @@ target_compile_definitions(OGRO2 PUBLIC
     JUCE_VST3_CAN_REPLACE_VST2=0
     JUCE_DISPLAY_SPLASH_SCREEN=0
     JUCE_REPORT_APP_USAGE=0
+    OGRO2_BUILD="${OGRO2_BUILD_ID}"
 )
 
 target_link_libraries(OGRO2

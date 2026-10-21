@@ -11,6 +11,7 @@ class Page : public juce::Component
 public:
     virtual void tick() {}
     virtual void trackChanged (int) {}
+    virtual void setTab (int) {}
     virtual juce::String title() const = 0;
 };
 
@@ -24,10 +25,11 @@ public:
     void resized() override;
     void setPage (int i) { showPage (i); } // para capturas y tests
     void setSeqMode (int m) { setLaneMode ((LaneMode) m); }
+    void setInspectorTab (int t) { pages[0]->setTab (t); }
     void refreshNow() { timerCallback(); }
 
 private:
-    enum PageId { PageTrack = 0, PageFx, PageMod, PageGroove, PageArrange, PageRing, PageMaster, PageCount };
+    enum PageId { PageTrack = 0, PageFx, PageMod, PageGroove, PageArrange, PageScenes, PageMaster, PageCount };
 
     void timerCallback() override;
     void selectTrack (int t);

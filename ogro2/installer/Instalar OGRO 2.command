@@ -19,6 +19,14 @@ fi
 
 mkdir -p "$VST3_DIR" "$AU_DIR" "$HOME/Music/OGRO 2 Presets"
 
+BUILD=""
+[ -f "BUILD.txt" ] && BUILD="$(head -1 BUILD.txt)"
+[ -n "$BUILD" ] && echo "Versión a instalar: $BUILD" && echo ""
+
+# Ableton abierto: sigue usando la versión que cargó al abrirse hasta que se cierra del todo
+LIVE_ABIERTO=0
+pgrep -x "Live" >/dev/null 2>&1 && LIVE_ABIERTO=1
+
 echo "Instalando OGRO 2..."
 # Reemplaza solo una versión anterior de OGRO 2 (rutas exactas con el " 2")
 rm -rf "$VST3_DIR/$VST3_NAME" "$AU_DIR/$AU_NAME"
@@ -40,6 +48,17 @@ if [ -d "$VST3_DIR/OGRO.vst3" ] || [ -d "$AU_DIR/OGRO.component" ]; then
     echo ""
     echo "OGRO 1.0 sigue instalado y no se tocó: tus sesiones viejas lo siguen usando."
 fi
+echo ""
+if [ "$LIVE_ABIERTO" = "1" ]; then
+    echo "=================================================================="
+    echo "  ATENCIÓN: Ableton está abierto."
+    echo "  Va a seguir usando la versión VIEJA de OGRO 2 hasta que lo cierres"
+    echo "  del todo: guardá tu sesión, Cmd+Q en Ableton y volvé a abrirlo."
+    echo "=================================================================="
+    echo ""
+fi
+echo "Para comprobar la versión: abajo del logo de OGRO 2 dice la versión y el build"
+[ -n "$BUILD" ] && echo "(tiene que decir: $BUILD)."
 echo ""
 echo "Abrí Ableton Live 12 > Settings > Plug-Ins y tocá 'Rescan'."
 echo "Lo vas a encontrar en Plug-Ins > EVO THE SUN > OGRO 2 (es un instrumento: va en una pista MIDI)."

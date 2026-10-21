@@ -6,21 +6,39 @@ y usar los dos en la misma sesión de Ableton. Tus sesiones viejas siguen usando
 OGRO 1.0 sin cambios.
 
 INSTALAR
+0. IMPORTANTE: guardá tu sesión y CERRÁ ABLETON DEL TODO (Cmd+Q) antes de instalar.
+   Un plugin se carga una sola vez por sesión de Ableton: si Live queda abierto, sigue
+   usando la versión vieja aunque el instalador haya copiado la nueva.
 1. Clic derecho en "Instalar OGRO 2.command" > Abrir > Abrir.
    (Solo copia OGRO 2. Nunca borra ni reemplaza OGRO.vst3 ni OGRO.component.)
 2. Ableton Live 12 > Settings > Plug-Ins: activá Audio Units y/o VST3 y tocá "Rescan".
    Si instalaste una versión nueva de OGRO 2 encima de otra, mantené apretada la
    tecla Option mientras tocás "Rescan" para que Ableton la vuelva a leer entera.
 3. Plug-Ins > EVO THE SUN > OGRO 2. Arrastralo a una PISTA MIDI (es un instrumento).
+   Abajo del logo de OGRO 2 dice la versión y el build: tiene que coincidir con el
+   archivo BUILD.txt de esta carpeta. Si no coincide, Ableton sigue con la vieja.
 4. Dale play en Ableton: OGRO 2 sigue el tempo y la posición de Ableton.
 
 Si macOS dice que está dañado, en Terminal:
   xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/VST3/"OGRO 2.vst3" ~/Library/Audio/Plug-Ins/Components/"OGRO 2.component"
 
-ESTADO: VERSIÓN EN DESARROLLO (fase 4 de 7)
+ESTADO: VERSIÓN EN DESARROLLO (fase 5 de 7)
 - Los IDs de los parámetros son definitivos: lo que guardes con OGRO 2 sigue abriendo en
   las próximas versiones (y suena igual).
 - En el logo vas a ver un "2": así sabés cuál es cuál.
+
+QUÉ PROBAR EN ESTA VERSIÓN (fase 5)
+1. Abajo del logo: la versión y el build (tiene que coincidir con BUILD.txt).
+2. Inspector > pestaña TIRA en el bajo o el clap: DRIVE (CINTA / VÁLVULA / TRANSISTOR /
+   DIODO), CUERPO + FREC., TRANSIENTE, BRILLO, COMP (VCA / FET) y RUIDO.
+3. VARIAR (arriba del inspector): mueve al azar las perillas sin candado. Poné el candadito
+   en CORTE (arriba a la derecha de la perilla) y tocá VARIAR varias veces: CORTE no se mueve.
+4. ESCENAS: armá un sonido, GUARDAR A; cambiá varias perillas, GUARDAR B; encendé MORPH y
+   mové (o automatizá) MORPH A -> B.
+5. ESCENAS > DERIVA al 50 %: en 16-32 compases el sonido se va moviendo solo.
+6. ESCENAS > CARÁCTER "Limpio": automatizá CORTE o DRIVE rápido, ya no hace escalones.
+   Con MASTER > CALIDAD "ALTA" los agudos del bajo y los acordes quedan más limpios.
+7. FX: ahora tiene la portadora del RING (antes era un panel aparte).
 
 SAMPLES DE ORBHITZ
 - OGRO 2 usa solo CHD, PAD, HIT y SFX. Los busca en Música > OGRO Samples > Orbhitz.
@@ -31,7 +49,7 @@ SAMPLES DE ORBHITZ
   guarda en ogro2_samples.json en la carpeta. Si un sample quedó mal afinado, corregí ahí
   "raiz" (nota MIDI, 60 = C4) o poné "tonal": false para que no se transponga.
 
-QUÉ PROBAR EN ESTA VERSIÓN (fase 4)
+QUÉ PROBAR DE LA FASE 4
 1. Menú ≡ > Copiar Orbhitz (si te lo ofrece). Después TEXTURAS (MIDI A1): elegí un sample
    en SAMPLE (por categoría) o tocá DADO. INVENTAR en esa pista.
 2. EN TONO encendido: cambiá la TONALIDAD y la NOTA de los pasos: el sample se mueve con

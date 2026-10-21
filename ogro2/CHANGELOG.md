@@ -2,6 +2,51 @@
 
 Formato: cada fase del desarrollo suma una entrada. La versión publicada será la 2.0.0.
 
+## 2.0.0 (en desarrollo) — Fase 5: carácter analógico y escenas
+
+### Instalación
+- **Versión y build a la vista**, abajo del logo (por ejemplo `v2.0.24 · build-24-abc1234`).
+  La versión cambia en cada compilación, así Ableton y macOS no se quedan con la anterior
+  en caché.
+- El instalador avisa si Ableton está abierto: **un plugin se carga una sola vez por sesión
+  de Ableton**, así que con Live abierto sigue sonando la versión vieja hasta cerrarlo del
+  todo (Cmd+Q) y volver a abrirlo.
+- Una instancia nueva arranca con el preset "Inicial" completo (antes tomaba los valores
+  por defecto de OGRO 2, con MODO TONAL encendido, y el bajo de "Inicial" sonaba distinto).
+
+### CARÁCTER: ORIGINAL / LIMPIO (panel ESCENAS)
+- **ORIGINAL** (por defecto): el sonido de siempre.
+- **LIMPIO**: saturaciones de las voces con anti-aliasing (ADAA), perillas suavizadas en
+  8 ms (sin "zipper" al automatizar) y, con CALIDAD ALTA, osciladores con polyBLEP de 4
+  puntos (~10 dB menos de aliasing). Medido: un bajo agudo con drive pasa de -27.6 dB a
+  -31.9 dB de aliasing; un salto brusco de DRIVE deja un escalón 7 veces más chico. Los 12
+  presets cambian de nivel menos de 0.11 dB.
+
+### Tira analógica por pista (pestaña TIRA del inspector)
+- DRIVE con 4 tipos (cinta, válvula, transistor, diodo; sobremuestreo 2x), CUERPO con
+  frecuencia, RUIDO que sigue a la envolvente de la pista (en silencio no suena),
+  TRANSIENTE (+/-), BRILLO (exciter + aire) y COMP VCA o FET con makeup automático.
+- Todo en 0 = la pista suena exactamente igual. Automatizable, modulable (MOD y MOTION) y
+  con p-locks.
+
+### Ideas 5, 6 y 7
+- **Escenas A/B con MORPH** (panel ESCENAS): GUARDAR A / B, IR A A / B y MORPH
+  automatizable entre las dos (las perillas iguales en A y B siguen a la perilla).
+- **Deriva lenta**: las perillas de sonido se mueven solas en ciclos de 16, 32 o 64
+  compases. Sale de la semilla: cada render sale igual.
+- **Dado de sonido con candados**: botón VARIAR en el inspector (clic derecho: más fuerte)
+  y un candadito en cada perilla para que no se mueva.
+
+### Otros
+- **Suma de consola** opcional (apagada): saturación y diafonía muy sutiles al sumar.
+- El ring mod se configura en **FX** (portadora) y en el inspector de cada pista
+  (cantidad); el panel RING pasó a ser ESCENAS.
+- CPU: los sobremuestreos del drum bus y del master suman en 4 cadenas paralelas (el clipper
+  quedó 2 veces más rápido). En la comparación exacta con la 1.0 se usa la suma original y
+  los 12 presets siguen idénticos muestra a muestra; en uso normal la diferencia es solo de
+  redondeo (por debajo de -70 dB). Tira completa: ~0.5 % de un núcleo por pista.
+- Test nuevo `test_analogico`.
+
 ## 2.0.0 (en desarrollo) — Fase 4: samples de Orbhitz
 
 ### Librería

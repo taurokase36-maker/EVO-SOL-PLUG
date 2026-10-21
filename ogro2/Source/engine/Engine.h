@@ -10,6 +10,7 @@
 #include "ParamDefs.h"
 #include "Sampler.h"
 #include "Sequencer.h"
+#include "Strip.h"
 #include "Voices.h"
 #include <atomic>
 
@@ -179,6 +180,13 @@ public:
         const auto& d = paramDefs();
         base.resize (d.size());
         eff.resize (d.size());
+        effSm.resize (d.size());
+        // Se suavizan las perillas continuas; las que van en escalones (octava del bajo, golpes del
+        // clap, relación de la perc) se leen al disparar y no se suavizan
+        smoothable.assign (d.size(), false);
+        for (size_t i = 0; i < d.size(); ++i) smoothable[i] = d[i].kind == Kind::Float;
+        for (int p : { P::sound (Bass, 0), P::sound (Clap, 3), P::sound (Perc, 3) }) smoothable[(size_t) p] = false;
+        for (auto& sn : snap) { sn.reset (new std::atomic<float>[d.size()]); for (size_t i = 0; i < d.size(); ++i) sn[i].store (d[i].def); }
         modNorm.assign (d.size(), 0.0f);
         for (size_t i = 0; i < d.size(); ++i) base[i] = eff[i] = d[i].def;
         voices[Kick] = &kick; voices[Clap] = &clap; voices[Rim] = &rim; voices[HatC] = &hatC;
@@ -196,6 +204,8 @@ public:
         melody.prepare (fs, 0x3E10D1u);
         textureVoice.prepare (fs, 0x7E47u);
         chordSampler.prepare (fs);
+        for (int t = 0; t < kTracks; ++t) strips[t].prepare (fs, 0x57A1u + (uint32_t) t * 977u);
+        smoothA = 1.0f - (float) std::exp (-(double) kControl / (0.008 * fs));   // 8 ms
         lastChordCount = 0;
         clock.prepare (fs);
         delay.prepare (fs);
@@ -236,7 +246,12 @@ public:
     }
 
     // Tests: sin saltear voces en silencio (comparación muestra a muestra con la 1.0)
-    void setExactLegacy (bool e) { exactLegacy = e; }
+    void setExactLegacy (bool e)
+    {
+        exactLegacy = e;
+        for (auto* sat : { &drumSatL, &drumSatR, &warmL, &warmR }) sat->setExact (e);
+        clipL.setExact (e); clipR.setExact (e);
+    }
 
     // Llamadas seguras desde la interfaz
     void setInternalPlay (bool p) { internalPlayReq.store (p); }
@@ -260,6 +275,24 @@ public:
     }
     // Ableton está renderizando fuera de tiempo real (congelar / exportar): en AUTO, calidad ALTA
     void setOffline (bool o) { offline.store (o); }
+
+    // Escenas A y B para el MORPH (hilo de mensajes): valores físicos por índice de parámetro
+    void setSnapshot (int which, const std::vector<float>& values)
+    {
+        which = clampv (which, 0, 1);
+        for (size_t i = 0; i < values.size() && i < base.size(); ++i) snap[which][i].store (values[i]);
+        snapValid[which].store (true);
+    }
+    void clearSnapshot (int which) { snapValid[clampv (which, 0, 1)].store (false); }
+    bool hasSnapshot (int which) const { return snapValid[clampv (which, 0, 1)].load(); }
+    float snapshotValue (int which, int param) const { return snap[clampv (which, 0, 1)][(size_t) param].load(); }
+    // Parámetros que entran en las escenas: perillas continuas de sonido, mezcla, tira, FX y master
+    static bool isScenic (int i)
+    {
+        const auto& d = paramDefs()[(size_t) i];
+        if (! d.exists || d.kind != Kind::Float || ! d.modulatable) return false;
+        return i != P::Tempo && i != P::Swing && i != P::Morph;
+    }
 
     PatternBank bank;
     ModRouting routing;
@@ -326,6 +359,7 @@ private:
         // Azar FIJO: al arrancar el transporte o al saltar a otro lugar, todo vuelve al mismo estado
         // inicial (voces, efectos, compresores, ring): dos renders desde el mismo lugar salen iguales
         if (clock.relocated() && fixedRandom) resetForRender (tr.ppq);
+        else if (clock.relocated()) snapNext = true;   // VIVO: igual, las perillas arrancan en su valor
 
         // Disparos MIDI (C1..G1 = pistas 1..8). El note-off cierra el gate de bajo y acordes.
         for (int i = 0; i < numMidi && numEvents < kMaxEvents; ++i)
@@ -414,10 +448,12 @@ private:
     {
         // Primero los valores de este lugar del tema (los suavizadores quedan fijos en ellos)
         for (auto& l : trackLocks) l.n = 0;
+        snapSmoothing = true;   // al arrancar, las perillas valen lo que dicen (sin deslizarse)
         lastFilter = 99.0f; lastReso = -1.0f;
         lastDlyTone = lastRevSize = lastRevDecay = -1.0f;
         lastEq[0] = lastEq[1] = lastEq[2] = lastEq[3] = -999.0f;
         updateControl (ppq, true);
+        snapSmoothing = false;
         controlCounter = kControl;
         for (int t = 0; t < kTracks; ++t)
         {
@@ -428,6 +464,7 @@ private:
         }
         lastChordCount = 0;
         chordSampler.reset();
+        for (auto& st : strips) st.reset();
         delay.clear(); reverb.clear();
         drumComp.resetState(); masterComp.resetState();
         drumSatL.resetState(); drumSatR.resetState(); warmL.resetState(); warmR.resetState();
@@ -472,7 +509,9 @@ private:
                     if (l.param < 0 || l.param >= (int) base.size()) continue;
                     tl.param[tl.n] = l.param; tl.norm[tl.n] = l.value; ++tl.n;
                 }
+            snapSmoothing = true;      // el lock vale desde el golpe (sin suavizado)
             updateControl (ppqAt, playing);
+            snapSmoothing = false;
             mixState[t] = target[t];   // el nivel y el paneo del lock valen desde el golpe, sin rampa
         }
         TriggerEvent e = ev;
@@ -742,12 +781,38 @@ private:
             modNorm[(size_t) P::sound (Perc, 0)] += 0.05f * extra * src[SrcRandSmooth];
         }
 
+        // Deriva lenta (idea 6): las perillas de sonido se mueven solas, muy despacio, durante 16 a 64
+        // compases. Sale de la posición del tema y la semilla: cada render sale igual.
+        const float driftAmt = base[P::Drift];
+        if (driftAmt > 0.001f)
+        {
+            static const int barsTab[] = { 16, 32, 64 };
+            const double cycle = ppq / (4.0 * barsTab[clampv ((int) base[P::DriftBars], 0, 2)]);
+            for (int t = 0; t < kTracks; ++t)
+                for (int k = 0; k < kSoundParams; ++k)
+                {
+                    if (k == 0 && (t == Bass || t == Chord || t == Melody)) continue;   // octava, tipo, modelo: no
+                    const uint32_t gen = 0xD71F7u + (uint32_t) (t * 16 + k);
+                    const float v = 0.7f * positionalDrift (randomSeed, gen, cycle, 1.0f) + 0.3f * positionalDrift (randomSeed, gen ^ 0x55u, cycle * 2.3, 1.0f);
+                    modNorm[(size_t) P::sound (t, k)] += 0.09f * driftAmt * v;
+                }
+        }
+        // MORPH (idea 5): entre la escena A y la B, para cada perilla que sea distinta en las dos
+        const bool morphing = base[P::MorphOn] > 0.5f && snapValid[0].load (std::memory_order_relaxed) && snapValid[1].load (std::memory_order_relaxed);
+        const float morph = base[P::Morph];
+
         // Valores efectivos (los de elección modulables se cuantizan)
         for (size_t i = 0; i < base.size(); ++i)
         {
+            float b = base[i];
+            if (morphing && isScenic ((int) i))
+            {
+                const float a = snap[0][i].load (std::memory_order_relaxed), z = snap[1][i].load (std::memory_order_relaxed);
+                if (a != z) b = a + (z - a) * morph;
+            }
             const bool canMod = defs[i].kind == Kind::Float || (defs[i].kind == Kind::Choice && defs[i].modulatable);
-            if (modNorm[i] == 0.0f || ! canMod) { eff[i] = base[i]; continue; }
-            eff[i] = defs[i].fromNorm (defs[i].toNorm (base[i]) + modNorm[i]);
+            if (modNorm[i] == 0.0f || ! canMod) { eff[i] = b; continue; }
+            eff[i] = defs[i].fromNorm (defs[i].toNorm (b) + modNorm[i]);
         }
         // P-locks (encima de la modulación)
         for (int t = 0; t < kTracks; ++t)
@@ -757,6 +822,18 @@ private:
                 const bool canMod = defs[i].kind == Kind::Float || (defs[i].kind == Kind::Choice && defs[i].modulatable);
                 eff[i] = defs[i].fromNorm (trackLocks[t].norm[k] + (canMod ? modNorm[i] : 0.0f));
             }
+
+        // CARÁCTER LIMPIO: las perillas se suavizan (8 ms) para que nada haga "zipper"
+        clean = ! exactLegacy && base[P::Character] > 0.5f;
+        const bool snapNow = snapSmoothing || snapNext;
+        snapNext = false;
+        if (clean && ! snapNow)
+        {
+            for (size_t i = 0; i < eff.size(); ++i)
+                if (smoothable[i]) { effSm[i] += (eff[i] - effSm[i]) * smoothA; eff[i] = effSm[i]; }
+                else effSm[i] = eff[i];
+        }
+        else std::copy (eff.begin(), eff.end(), effSm.begin());
 
         // Voces
         const int root = (int) eff[P::Root];
@@ -772,6 +849,25 @@ private:
             const int q = (int) eff[P::Quality];
             highQuality = q == 1 || (q == 2 && offline.load (std::memory_order_relaxed));
         }
+        for (int t = 0; t < kTracks; ++t) if (voices[t]) voices[t]->setCharacter (clean, highQuality);
+        chord.setCharacter (clean, highQuality);
+        melody.setCharacter (clean, highQuality);
+        // Tira analógica de cada pista
+        for (int t = 0; t < kTracks; ++t)
+        {
+            AnalogStrip::Settings ss;
+            ss.drive = eff[(size_t) P::track (t, P::StripDrive)];
+            ss.type = (int) eff[(size_t) P::track (t, P::StripType)];
+            ss.body = eff[(size_t) P::track (t, P::StripBody)];
+            ss.bodyHz = eff[(size_t) P::track (t, P::StripBodyHz)];
+            ss.noise = eff[(size_t) P::track (t, P::StripNoise)];
+            ss.transient = eff[(size_t) P::track (t, P::StripTrans)];
+            ss.bright = eff[(size_t) P::track (t, P::StripBright)];
+            ss.comp = eff[(size_t) P::track (t, P::StripComp)];
+            ss.fet = eff[(size_t) P::track (t, P::StripCompType)] > 0.5f;
+            strips[t].set (ss);
+        }
+        console = eff[P::Console] > 0.5f;
         textureVoice.setEnv (eff[(size_t) P::track (Texture, P::EnvA)], eff[(size_t) P::track (Texture, P::EnvS)], eff[(size_t) P::track (Texture, P::EnvR)]);
         textureVoice.setExtras (eff[P::TexReverse] > 0.5f, eff[P::TexFilter] < 0.5f, highQuality);
         chordSampler.setHighQuality (highQuality);
@@ -880,11 +976,13 @@ private:
                 stereo[t]->render (stL[t], stR[t], len);
                 if (t == Chord && chordSampler.isActive()) chordSampler.render (stL[t], stR[t], len);
                 for (int i = 0; i < len; ++i) peak = std::max ({ peak, std::fabs (stL[t][i]), std::fabs (stR[t][i]) });
+                if (strips[t].isActive()) strips[t].process (stL[t], stR[t], len);
             }
             else
             {
                 voices[t]->render (trackBuf[t], len);
                 for (int i = 0; i < len; ++i) peak = std::max (peak, std::fabs (trackBuf[t][i]));
+                if (strips[t].isActive()) strips[t].process (trackBuf[t], nullptr, len);
             }
             if (sounding || peak > 1.0e-6f) quiet[t] = 0;
             else quiet[t] += len;
@@ -961,6 +1059,15 @@ private:
                        + 0.5f * (dL + dR + sL + sR) * barFx.reverbSend (PointMaster);
                 barFx.process (PointDrums, dL, dR);
                 barFx.process (PointSynths, sL, sR);
+            }
+            // Suma de consola (opcional): un poco de saturación por bus y diafonía entre canales
+            if (console)
+            {
+                const float xl = dL, xr = dR, yl = sL, yr = sR;
+                dL = xl + 0.3f * (std::tanh (xl * 1.1f) / 1.1f - xl) + 0.004f * xr;
+                dR = xr + 0.3f * (std::tanh (xr * 1.1f) / 1.1f - xr) + 0.004f * xl;
+                sL = yl + 0.3f * (std::tanh (yl * 1.1f) / 1.1f - yl) + 0.004f * yr;
+                sR = yr + 0.3f * (std::tanh (yr * 1.1f) / 1.1f - yr) + 0.004f * yl;
             }
             // Drum bus: compresión fuerte + saturación cruda
             drumComp.process (dL, dR);
@@ -1041,6 +1148,14 @@ private:
     std::atomic<int> candCount[kSampleSlots] { 0, 0 };
     std::atomic<bool> offline { false };
     bool highQuality = false;
+    // Fase 5
+    AnalogStrip strips[kTracks];
+    std::vector<float> effSm;
+    std::vector<bool> smoothable;
+    float smoothA = 0.1f;
+    bool clean = false, snapSmoothing = false, snapNext = true, console = false;
+    std::unique_ptr<std::atomic<float>[]> snap[2];
+    std::atomic<bool> snapValid[2] { false, false };
 
     StepClock clock;
     TriggerEvent events[kMaxEvents];

@@ -18,6 +18,8 @@ public:
     Oversampler4x() { design(); reset(); }
 
     static constexpr int latencySamples() { return (kTaps - 1) / kFactor; } // 32
+    // Comparación exacta con OGRO 1.0: la suma en el mismo orden que la 1.0 (más lenta)
+    void setExact (bool e) { exact = e; }
 
     void reset()
     {
@@ -32,14 +34,7 @@ public:
         upPos = upPos == 0 ? kPhaseTaps - 1 : upPos - 1; // mismo resultado que el módulo, sin dividir
         upHist[upPos] = x;
         upHist[upPos + kPhaseTaps] = x; // espejo para lectura sin módulo
-        for (int p = 0; p < kFactor; ++p)
-        {
-            const float* h = poly[p];
-            const float* xs = upHist + upPos;
-            float acc = 0.0f;
-            for (int j = 0; j < kPhaseTaps; ++j) acc += h[j] * xs[j];
-            out4[p] = acc;
-        }
+        for (int p = 0; p < kFactor; ++p) out4[p] = exact ? dotExact (poly[p], upHist + upPos, kPhaseTaps) : dot (poly[p], upHist + upPos, kPhaseTaps);
     }
 
     // Baja 4 muestras a una
@@ -52,16 +47,36 @@ public:
             downPos = downPos == 0 ? kTaps - 1 : downPos - 1;
             downHist[downPos] = in4[p];
             downHist[downPos + kTaps] = in4[p];
-            if (p == 0)
-            {
-                const float* xs = downHist + downPos;
-                for (int j = 0; j < kTaps; ++j) acc += coeffs[j] * xs[j];
-            }
+            if (p == 0) acc = exact ? dotExact (coeffs, downHist + downPos, kTaps) : dot (coeffs, downHist + downPos, kTaps);
         }
         return acc;
     }
 
 private:
+    // Producto punto con 4 sumas parciales: el procesador las hace en paralelo (unas 4 veces más
+    // rápido que una sola cadena de sumas). Cambia solo el redondeo (diferencias de ~-140 dB).
+    static inline float dot (const float* h, const float* x, int n) noexcept
+    {
+        float a0 = 0.0f, a1 = 0.0f, a2 = 0.0f, a3 = 0.0f;
+        int j = 0;
+        for (; j + 4 <= n; j += 4)
+        {
+            a0 += h[j] * x[j];
+            a1 += h[j + 1] * x[j + 1];
+            a2 += h[j + 2] * x[j + 2];
+            a3 += h[j + 3] * x[j + 3];
+        }
+        for (; j < n; ++j) a0 += h[j] * x[j];
+        return (a0 + a1) + (a2 + a3);
+    }
+    static inline float dotExact (const float* h, const float* x, int n) noexcept
+    {
+        float acc = 0.0f;
+        for (int j = 0; j < n; ++j) acc += h[j] * x[j];
+        return acc;
+    }
+    bool exact = false;
+
     static double besselI0 (double x)
     {
         double sum = 1.0, term = 1.0;
@@ -129,6 +144,7 @@ inline float softClip (float u) noexcept
 class AnalogSaturator
 {
 public:
+    void setExact (bool e) { os.setExact (e); }
     void prepare (double sampleRate)
     {
         fs = sampleRate;
@@ -184,6 +200,7 @@ class OversampledClipper
 {
 public:
     void reset() { os.reset(); }
+    void setExact (bool e) { os.setExact (e); }
     static constexpr int latencySamples() { return Oversampler4x::latencySamples(); }
     void setThreshold (float lin) { thr = std::max (0.05f, lin); }
 

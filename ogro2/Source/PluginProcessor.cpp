@@ -76,7 +76,9 @@ Ogro2Processor::Ogro2Processor()
         jassert (params[i] != nullptr && raw[i] != nullptr);
     }
     midiTriggers.reserve (512);
+    // Una instancia nueva arranca con el preset "Inicial" completo (valores, ruteo y patrones)
     const auto st = factoryState (factoryPresets()[0]);
+    applyValues (st.values);
     applyRouting (engine.routing, st);
     factoryPresets()[0].build (engine.bank);
     engine.prepare (44100.0, 512);
@@ -386,6 +388,67 @@ void Ogro2Processor::syncPatternLength (int pattern)
     engine.bank.setPatternLength (pattern, juce::jmax (16, longest));
 }
 
+// ---------------------------------------------------------------------------
+// Escenas A/B y dado de sonido
+// ---------------------------------------------------------------------------
+void Ogro2Processor::storeScene (int which)
+{
+    std::vector<float> v (paramDefs().size());
+    for (size_t i = 0; i < v.size(); ++i) v[i] = value ((int) i);
+    engine.setSnapshot (which, v);
+    notifyStateChanged();
+}
+
+void Ogro2Processor::recallScene (int which)
+{
+    if (! engine.hasSnapshot (which)) return;
+    for (int i = 0; i < (int) paramDefs().size(); ++i)
+        if (Engine::isScenic (i)) setValue (i, engine.snapshotValue (which, i));
+}
+
+void Ogro2Processor::toggleLock (int track, int knob)
+{
+    track = juce::jlimit (0, kTracks - 1, track);
+    soundLocks[track].fetch_xor (1u << juce::jlimit (0, 31, knob));
+    notifyStateChanged();
+}
+
+// Perillas que mueve el dado: las 8 de sonido (salvo listas y escalones) y las de la tira
+static int diceParam (int track, int knob)
+{
+    if (knob < kSoundParams)
+    {
+        const int p = P::sound (track, knob);
+        if (paramDefs()[(size_t) p].kind != Kind::Float) return -1;           // tipo de acorde, modelo
+        if (knob == 0 && track == Bass) return -1;                            // octava del bajo
+        return p;
+    }
+    static const int strip[] = { P::StripDrive, P::StripBody, P::StripBodyHz, P::StripNoise, P::StripTrans, P::StripBright, P::StripComp };
+    const int k = knob - kSoundParams;
+    return k >= 0 && k < 7 ? P::track (track, strip[k]) : -1;
+}
+
+void Ogro2Processor::rollSoundDice (int track, float amount)
+{
+    track = juce::jlimit (0, kTracks - 1, track);
+    auto& rnd = juce::Random::getSystemRandom();
+    const auto& defs = paramDefs();
+    for (int knob = 0; knob < kSoundParams + 7; ++knob)
+    {
+        if (isLocked (track, knob)) continue;
+        const int p = diceParam (track, knob);
+        if (p < 0) continue;
+        const auto& d = defs[(size_t) p];
+        const float cur = d.toNorm (value (p));
+        // La tira se mueve menos (y el ruido casi nada): que el dado no ensucie de más
+        float span = amount;
+        if (knob >= kSoundParams) span *= knob == kSoundParams + 3 ? 0.15f : 0.5f;
+        float target = juce::jlimit (0.0f, 1.0f, cur + (rnd.nextFloat() * 2.0f - 1.0f) * span);
+        if (knob >= kSoundParams && knob != kSoundParams + 2 && knob != kSoundParams + 4) target = juce::jmin (target, 0.7f);
+        setValue (p, d.fromNorm (target));
+    }
+}
+
 void Ogro2Processor::notifyStateChanged()
 {
     updateHostDisplay (juce::AudioProcessor::ChangeDetails().withNonParameterStateChanged (true));
@@ -472,6 +535,25 @@ std::unique_ptr<juce::XmlElement> Ogro2Processor::createStateXml()
         e->setAttribute ("lane", l);
         e->setAttribute ("dst", juce::String (idOf (engine.routing.laneDst[l].load())));
     }
+    // Escenas A/B por ID y candados del dado
+    for (int w = 0; w < 2; ++w)
+        if (engine.hasSnapshot (w))
+        {
+            auto* sc = root->createNewChildElement ("SCENE");
+            sc->setAttribute ("id", w == 0 ? "A" : "B");
+            for (int i = 0; i < (int) defs.size(); ++i)
+                if (Engine::isScenic (i))
+                {
+                    auto* e = sc->createNewChildElement ("P");
+                    e->setAttribute ("id", juce::String (defs[(size_t) i].id));
+                    e->setAttribute ("v", engine.snapshotValue (w, i));
+                }
+        }
+    {
+        juce::String locks;
+        for (int t = 0; t < kTracks; ++t) locks << (t ? "," : "") << juce::String ((int) soundLocks[t].load());
+        root->createNewChildElement ("LOCKS")->setAttribute ("v", locks);
+    }
     // Samples por nombre (si en otra Mac falta alguno, la sesión abre igual y avisa)
     auto* smp = root->createNewChildElement ("SAMPLES");
     smp->setAttribute ("texture", getSampleName (0));
@@ -510,6 +592,26 @@ void Ogro2Processor::restoreFromXml (const juce::XmlElement& xml)
     }
     if (auto* pat = xml.getChildByName ("PATTERNS"))
         engine.bank.deserialise (pat->getAllSubText().toStdString(), [] (const std::string& id) { return paramIndex (id); });
+    engine.clearSnapshot (0);
+    engine.clearSnapshot (1);
+    for (auto* sc : xml.getChildWithTagNameIterator ("SCENE"))
+    {
+        const int w = sc->getStringAttribute ("id") == "B" ? 1 : 0;
+        std::vector<float> v (paramDefs().size());
+        for (size_t i = 0; i < v.size(); ++i) v[i] = value ((int) i);
+        for (auto* e : sc->getChildWithTagNameIterator ("P"))
+        {
+            const int idx = paramIndex (e->getStringAttribute ("id").toStdString());
+            if (idx >= 0) v[(size_t) idx] = (float) e->getDoubleAttribute ("v");
+        }
+        engine.setSnapshot (w, v);
+    }
+    for (auto& l : soundLocks) l.store (0);
+    if (auto* lk = xml.getChildByName ("LOCKS"))
+    {
+        const auto parts = juce::StringArray::fromTokens (lk->getStringAttribute ("v"), ",", "");
+        for (int t = 0; t < kTracks && t < parts.size(); ++t) soundLocks[t].store ((uint32_t) parts[t].getIntValue());
+    }
     if (auto* smp = xml.getChildByName ("SAMPLES"))
     {
         setSampleName (0, smp->getStringAttribute ("texture"));

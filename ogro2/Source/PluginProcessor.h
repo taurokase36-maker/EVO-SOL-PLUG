@@ -82,6 +82,16 @@ public:
     void copyOrbhitz (std::function<void (bool, juce::String)> done);
     std::atomic<bool> copying { false };
 
+    // ---- Fase 5: escenas A/B (MORPH) y dado de sonido con candados ----
+    void storeScene (int which);          // guarda las perillas actuales en la escena A (0) o B (1)
+    void recallScene (int which);         // vuelve las perillas a la escena
+    bool hasScene (int which) const { return engine.hasSnapshot (which); }
+    // Candados: perilla k (0..7 de sonido, 8.. de la tira) de la pista t no se mueve con el dado
+    bool isLocked (int track, int knob) const { return (soundLocks[juce::jlimit (0, ogro2::kTracks - 1, track)].load() >> knob) & 1u; }
+    void toggleLock (int track, int knob);
+    // Dado: mueve al azar las perillas sin candado de la pista. amount 0..1 (1 = todo al azar)
+    void rollSoundDice (int track, float amount);
+
     // Avisa al host que cambió algo que no es un parámetro (patrones, ruteo), para que
     // Ableton marque la sesión como modificada
     void notifyStateChanged();
@@ -116,6 +126,7 @@ private:
     int lastPoolSize = -1, lastCat = -1;
     mutable juce::SpinLock sampleLock;
     std::shared_ptr<std::atomic<bool>> alive = std::make_shared<std::atomic<bool>> (true);
+    std::atomic<uint32_t> soundLocks[ogro2::kTracks] {};
     std::vector<std::string> undoStack, redoStack;
     std::atomic<int> currentPreset { 0 };
     juce::String userPresetName;

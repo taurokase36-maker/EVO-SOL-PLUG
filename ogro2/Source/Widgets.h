@@ -80,6 +80,13 @@ public:
     void setShowValue (bool v) { showValue = v; resized(); repaint(); }
     void setTravel (int px) { slider.setTravel (px); }
     int paramIndex() const { return index; }
+    // Candado del dado de sonido (opcional): un candadito arriba a la derecha
+    std::function<bool()> isLocked;
+    std::function<void()> onLockToggle;
+    void mouseDown (const juce::MouseEvent& e) override
+    {
+        if (onLockToggle && lockArea().contains (e.position)) { onLockToggle(); repaint(); }
+    }
 
     void paint (juce::Graphics& g) override
     {
@@ -94,7 +101,18 @@ public:
             g.setFont (textFont (titleSize));
             g.drawText (slider.getTextFromValue (slider.getValue()), r.removeFromBottom (titleSize + 4.0f), juce::Justification::centred);
         }
+        if (isLocked)
+        {
+            const bool on = isLocked();
+            const auto a = lockArea().reduced (2.0f);
+            g.setColour (on ? juce::Colour (0xffffc35c) : (v ? juce::Colours::white.withAlpha (0.22f) : col::ink.withAlpha (0.2f)));
+            juce::Path shackle;
+            shackle.addCentredArc (a.getCentreX(), a.getY() + 4.5f, 3.0f, 3.0f, 0.0f, -1.5708f, on ? 1.5708f : 0.9f, true);
+            g.strokePath (shackle, juce::PathStrokeType (1.4f));
+            g.fillRoundedRectangle (a.getX() + 1.0f, a.getY() + 5.5f, a.getWidth() - 2.0f, a.getHeight() - 6.0f, 1.5f);
+        }
     }
+    juce::Rectangle<float> lockArea() const { return { (float) getWidth() - 14.0f, 0.0f, 14.0f, 14.0f }; }
     void resized() override
     {
         auto r = getLocalBounds();

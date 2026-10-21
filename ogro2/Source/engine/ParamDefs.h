@@ -67,9 +67,13 @@ namespace P
 {
     enum Global { Swing = 0, Pattern, Root, Tempo, Macro1, Macro2, Macro3, Macro4, Seed, RandomMode, MacroDepth,
                   PatChange, PolyMode, Chain, Groove, GrooveAmt, Humanize, Fill, FillPat, Genre, Mutate,
-                  BfxEvery, BfxLen, BfxAmount, BfxStutterRate, Scale, Tonal, GlobalCount };
+                  BfxEvery, BfxLen, BfxAmount, BfxStutterRate, Scale, Tonal,
+                  Character, MorphOn, Morph, Drift, DriftBars, Console, GlobalCount };
     enum TrackField { S1 = 0, S2, S3, S4, S5, S6, S7, S8, Level, Pan, Delay, Reverb, Pump, Ring, Mute, Solo,
-                      EnvA, EnvS, EnvR, SwingOwn, SwingAmt, TrackFieldCount };
+                      EnvA, EnvS, EnvR, SwingOwn, SwingAmt,
+                      // Tira analógica (fase 5)
+                      StripDrive, StripType, StripBody, StripBodyHz, StripNoise, StripTrans, StripBright, StripComp, StripCompType,
+                      TrackFieldCount };
     constexpr int TrackBase = GlobalCount;
     constexpr int track (int t, int f) { return TrackBase + t * TrackFieldCount + f; }
     constexpr int sound (int t, int p) { return track (t, p); }
@@ -319,6 +323,16 @@ inline const std::vector<ParamDef>& paramDefs()
         F (P::BfxAmount, "bfx.amount", "FX de fin de compas cantidad", 0.0f, 1.0f, 0.7f, false, pct, true);
         C (P::BfxStutterRate, "bfx.stutter.rate", "Stutter division", { "1/16", "1/32" }, 0, 4);
         // Tonalidad (fase 3): con MODO TONAL la NOTA de cada paso es un grado de la escala
+        // Carácter y escenas (fase 5)
+        {
+            auto& ch = C (P::Character, "global.character", "Caracter", { "Original", "Limpio" }, 0, 4);
+            auto& mo = B (P::MorphOn, "global.morphon", "Morph encendido", false);
+            auto& mp = F (P::Morph, "global.morph", "Morph", 0.0f, 1.0f, 0.0f, false, pct);
+            auto& dr = F (P::Drift, "global.drift", "Deriva lenta", 0.0f, 1.0f, 0.0f, false, pct);
+            auto& db = C (P::DriftBars, "global.driftbars", "Deriva ciclo", { "16 compases", "32 compases", "64 compases" }, 1, 4);
+            auto& cs = B (P::Console, "master.console", "Suma de consola", false);
+            for (auto* p : { &ch, &mo, &mp, &dr, &db, &cs }) p->version = 2;
+        }
         auto& scl = C (P::Scale, "global.scale", "Escala", scaleNames(), 0, 16);
         auto& ton = B (P::Tonal, "global.tonal", "Modo tonal", true);
         scl.version = ton.version = 2;
@@ -373,6 +387,21 @@ inline const std::vector<ParamDef>& paramDefs()
             {
                 p->track = t;
                 if (t >= Melody) p->version = 2;
+            }
+            // Tira analógica (fase 5): todo en 0 = sin procesar
+            {
+                auto& sd = F (P::track (t, P::StripDrive), pre + "strip.drive", tn + " Tira drive", 0.0f, 1.0f, 0.0f, false, pct, true);
+                auto& sy = C (P::track (t, P::StripType), pre + "strip.type", tn + " Tira tipo", { "Cinta", "Valvula", "Transistor", "Diodo" }, 0, 8);
+                auto& sb = F (P::track (t, P::StripBody), pre + "strip.body", tn + " Tira cuerpo", 0.0f, 1.0f, 0.0f, false, pct, true);
+                auto& sh = F (P::track (t, P::StripBodyHz), pre + "strip.bodyhz", tn + " Tira cuerpo frecuencia", 50.0f, 1000.0f, 180.0f, true,
+                              [] (float x) { return fmtHz (x); }, true);
+                auto& sn = F (P::track (t, P::StripNoise), pre + "strip.noise", tn + " Tira ruido", 0.0f, 1.0f, 0.0f, false, pct, true);
+                auto& st = F (P::track (t, P::StripTrans), pre + "strip.transient", tn + " Tira transiente", -1.0f, 1.0f, 0.0f, false,
+                              [] (float x) { return fmt ("%+.0f %%", x * 100.0); }, true);
+                auto& sr = F (P::track (t, P::StripBright), pre + "strip.bright", tn + " Tira brillo", 0.0f, 1.0f, 0.0f, false, pct, true);
+                auto& sc = F (P::track (t, P::StripComp), pre + "strip.comp", tn + " Tira comp", 0.0f, 1.0f, 0.0f, false, pct, true);
+                auto& sk = C (P::track (t, P::StripCompType), pre + "strip.comptype", tn + " Tira comp tipo", { "VCA", "FET" }, 0, 4);
+                for (auto* p : { &sd, &sy, &sb, &sh, &sn, &st, &sr, &sc, &sk }) { p->track = t; p->version = 2; }
             }
             // Envolvente con sustain (bajo, acordes, melodía y texturas). Con SUSTAIN en 0 suena como en la 1.0.
             if (t >= Bass)

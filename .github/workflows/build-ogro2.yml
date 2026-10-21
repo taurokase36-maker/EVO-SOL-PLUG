@@ -74,6 +74,14 @@ jobs:
           ./bin/test_samples 2>&1 | tee "$LOGS/tests_samples.log"
           bash ci_anotar.sh notice "Samples" "$LOGS/tests_samples.log" 20
 
+      - name: Carácter, tira analógica, escenas y deriva
+        working-directory: ogro2/tests
+        run: |
+          set -o pipefail
+          clang++ -std=c++17 -O2 test_analogico.cpp -o bin/test_analogico
+          ./bin/test_analogico 2>&1 | tee "$LOGS/tests_analogico.log"
+          bash ci_anotar.sh notice "Analogico" "$LOGS/tests_analogico.log" 20
+
       - name: Comparación A/B con OGRO 1.0
         working-directory: ogro2/tests
         run: |
@@ -94,7 +102,9 @@ jobs:
           cmake -S ogro2 -B build-ogro2 \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
-            -DCMAKE_OSX_DEPLOYMENT_TARGET=10.13
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=10.13 \
+            -DOGRO2_BUILD_NUMBER=${{ github.run_number }} \
+            -DOGRO2_BUILD_ID="build-${{ github.run_number }}-${GITHUB_SHA::7}"
 
       - name: Tests del plugin con JUCE (presets sin gestos, estado, importar 1.0, salidas)
         run: |
@@ -142,6 +152,10 @@ jobs:
           cp "ogro2/installer/Instalar OGRO 2.command" "$PKG/"
           chmod +x "$PKG/Instalar OGRO 2.command"
           cp ogro2/installer/LEEME.txt "$PKG/"
+          VER=$(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" "$PKG/OGRO 2.vst3/Contents/Info.plist")
+          echo "v$VER  ·  build-${{ github.run_number }}-${GITHUB_SHA::7}" > "$PKG/BUILD.txt"
+          date -u "+compilado %Y-%m-%d %H:%M UTC" >> "$PKG/BUILD.txt"
+          cat "$PKG/BUILD.txt"
           ditto -c -k --sequesterRsrc --keepParent "$PKG" OGRO-2-mac.zip
 
       - name: Subir el plugin listo para descargar

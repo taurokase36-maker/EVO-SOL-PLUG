@@ -40,6 +40,56 @@ inline float blepSquare (float ph, float dt) noexcept
     return v;
 }
 
+// PolyBLEP de 4 puntos (B-spline cúbica): menos aliasing que el de 2 puntos. Se usa en el modo
+// LIMPIO con calidad ALTA. Devuelve 2 * (escalón suave - escalón ideal) alrededor del salto en 0.
+inline float polyBlep4 (float t, float dt) noexcept
+{
+    float x;
+    if (t < 2.0f * dt) x = t / dt;
+    else if (t > 1.0f - 2.0f * dt) x = (t - 1.0f) / dt;
+    else return 0.0f;
+    float r;
+    if (x < -1.0f) { const float u = 2.0f + x; r = u * u * u * u * (1.0f / 24.0f); }
+    else if (x < 0.0f) r = 1.0f / 24.0f + (4.0f * x - 2.0f * x * x * x - 0.75f * x * x * x * x + 2.75f) * (1.0f / 6.0f);
+    else if (x < 1.0f) r = -(1.0f / 24.0f + (-4.0f * x + 2.0f * x * x * x - 0.75f * x * x * x * x + 2.75f) * (1.0f / 6.0f));
+    else { const float u = 2.0f - x; r = -u * u * u * u * (1.0f / 24.0f); }
+    return 2.0f * r;
+}
+inline float blepSaw4 (float ph, float dt) noexcept
+{
+    if (dt >= 0.2f) return blepSaw (ph, dt);
+    return 2.0f * ph - 1.0f - polyBlep4 (ph, dt);
+}
+inline float blepSquare4 (float ph, float dt) noexcept
+{
+    if (dt >= 0.12f) return blepSquare (ph, dt);
+    float v = ph < 0.5f ? 1.0f : -1.0f;
+    v += polyBlep4 (ph, dt);
+    float p2 = ph + 0.5f; if (p2 >= 1.0f) p2 -= 1.0f;
+    v -= polyBlep4 (p2, dt);
+    return v;
+}
+
+// tanh con anti-aliasing de primer orden (antiderivada: log cosh). Para el modo LIMPIO.
+struct AdaaTanh
+{
+    float x1 = 0.0f, f1 = 0.0f;
+    static float logCosh (float x) noexcept
+    {
+        const float a = std::fabs (x);
+        return a > 12.0f ? a - 0.693147f : std::log (std::cosh (x));
+    }
+    void reset() noexcept { x1 = 0.0f; f1 = 0.0f; }
+    inline float process (float x) noexcept
+    {
+        const float f = logCosh (x);
+        const float d = x - x1;
+        const float y = std::fabs (d) < 1.0e-4f ? std::tanh (0.5f * (x + x1)) : (f - f1) / d;
+        x1 = x; f1 = f;
+        return y;
+    }
+};
+
 // Coeficiente para que una envolvente exponencial caiga 60 dB en "ms"
 inline float decayCoef (float ms, double fs) noexcept
 {
@@ -170,13 +220,21 @@ public:
     virtual void choke() {}
     virtual void release() {}
     // Estado inicial (render repetible con azar FIJO). No pide memoria.
-    virtual void resetState() noexcept { active = false; lastOut = 0.0f; declick.offset = 0.0f; rng.seed (initSeed); }
+    virtual void resetState() noexcept { active = false; lastOut = 0.0f; declick.offset = 0.0f; rng.seed (initSeed); adaa.reset(); }
     // Tiempo del tema en segundos (azar FIJO: deriva y LFOs internos dependen de la posición)
     void setSongTime (double seconds, bool fixed, uint32_t s) { songSeconds = seconds; fixedRandom = fixed; randomSeed = s; }
     bool isActive() const { return active; }
+    // CARÁCTER: ORIGINAL (como la 1.0) o LIMPIO (saturación sin aliasing; con calidad ALTA,
+    // osciladores con polyBLEP de 4 puntos)
+    void setCharacter (bool cleanMode, bool high) { clean = cleanMode; hq = cleanMode && high; }
     float lastOut = 0.0f;
 
 protected:
+    inline float sat (float x) noexcept { return clean ? adaa.process (x) : std::tanh (x); }
+    inline float saw (float ph, float dt) const noexcept { return hq ? blepSaw4 (ph, dt) : blepSaw (ph, dt); }
+    inline float square (float ph, float dt) const noexcept { return hq ? blepSquare4 (ph, dt) : blepSquare (ph, dt); }
+    bool clean = false, hq = false;
+    AdaaTanh adaa;
     // Azar FIJO: el ruido y la VARIA de cada golpe salen de su semilla
     void beginHit (const Hit& h) { if (h.fixedSeed) rng.seed (h.seed); }
     double songSeconds = 0.0;
@@ -248,7 +306,7 @@ public:
             if (phase >= 1.0f) phase -= 1.0f;
             const float body = sin01 (phase) * amp;
             const float cl = (clickHp.process (rng.next()) * 0.6f + sin01 (phase * 3.0f) * 0.3f) * clickEnv * click;
-            float y = std::tanh (k * (body + cl)) * norm;
+            float y = sat (k * (body + cl)) * norm;
             y = color.lp (y) * gain;
             amp *= aC; pitchEnv *= pC; clickEnv *= cC;
             if (amp < 1.0e-4f) active = false;
@@ -328,7 +386,7 @@ public:
                 ++t;
             }
             const float x = bp.bp (rng.next()) * env * 3.0f;
-            float y = std::tanh (x * drive) / std::sqrt (drive) * gain;
+            float y = sat (x * drive) / std::sqrt (drive) * gain;
             // Room: 3 combs cortos amortiguados
             float r = 0.0f;
             for (int c = 0; c < 3; ++c)
@@ -399,7 +457,7 @@ public:
             const float tonal = (sin01 (ph1) * (0.35f + 0.65f * body) + sin01 (ph2) * (1.0f - 0.6f * body)) * amp;
             const float nz = noiseHp.hp (rng.next()) * noiseEnv * noiseAmt * 1.6f;
             const float cl = rng.next() * clickEnv * click;
-            float y = std::tanh ((tonal + nz + cl) * drive) / std::sqrt (drive) * gain;
+            float y = sat ((tonal + nz + cl) * drive) / std::sqrt (drive) * gain;
             amp *= aC; noiseEnv *= nC; clickEnv *= cC;
             if (amp < 1.0e-4f && noiseEnv < 1.0e-4f) active = false;
             out[i] = lastOut = declick.apply (y);
@@ -473,7 +531,7 @@ public:
             for (int k = 0; k < 6; ++k)
             {
                 ph[k] += dt[k]; if (ph[k] >= 1.0f) ph[k] -= 1.0f;
-                m += blepSquare (ph[k], dt[k]);
+                m += square (ph[k], dt[k]);
             }
             m *= (1.0f / 6.0f);
             const float src = metal * m + (1.0f - metal) * rng.next() * 0.8f;
@@ -488,7 +546,7 @@ public:
             }
             float y = hpf.hp (bpf.bp (src) * 1.5f + src * 0.35f) * env;
             y = air.process (y);
-            y = std::tanh (y * drive * 2.2f) / std::sqrt (drive) * gain * 0.2f;
+            y = sat (y * drive * 2.2f) / std::sqrt (drive) * gain * 0.2f;
             out[i] = lastOut = y;
         }
         bpf.flush(); hpf.flush(); air.flush();
@@ -551,7 +609,7 @@ public:
             pc += f * invFs; if (pc >= 1.0f) pc -= 1.0f;
             float c = pc + mod * 0.159155f; c -= std::floor (c);
             const float y0 = sin01 (c) * amp + rng.next() * ne * noise * 0.7f;
-            const float y = std::tanh (y0 * drive) / std::sqrt (drive) * gain;
+            const float y = sat (y0 * drive) / std::sqrt (drive) * gain;
             amp *= aC; ie *= iC; pe *= pC; ne *= nC;
             if (amp < 1.0e-4f) active = false;
             out[i] = lastOut = declick.apply (y);
@@ -659,7 +717,7 @@ public:
             float o;
             if (osc == 0)
             {
-                const float saw = blepSaw (ph, dt), sq = blepSquare (ph, dt), sq2 = blepSquare (phSub, dt * 0.5f);
+                const float saw = this->saw (ph, dt), sq = square (ph, dt), sq2 = square (phSub, dt * 0.5f);
                 if (wave < 0.5f) o = saw + (sq - saw) * (wave * 2.0f);
                 else o = sq * (1.0f - (wave - 0.5f)) + sq2 * (wave - 0.5f) * 1.6f;
             }
@@ -684,7 +742,7 @@ public:
             // Sub: seno una octava abajo, limpio (después del filtro)
             if (sub > 0.0f) y += sub * 0.7f * sin01 (phSub) / std::sqrt (drive);
             y *= amp * gain;
-            y = std::tanh (y * 1.6f) * 0.9f;
+            y = sat (y * 1.6f) * 0.9f;
             if (ampTarget < 1.0e-4f && amp < 1.0e-4f) active = false;
             out[i] = lastOut = declick.apply (y);
         }
@@ -714,14 +772,14 @@ private:
             {
                 const float pw = 0.5f - 0.45f * w;
                 float p2 = ph + (1.0f - pw); if (p2 >= 1.0f) p2 -= 1.0f;
-                return 0.9f * (blepSaw (ph, dt) - blepSaw (p2, dt));
+                return 0.9f * (saw (ph, dt) - saw (p2, dt));
             }
             case 2: // supersierra: 3 sierras, ONDA = desafinación
             {
                 const float d = 1.0f + 0.012f * w;
                 ph2 += dt * d; if (ph2 >= 1.0f) ph2 -= 1.0f;
                 ph3 += dt / d; if (ph3 >= 1.0f) ph3 -= 1.0f;
-                return 0.5f * (blepSaw (ph, dt) + blepSaw (ph2, dt * d) + blepSaw (ph3, dt / d));
+                return 0.5f * (saw (ph, dt) + saw (ph2, dt * d) + saw (ph3, dt / d));
             }
             case 3: // triángulo, ONDA lo vuelve más brillante (pliega)
             {
@@ -786,6 +844,7 @@ public:
         if (releaseMs != envR) { envR = releaseMs; userRelC = decayCoef (releaseMs, fs); }
     }
     void setStrum (float ms) { strumSamples = std::max (0.0, (double) ms * 0.001 * fs); }
+    void setCharacter (bool cleanMode, bool high) { clean = cleanMode; hq = cleanMode && high; }
     // Notas del próximo acorde (las arma el motor: tonalidad, inversión, voice leading)
     void setNextNotes (const float* notes, int count)
     {
@@ -802,6 +861,7 @@ public:
         chorusL.clear(); chorusR.clear();
         cur = 0;
         rng.seed (initSeed);
+        adaaL.reset(); adaaR.reset();
     }
 
     void trigger (const Hit& h) override
@@ -922,7 +982,8 @@ public:
                             s.inc[k][o] = 440.0f * std::exp2 ((s.note[k] - 69.0f + cents / 100.0f) / 12.0f) / (float) fs;
                         float& p = s.ph[k][o];
                         p += s.inc[k][o]; if (p >= 1.0f) p -= 1.0f;
-                        const float v = s.strum ? blepSaw (p, s.inc[k][o]) * noteGain : blepSaw (p, s.inc[k][o]);
+                        const float raw = hq ? blepSaw4 (p, s.inc[k][o]) : blepSaw (p, s.inc[k][o]);
+                        const float v = s.strum ? raw * noteGain : raw;
                         if (o == 0) sl += v; else sr += v;
                     }
                 }
@@ -938,8 +999,9 @@ public:
             const float dL = (float) fs * (0.0055f + 0.0022f * m);
             const float dR = (float) fs * (0.0055f - 0.0022f * m);
             const float cl = chorusL.read (dL), cr = chorusR.read (dR);
-            outL[i] = std::tanh ((l + chorus * (cr - 0.3f * l)) * 1.1f);
-            outR[i] = std::tanh ((r + chorus * (cl - 0.3f * r)) * 1.1f);
+            const float xl = (l + chorus * (cr - 0.3f * l)) * 1.1f, xr = (r + chorus * (cl - 0.3f * r)) * 1.1f;
+            outL[i] = clean ? adaaL.process (xl) : std::tanh (xl);
+            outR[i] = clean ? adaaR.process (xr) : std::tanh (xr);
         }
         for (auto& s : slots) { s.fl.flush(); s.fr.flush(); }
     }
@@ -962,6 +1024,8 @@ private:
     float prm[kSoundParams] {};
     int root = 0, cur = 0, pendingCount = 0;
     float pending[kMaxChordNotes] {};
+    bool clean = false, hq = false;
+    AdaaTanh adaaL, adaaR;
     double strumSamples = 0.0;
     Slot slots[2];
     Noise rng;
@@ -1001,6 +1065,7 @@ public:
         envS = clampv (sus, 0.0f, 1.0f);
         if (releaseMs != envR) { envR = releaseMs; relC = decayCoef (releaseMs, fs); }
     }
+    void setCharacter (bool cleanMode, bool high) { clean = cleanMode; hq = cleanMode && high; }
     // 0 = poly, 1 = mono, 2 = mono legato; base = nota MIDI de la tónica en la octava elegida
     void setMode (int voicesMode, float baseNote) { mode = voicesMode; base = baseNote; }
     bool isActive() const override
@@ -1020,6 +1085,7 @@ public:
         rng.seed (initSeed);
         age = 0;
         last = 0;
+        adaaL.reset(); adaaR.reset();
     }
 
     void trigger (const Hit& h) override
@@ -1158,7 +1224,8 @@ public:
                         v.ph[0] += inc * d; if (v.ph[0] >= 1.0f) v.ph[0] -= 1.0f;
                         v.ph[1] += inc / d; if (v.ph[1] >= 1.0f) v.ph[1] -= 1.0f;
                         v.ph[2] += inc * 0.5f; if (v.ph[2] >= 1.0f) v.ph[2] -= 1.0f;
-                        y = 0.4f * (blepSaw (v.ph[0], inc * d) + blepSaw (v.ph[1], inc / d)) + 0.3f * sin01 (v.ph[2]);
+                        y = hq ? 0.4f * (blepSaw4 (v.ph[0], inc * d) + blepSaw4 (v.ph[1], inc / d)) + 0.3f * sin01 (v.ph[2])
+                               : 0.4f * (blepSaw (v.ph[0], inc * d) + blepSaw (v.ph[1], inc / d)) + 0.3f * sin01 (v.ph[2]);
                         break;
                     }
                     case 2: // campana FM
@@ -1208,7 +1275,8 @@ public:
             }
             v.filt.flush();
         }
-        for (int i = 0; i < n; ++i) { outL[i] = std::tanh (outL[i] * 0.9f); outR[i] = std::tanh (outR[i] * 0.9f); }
+        if (clean) for (int i = 0; i < n; ++i) { outL[i] = adaaL.process (outL[i] * 0.9f); outR[i] = adaaR.process (outR[i] * 0.9f); }
+        else for (int i = 0; i < n; ++i) { outL[i] = std::tanh (outL[i] * 0.9f); outR[i] = std::tanh (outR[i] * 0.9f); }
     }
 
 private:
@@ -1246,6 +1314,8 @@ private:
     float prm[kSoundParams] {};
     float envA = -1.0f, envS = 0.0f, envR = -1.0f, atkC = 0.1f, relC = 0.999f, base = 69.0f;
     int mode = 0, last = 0;
+    bool clean = false, hq = false;
+    AdaaTanh adaaL, adaaR;
     Voice voice[kVoices];
     std::vector<float> ks;
     Noise rng;

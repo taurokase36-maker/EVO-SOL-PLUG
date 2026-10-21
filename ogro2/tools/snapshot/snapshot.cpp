@@ -19,6 +19,7 @@ int main (int argc, char** argv)
     std::unique_ptr<Ogro2Editor> ed (dynamic_cast<Ogro2Editor*> (proc.createEditor()));
     if (argc > 4) ed->getContent().setPage (std::atoi (argv[4]));
     if (argc > 6) ed->getContent().setSeqMode (std::atoi (argv[6]));
+    if (argc > 7) ed->getContent().setInspectorTab (std::atoi (argv[7]));
     ed->getContent().refreshNow();
     const auto img = ed->createComponentSnapshot (ed->getLocalBounds(), true, scale);
     out.deleteFile();

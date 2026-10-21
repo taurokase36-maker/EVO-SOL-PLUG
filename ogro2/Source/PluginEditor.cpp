@@ -71,10 +71,54 @@ public:
           chordSource (p, P::ChordSource, "FUENTE"),
           chordSample (p, 1, "SAMPLE CHD", true),
           chordRand (p, P::ChordRandStep, "POR PASO", col::ledGreen),
-          chordLevel (p, P::ChordSampleLevel, "NIVEL SAMPLE")
+          chordLevel (p, P::ChordSampleLevel, "NIVEL SAMPLE"),
+          stripType (p, P::track (0, P::StripType), "TIPO DE DRIVE"),
+          stripCompType (p, P::track (0, P::StripCompType), "COMP")
     {
+        // Tira analógica (pestaña TIRA)
+        static const std::pair<int, const char*> stripKnobs[] = { { P::StripDrive, "DRIVE" }, { P::StripBody, "CUERPO" }, { P::StripBodyHz, "FREC." },
+                                                                  { P::StripNoise, "RUIDO" }, { P::StripTrans, "TRANSIENTE" }, { P::StripBright, "BRILLO" },
+                                                                  { P::StripComp, "COMP" } };
+        for (int k = 0; k < 7; ++k)
+        {
+            auto* kn = strip.add (new Knob (p, P::track (0, stripKnobs[k].first), T (stripKnobs[k].second), Theme::Violet, stripKnobs[k].first == P::StripTrans));
+            kn->setRing (juce::Colour (0xfff2a466));
+            kn->isLocked = [this, k] { return proc.isLocked (track, kSoundParams + k); };
+            kn->onLockToggle = [this, k] { proc.toggleLock (track, kSoundParams + k); };
+            addChildComponent (kn);
+        }
+        addChildComponent (stripType);
+        addChildComponent (stripCompType);
+        for (auto* b : { &tabSound, &tabStrip })
+        {
+            styleKey (*b, col::keyCream);
+            b->setColour (juce::TextButton::buttonOnColourId, col::violet);
+            b->setColour (juce::TextButton::textColourOnId, juce::Colours::white);
+            addAndMakeVisible (b);
+        }
+        tabSound.setButtonText ("SONIDO");
+        tabStrip.setButtonText ("TIRA");
+        tabSound.setTooltip (T ("Las perillas de sonido de la pista"));
+        tabStrip.setTooltip (T ("Tira analógica de la pista: drive (cinta, válvula, transistor, diodo), cuerpo, ruido, transiente, brillo y compresor"));
+        tabSound.onClick = [this] { tab = 0; trackChanged (track); };
+        tabStrip.onClick = [this] { tab = 1; trackChanged (track); };
+        diceButton.setButtonText ("VARIAR");
+        styleKey (diceButton, col::keyBlue);
+        diceButton.setTooltip (T ("Dado de sonido: mueve al azar las perillas de esta pista que no tienen candado (clic en el candadito de cada perilla). "
+                                  "Clic derecho: más fuerte. Se deshace con Cmd+Z de Ableton."));
+        diceButton.onClick = [this] {
+            const bool strong = juce::ModifierKeys::currentModifiers.isPopupMenu() || juce::ModifierKeys::currentModifiers.isShiftDown();
+            proc.rollSoundDice (track, strong ? 0.6f : 0.25f);
+        };
+        diceButton.setTriggeredOnMouseDown (false);
+        addAndMakeVisible (diceButton);
         for (int i = 0; i < kSoundParams; ++i)
-            addAndMakeVisible (sound.add (new Knob (p, P::sound (0, i), upperName (0, i))));
+        {
+            auto* kn = sound.add (new Knob (p, P::sound (0, i), upperName (0, i)));
+            kn->isLocked = [this, i] { return proc.isLocked (track, i); };
+            kn->onLockToggle = [this, i] { proc.toggleLock (track, i); };
+            addAndMakeVisible (kn);
+        }
         for (auto* c : std::initializer_list<juce::Component*> { &level, &pan, &dly, &rev, &pump, &ring, &audition })
             addAndMakeVisible (c);
         for (auto* c : std::initializer_list<juce::Component*> { &envA, &envS, &envR, &chordType, &melModel, &bassOsc, &bassSub, &bassAccent,
@@ -108,7 +152,7 @@ public:
         tabSample.onClick = [this] { chordTab = 1; trackChanged (track); };
         level.setTravel (420);
         for (auto* k : { &dly, &rev, &pump }) k->setRing (juce::Colour (0xfff2a466));
-        ring.slider.setTooltip (T ("Cuánto pasa esta pista por el ring mod (la portadora se ajusta en el panel RING)"));
+        ring.slider.setTooltip (T ("Cuánto pasa esta pista por el ring mod (la portadora se ajusta en el panel FX)"));
         envS.slider.setTooltip (T ("Con SUSTAIN en 0 la nota cae sola (como en la 1.0). Con sustain, dura lo que el paso o la nota MIDI y después suelta en RELEASE."));
         audition.setButtonText ("PROBAR");
         styleKey (audition, col::orange);
@@ -125,8 +169,10 @@ public:
         trackChanged (0);
     }
     juce::String title() const override { return trackLabel (track); }
+    void setTab (int t) override { tab = juce::jlimit (0, 1, t); trackChanged (track); }
     void tick() override
     {
+        for (auto* k : sound) k->repaint (k->lockArea().toNearestInt());
         if (track == Texture || track == Chord)
         {
             texSample.refresh();
@@ -141,6 +187,14 @@ public:
     {
         track = t;
         for (int i = 0; i < kSoundParams; ++i) sound[i]->bind (P::sound (t, i), upperName (t, i));
+        static const std::pair<int, const char*> stripFields[] = { { P::StripDrive, "DRIVE" }, { P::StripBody, "CUERPO" }, { P::StripBodyHz, "FREC." },
+                                                                   { P::StripNoise, "RUIDO" }, { P::StripTrans, "TRANSIENTE" }, { P::StripBright, "BRILLO" },
+                                                                   { P::StripComp, "COMP" } };
+        for (int k = 0; k < 7; ++k) strip[k]->bind (P::track (t, stripFields[k].first), T (stripFields[k].second));
+        stripType.bind (P::track (t, P::StripType));
+        stripCompType.bind (P::track (t, P::StripCompType));
+        tabSound.setToggleState (tab == 0, juce::dontSendNotification);
+        tabStrip.setToggleState (tab == 1, juce::dontSendNotification);
         level.bind (P::track (t, P::Level), "NIVEL");
         pan.bind (P::track (t, P::Pan), "PANEO");
         dly.bind (P::track (t, P::Delay), "DELAY");
@@ -149,7 +203,7 @@ public:
         ring.bind (P::track (t, P::Ring), "RING");
         hasEnv = t >= Bass;
         hasAttack = hasEnv && t != Chord;
-        hasExtras = t >= Bass;
+        hasExtras = t >= Bass || tab == 1;
         envA.setVisible (hasAttack);
         envS.setVisible (hasEnv);
         envR.setVisible (hasEnv);
@@ -160,17 +214,22 @@ public:
             envR.bind (P::track (t, P::EnvR), "RELEASE");
         }
         // El tipo de acorde y el modelo de la melodía son listas: se eligen en pantalla
-        sound[0]->setVisible (t != Chord && t != Melody);
-        chordType.setVisible (t == Chord);
-        melModel.setVisible (t == Melody);
-        for (auto* c : std::initializer_list<juce::Component*> { &bassOsc, &bassSub, &bassAccent, &bassLegato }) c->setVisible (t == Bass);
-        for (auto* c : std::initializer_list<juce::Component*> { &chordMode, &chordInv, &chordSpread, &chordStrum, &chordLead }) c->setVisible (t == Chord && chordTab == 0);
-        for (auto* c : std::initializer_list<juce::Component*> { &chordSource, &chordSample, &chordDice, &chordRand, &chordLevel }) c->setVisible (t == Chord && chordTab == 1);
-        for (auto* c : std::initializer_list<juce::Component*> { &tabVoicing, &tabSample }) c->setVisible (t == Chord);
+        const bool snd = tab == 0;
+        for (int i = 1; i < kSoundParams; ++i) sound[i]->setVisible (snd);
+        sound[0]->setVisible (snd && t != Chord && t != Melody);
+        chordType.setVisible (snd && t == Chord);
+        melModel.setVisible (snd && t == Melody);
+        for (auto* k : strip) k->setVisible (! snd);
+        stripType.setVisible (! snd);
+        stripCompType.setVisible (! snd);
+        for (auto* c : std::initializer_list<juce::Component*> { &bassOsc, &bassSub, &bassAccent, &bassLegato }) c->setVisible (snd && t == Bass);
+        for (auto* c : std::initializer_list<juce::Component*> { &chordMode, &chordInv, &chordSpread, &chordStrum, &chordLead }) c->setVisible (snd && t == Chord && chordTab == 0);
+        for (auto* c : std::initializer_list<juce::Component*> { &chordSource, &chordSample, &chordDice, &chordRand, &chordLevel }) c->setVisible (snd && t == Chord && chordTab == 1);
+        for (auto* c : std::initializer_list<juce::Component*> { &tabVoicing, &tabSample }) c->setVisible (snd && t == Chord);
         tabVoicing.setToggleState (chordTab == 0, juce::dontSendNotification);
         tabSample.setToggleState (chordTab == 1, juce::dontSendNotification);
-        for (auto* c : std::initializer_list<juce::Component*> { &melVoices, &melOctave }) c->setVisible (t == Melody);
-        for (auto* c : std::initializer_list<juce::Component*> { &texSample, &texDice, &texCat, &texRand, &texFollow, &texRev, &texFilter }) c->setVisible (t == Texture);
+        for (auto* c : std::initializer_list<juce::Component*> { &melVoices, &melOctave }) c->setVisible (snd && t == Melody);
+        for (auto* c : std::initializer_list<juce::Component*> { &texSample, &texDice, &texCat, &texRand, &texFollow, &texRev, &texFilter }) c->setVisible (snd && t == Texture);
         resized();
         repaint();
     }
@@ -189,15 +248,22 @@ public:
         g.setFont (textFont (14.0f));
         const bool warn = (track == Texture || (track == Chord && proc.value (P::ChordSource) > 0.5f)) && status.isNotEmpty();
         if (warn) g.setColour (juce::Colour (0xffffb35c));
-        g.drawText (warn ? status : T (trackDescription (track)),
-                    juce::Rectangle<float> (nameW, 0.0f, (float) getWidth() - nameW - (track == Texture ? 210.0f : 130.0f), 32.0f),
-                    juce::Justification::centredLeft, true);
+        g.setFont (textFont (13.0f));
+        g.drawText (warn ? status : (tab == 1 ? T ("Tira analógica: todo en 0 = la pista suena sin procesar") : T (trackDescription (track))),
+                    juce::Rectangle<float> (nameW, 0.0f, (float) getWidth() - nameW - 306.0f, 32.0f), juce::Justification::centredLeft, true);
         // Fila de controles propios (bajo, acordes, melodía)
         if (hasExtras)
         {
             g.setColour (juce::Colours::white.withAlpha (0.06f));
             g.fillRoundedRectangle (extrasBox.toFloat(), 10.0f);
-            if (track == Melody)
+            if (tab == 1)
+            {
+                g.setColour (col::violetValue);
+                g.setFont (textFont (13.0f));
+                g.drawFittedText (T ("Candadito en cada perilla: el dado (VARIAR) no la mueve. La tira se puede automatizar, modular y poner en p-locks."),
+                                  extrasBox.reduced (10, 4).withTrimmedLeft (290), juce::Justification::centredLeft, 3);
+            }
+            else if (track == Melody)
             {
                 g.setColour (col::violetValue);
                 g.setFont (textFont (13.0f));
@@ -217,14 +283,23 @@ public:
         {
             g.setColour (col::violetValue);
             g.setFont (textFont (13.0f));
-            g.drawFittedText (T ("Cuánto pasa por el ring modulator. La portadora se ajusta en el panel RING."),
+            g.drawFittedText (T ("Cuánto pasa por el ring modulator. La portadora se ajusta en el panel FX."),
                               ringBox.reduced (12).withTrimmedTop (34).withTrimmedLeft (84), juce::Justification::topLeft, 6);
         }
     }
     void resized() override
     {
-        audition.setBounds (getWidth() - 120, 0, 120, 32);
-        texFilter.setBounds (getWidth() - 204, 0, 80, 32);
+        audition.setBounds (getWidth() - 96, 0, 96, 32);
+        diceButton.setBounds (getWidth() - 172, 0, 72, 32);
+        tabStrip.setBounds (getWidth() - 232, 2, 56, 28);
+        tabSound.setBounds (getWidth() - 302, 2, 66, 28);
+        // Tira: 7 perillas y las dos listas abajo
+        {
+            const int w7 = getWidth() / 7;
+            for (int k = 0; k < 7; ++k) strip[k]->setBounds (k * w7, 42, w7, 100);
+            stripType.setBounds (10, 152, 150, 50);
+            stripCompType.setBounds (170, 152, 100, 50);
+        }
         const int kh = hasExtras ? 100 : 104;
         if (track == Chord || track == Melody)
         {
@@ -257,12 +332,13 @@ public:
             place (chordLevel, 506, getWidth() - 512);
             place (melVoices, 10, 128); place (melOctave, 146, 84);
             // Texturas
-            place (texSample, 10, 170);
-            texDice.setBounds (184, ey + 18, 52, 30);
-            place (texCat, 240, 84);
-            texRand.setBounds (330, ey + 18, 96, 30);
-            texFollow.setBounds (430, ey + 18, 92, 30);
-            texRev.setBounds (526, ey + 18, getWidth() - 532, 30);
+            place (texSample, 6, 140);
+            texDice.setBounds (150, ey + 18, 48, 30);
+            place (texCat, 202, 72);
+            texRand.setBounds (278, ey + 18, 88, 30);
+            texFollow.setBounds (370, ey + 18, 84, 30);
+            texRev.setBounds (458, ey + 18, 84, 30);
+            texFilter.setBounds (546, ey + 18, getWidth() - 546, 30);
         }
         const int y = hasExtras ? 214 : 162, h = getHeight() - y;
         const int ky = y + (hasExtras ? 30 : 40), kh2 = hasExtras ? h - 34 : 112;
@@ -326,6 +402,10 @@ private:
     HSlider chordLevel;
     juce::TextButton texDice, chordDice, texFilter, tabVoicing, tabSample;
     int chordTab = 0;
+    juce::OwnedArray<Knob> strip;
+    Choice stripType, stripCompType;
+    juce::TextButton tabSound, tabStrip, diceButton;
+    int tab = 0;
     juce::String status;
     juce::TextButton audition;
     bool hasEnv = false, hasAttack = false, hasExtras = false;
@@ -345,11 +425,14 @@ public:
           revSize (p, P::RevSize, T ("TAMAÑO")), revDecay (p, P::RevDecay, "DECAY"), revRet (p, P::RevRet, "RETORNO"),
           pumpRel (p, P::PumpRel, "TIEMPO"),
           busComp (p, P::BusComp, T ("COMPRESIÓN")), busCrudo (p, P::BusCrudo, "CRUDO"),
-          gr (T ("GR"), true, 18.0f)
+          gr (T ("GR"), true, 18.0f),
+          ringOn (p, P::RingOn, "RING", col::ledGreen), ringFreq (p, P::RingFreq, "FREC."), ringWave (p, P::RingWave, ""),
+          ringMix (p, P::RingMix, "MEZCLA"), ringSpread (p, P::RingSpread, T ("ESTÉREO"))
     {
         for (auto* c : std::initializer_list<juce::Component*> { &dlyDiv, &dlyFb, &dlyTone, &dlyRet, &revSize, &revDecay, &revRet,
-                                                                 &pumpRel, &busComp, &busCrudo, &gr })
+                                                                 &pumpRel, &busComp, &busCrudo, &gr, &ringOn, &ringFreq, &ringWave, &ringMix, &ringSpread })
             addAndMakeVisible (c);
+        ringFreq.slider.setTooltip (T ("Frecuencia de la portadora del ring: grave = trémolo, agudo = campanas y metal. Cuánto pasa cada pista se elige en su inspector (RING)."));
         for (auto* k : { &busComp, &busCrudo }) k->setRing (juce::Colour (0xfff2a466));
     }
     juce::String title() const override { return "FX"; }
@@ -360,26 +443,28 @@ public:
         paint::violetCard (g, b2.toFloat(), "Reverb");
         paint::violetCard (g, b3.toFloat(), "Pump");
         paint::violetCard (g, b4.toFloat(), T ("Drum bus"));
-        g.setColour (col::violetValue);
-        g.setFont (textFont (13.0f));
-        g.drawFittedText (T ("Con cada kick, las pistas con PUMP se agachan y vuelven en este tiempo: el bombeo clásico del house."),
-                          b3.reduced (12).withTrimmedTop (30).withTrimmedLeft (96), juce::Justification::topLeft, 5);
-        g.drawFittedText (T ("Kick, clap, rim, hats y perc pasan por un compresor rápido y saturación de cinta y válvula."),
-                          b4.reduced (12).withTrimmedTop (30).withTrimmedLeft (196).withTrimmedRight (34), juce::Justification::topLeft, 5);
+        paint::violetCard (g, b5.toFloat(), T ("Ring mod · portadora"));
     }
     void resized() override
     {
         const int w = (getWidth() - 12) / 2, h = (getHeight() - 12) / 2;
-        b1 = { 0, 0, w, h }; b2 = { w + 12, 0, w, h }; b3 = { 0, h + 12, w, h }; b4 = { w + 12, h + 12, w, h };
+        b1 = { 0, 0, w, h }; b2 = { w + 12, 0, w, h };
+        b3 = { 0, h + 12, 104, h }; b4 = { 116, h + 12, 210, h }; b5 = { 338, h + 12, getWidth() - 338, h };
         dlyDiv.setBounds (b1.getX() + 12, b1.getY() + 36, 86, 50);
         int x = b1.getX() + 104;
         for (auto* k : { &dlyFb, &dlyTone, &dlyRet }) { k->setBounds (x, b1.getY() + 30, 64, h - 40); x += 64; }
         x = b2.getX() + 18;
         for (auto* k : { &revSize, &revDecay, &revRet }) { k->setBounds (x, b2.getY() + 30, 88, h - 40); x += 92; }
-        pumpRel.setBounds (b3.getX() + 8, b3.getY() + 30, 86, h - 40);
-        busComp.setBounds (b4.getX() + 6, b4.getY() + 30, 90, h - 40);
-        busCrudo.setBounds (b4.getX() + 98, b4.getY() + 30, 90, h - 40);
-        gr.setBounds (b4.getRight() - 34, b4.getY() + 34, 22, h - 44);
+        pumpRel.setBounds (b3.getX() + 8, b3.getY() + 30, 88, h - 40);
+        busComp.setBounds (b4.getX() + 4, b4.getY() + 30, 80, h - 40);
+        busCrudo.setBounds (b4.getX() + 86, b4.getY() + 30, 80, h - 40);
+        gr.setBounds (b4.getRight() - 32, b4.getY() + 34, 22, h - 44);
+        ringOn.setBounds (b5.getX() + 10, b5.getY() + 34, 82, 28);
+        ringWave.setBounds (b5.getX() + 10, b5.getY() + 70, 82, 30);
+        const int kx = b5.getX() + 96, kw = (b5.getWidth() - 100) / 3;
+        ringFreq.setBounds (kx, b5.getY() + 30, kw, h - 40);
+        ringMix.setBounds (kx + kw, b5.getY() + 30, kw, h - 40);
+        ringSpread.setBounds (kx + 2 * kw, b5.getY() + 30, kw, h - 40);
     }
 
 private:
@@ -387,7 +472,11 @@ private:
     Choice dlyDiv;
     Knob dlyFb, dlyTone, dlyRet, revSize, revDecay, revRet, pumpRel, busComp, busCrudo;
     Meter gr;
-    juce::Rectangle<int> b1, b2, b3, b4;
+    Toggle ringOn;
+    Knob ringFreq;
+    Choice ringWave;
+    Knob ringMix, ringSpread;
+    juce::Rectangle<int> b1, b2, b3, b4, b5;
 };
 
 // ---------------------------------------------------------------------------
@@ -792,81 +881,96 @@ private:
 };
 
 // ---------------------------------------------------------------------------
-// RING MOD
+// ESCENAS: A/B con MORPH, deriva lenta, carácter y consola
 // ---------------------------------------------------------------------------
-class RingPage : public Page
+class ScenesPage : public Page
 {
 public:
-    explicit RingPage (Ogro2Processor& p)
+    explicit ScenesPage (Ogro2Processor& p)
         : proc (p),
-          on (p, P::RingOn, "RING ENCENDIDO", col::ledGreen),
-          freq (p, P::RingFreq, "FRECUENCIA"),
-          wave (p, P::RingWave, "FORMA"),
-          mix (p, P::RingMix, "MEZCLA"),
-          spread (p, P::RingSpread, T ("ESTÉREO"))
+          morphOn (p, P::MorphOn, "MORPH", col::ledGreen),
+          morph (p, P::Morph, "MORPH  A  ->  B", Theme::Violet),
+          drift (p, P::Drift, "DERIVA"),
+          driftBars (p, P::DriftBars, "CICLO"),
+          character (p, P::Character, T ("CARÁCTER")),
+          console (p, P::Console, "CONSOLA", col::orange)
     {
-        for (auto* c : std::initializer_list<juce::Component*> { &on, &freq, &wave, &mix, &spread }) addAndMakeVisible (c);
-        freq.setTitleSize (14.0f);
-        for (int t = 0; t < kTracks; ++t)
+        for (auto* c : std::initializer_list<juce::Component*> { &morphOn, &morph, &drift, &driftBars, &character, &console })
+            addAndMakeVisible (c);
+        morph.setTitleSize (12.0f);
+        morph.setTravel (520);
+        static const char* names[] = { "GUARDAR A", "GUARDAR B", "IR A  A", "IR A  B" };
+        for (int i = 0; i < 4; ++i)
         {
-            auto* r = routes.add (new Knob (p, P::track (t, P::Ring), trackLabel (t)));
-            r->setRing (col::track (t));
-            r->setTitleSize (12.0f);
-            addAndMakeVisible (r);
+            auto* b = buttons.add (new juce::TextButton (names[i]));
+            styleKey (*b, i < 2 ? col::orange : col::keyCream);
+            b->onClick = [this, i] {
+                if (i < 2) proc.storeScene (i);
+                else proc.recallScene (i - 2);
+                repaint();
+            };
+            addAndMakeVisible (b);
         }
+        buttons[0]->setTooltip (T ("Guarda cómo están ahora todas las perillas (sonido, mezcla, tira, FX y master) como escena A"));
+        buttons[1]->setTooltip (T ("Lo mismo como escena B"));
+        buttons[2]->setTooltip (T ("Vuelve las perillas a la escena A"));
+        buttons[3]->setTooltip (T ("Vuelve las perillas a la escena B"));
+        morph.slider.setTooltip (T ("Con MORPH encendido, las perillas que son distintas en A y B se mueven entre las dos. Automatizalo en Ableton para "
+                                    "transiciones largas. Las que son iguales en las dos siguen respondiendo a la perilla."));
+        drift.slider.setTooltip (T ("Deriva lenta: las perillas de sonido de todas las pistas se mueven solas, muy despacio, como un equipo analógico "
+                                    "que se calienta. Sale de la semilla: con AZAR FIJO cada render sale igual."));
+        character.box.setTooltip (T ("ORIGINAL: el sonido de siempre (como la 1.0). LIMPIO: saturaciones sin aliasing, perillas suavizadas (sin "
+                                     "escalones) y, con CALIDAD ALTA, osciladores todavía más limpios."));
+        console.button.setTooltip (T ("Suma de consola: un poco de saturación y diafonía al sumar las pistas (sutil, apagada por defecto)"));
     }
-    juce::String title() const override { return "RING MOD"; }
-    void tick() override { repaint (scopeRect); }
+    juce::String title() const override { return "ESCENAS"; }
+    void tick() override
+    {
+        const int st = (proc.hasScene (0) ? 1 : 0) + (proc.hasScene (1) ? 2 : 0);
+        if (st != lastState) { lastState = st; repaint(); }
+    }
     void paint (juce::Graphics& g) override
     {
-        paint::violetCard (g, ctlBox.toFloat(), T ("Portadora"));
-        paint::violetCard (g, routeBox.toFloat(), T ("Cuánto pasa cada pista por el ring"));
-        paint::lcd (g, scopeRect.toFloat());
-        const int w = (int) proc.value (P::RingWave);
-        const float f = proc.value (P::RingFreq);
-        const float cycles = juce::jlimit (1.0f, 24.0f, f / 60.0f);
-        auto r = scopeRect.toFloat().reduced (8.0f);
-        juce::Path pth;
-        for (int i = 0; i <= 200; ++i)
+        paint::violetCard (g, sceneBox.toFloat(), T ("Escenas A / B y MORPH"));
+        paint::violetCard (g, driftBox.toFloat(), "Deriva lenta");
+        paint::violetCard (g, charBox.toFloat(), T ("Carácter y consola"));
+        for (int w = 0; w < 2; ++w)
         {
-            const float x = (float) i / 200.0f, ph = std::fmod (x * cycles, 1.0f);
-            const float v = w == 0 ? std::sin (juce::MathConstants<float>::twoPi * ph) : w == 1 ? (ph < 0.5f ? 4 * ph - 1 : 3 - 4 * ph) : (ph < 0.5f ? 1.0f : -1.0f);
-            const float px = r.getX() + r.getWidth() * x, py = r.getCentreY() - v * (r.getHeight() * 0.42f);
-            if (i == 0) pth.startNewSubPath (px, py); else pth.lineTo (px, py);
+            const auto r = juce::Rectangle<float> ((float) sceneBox.getX() + 14.0f + (float) w * 136.0f, (float) sceneBox.getY() + 118.0f, 126.0f, 16.0f);
+            paint::led (g, { r.getX(), r.getCentreY() - 3.5f, 12.0f, 7.0f }, col::ledGreen, proc.hasScene (w));
+            g.setColour (col::violetValue);
+            g.setFont (textFont (12.0f));
+            g.drawText (juce::String (w == 0 ? "A" : "B") + (proc.hasScene (w) ? T (": guardada") : T (": vacía")), r.withTrimmedLeft (18.0f),
+                        juce::Justification::centredLeft);
         }
-        g.setColour (col::phosphor.withAlpha (0.25f));
-        g.strokePath (pth, juce::PathStrokeType (4.0f));
-        g.setColour (col::phosphor);
-        g.strokePath (pth, juce::PathStrokeType (1.6f));
         g.setColour (col::violetValue);
-        g.setFont (textFont (13.0f));
-        g.drawFittedText (T ("El ring multiplica cada pista ruteada por la portadora: frecuencias bajas dan trémolo y movimiento, "
-                             "altas dan campanas, metal y texturas inarmónicas. Ideal para percs y acordes minimal."),
-                          routeBox.reduced (12).withTrimmedTop (262), juce::Justification::topLeft, 4);
+        g.setFont (textFont (12.5f));
+        g.drawFittedText (T ("ORIGINAL es el sonido de siempre. LIMPIO saca el aliasing de las saturaciones y suaviza las perillas."),
+                          charBox.reduced (12).withTrimmedTop (92), juce::Justification::topLeft, 3);
     }
     void resized() override
     {
-        ctlBox = { 0, 0, 300, getHeight() };
-        routeBox = { 312, 0, getWidth() - 312, getHeight() };
-        on.setBounds (12, 34, 180, 32);
-        freq.setBounds (8, 74, 130, 150);
-        wave.setBounds (150, 84, 138, 52);
-        mix.setBounds (146, 146, 72, 96);
-        spread.setBounds (220, 146, 72, 96);
-        scopeRect = { 12, 250, 276, getHeight() - 262 };
-        const int bw = (routeBox.getWidth() - 24) / 5;
-        for (int t = 0; t < kTracks; ++t)
-            routes[t]->setBounds (routeBox.getX() + 12 + (t % 5) * bw, 34 + (t / 5) * 112, bw, 108);
+        sceneBox = { 0, 0, 300, getHeight() };
+        driftBox = { 312, 0, getWidth() - 312, 150 };
+        charBox = { 312, 162, getWidth() - 312, getHeight() - 162 };
+        for (int i = 0; i < 4; ++i) buttons[i]->setBounds (sceneBox.getX() + 12 + (i % 2) * 138, sceneBox.getY() + 34 + (i / 2) * 40, 132, 34);
+        morphOn.setBounds (sceneBox.getX() + 12, sceneBox.getY() + 146, 110, 30);
+        morph.setBounds (sceneBox.getX() + 60, sceneBox.getY() + 180, 180, getHeight() - 186);
+        drift.setBounds (driftBox.getX() + 10, driftBox.getY() + 28, 100, 116);
+        driftBars.setBounds (driftBox.getX() + 122, driftBox.getY() + 50, 150, 52);
+        character.setBounds (charBox.getX() + 12, charBox.getY() + 34, 140, 52);
+        console.setBounds (charBox.getX() + 164, charBox.getY() + 52, 112, 32);
     }
 
 private:
     Ogro2Processor& proc;
-    Toggle on;
-    Knob freq;
-    Choice wave;
-    Knob mix, spread;
-    juce::OwnedArray<Knob> routes;
-    juce::Rectangle<int> ctlBox, routeBox, scopeRect;
+    Toggle morphOn;
+    Knob morph, drift;
+    Choice driftBars, character;
+    Toggle console;
+    juce::OwnedArray<juce::TextButton> buttons;
+    juce::Rectangle<int> sceneBox, driftBox, charBox;
+    int lastState = -1;
 };
 
 // ---------------------------------------------------------------------------
@@ -993,7 +1097,7 @@ Content::Content (Ogro2Processor& p) : proc (p), ctx { p }, lane (ctx), keys (ct
     pages.add (new ModPage (p));
     pages.add (new GroovePage (p));
     pages.add (new ArrangePage (p));
-    pages.add (new RingPage (p));
+    pages.add (new ScenesPage (p));
     pages.add (new MasterPage (p));
     for (auto* pg : pages) addChildComponent (pg);
     backButton.setButtonText (T ("‹  PISTA"));
@@ -1017,11 +1121,12 @@ Content::Content (Ogro2Processor& p) : proc (p), ctx { p }, lane (ctx), keys (ct
         k->slider.setTooltip (T (macroTips[m]) + T (" · al medio no cambia nada · doble clic: al medio"));
         addAndMakeVisible (k);
     }
-    static const char* panelNames[] = { "FX", "MOD", "GROOVE", "ARREGLO", "RING", "MASTER" };
-    static const char* panelTips[] = { "Delay, reverb, pump y drum bus", "LFOs y matriz de modulación",
+    static const char* panelNames[] = { "FX", "MOD", "GROOVE", "ARREGLO", "ESCENAS", "MASTER" };
+    static const char* panelTips[] = { "Delay, reverb, pump, drum bus y portadora del ring mod", "LFOs y matriz de modulación",
                                        "Plantillas de groove, humanizar, swing por pista y polirritmos",
-                                       "Cadena de patrones, cambio de patrón, fills y efectos de fin de compás", "Ring modulator",
-                                       "Filtro DJ, EQ, compresión y textura del master" };
+                                       "Cadena de patrones, cambio de patrón, fills y efectos de fin de compás",
+                                       "Escenas A/B con MORPH, deriva lenta, carácter (ORIGINAL / LIMPIO) y suma de consola",
+                                       "Filtro DJ, EQ, compresión, textura y calidad del master" };
     for (int i = 0; i < 6; ++i)
     {
         auto* b = panelButtons.add (new juce::TextButton (panelNames[i]));
@@ -1510,6 +1615,14 @@ void Content::paintLogo (juce::Graphics& g, juce::Rectangle<float> plate)
     g.setColour (col::dim);
     drawSpaced (g, T ("EVO THE SUN  ·  GROOVEBOX"), { plate.getX() + 2.0f, plate.getBottom() + 4.0f, 240.0f, 14.0f }, labelFont (11.0f), 0.2f,
                 juce::Justification::centredLeft);
+    // Versión y build: así se ve de un vistazo qué versión cargó Ableton
+#ifndef OGRO2_BUILD
+ #define OGRO2_BUILD "local"
+#endif
+    g.setColour (col::dim.withAlpha (0.8f));
+    g.setFont (textFont (10.0f));
+    g.drawText ("v" + juce::String (JucePlugin_VersionString) + "  ·  " + juce::String (OGRO2_BUILD),
+                juce::Rectangle<float> (plate.getX() + 2.0f, plate.getBottom() + 17.0f, 200.0f, 11.0f), juce::Justification::centredLeft);
 }
 
 void Content::paint (juce::Graphics& g)
