@@ -103,6 +103,10 @@ namespace P
                 BassSub, BassOsc, BassAccent, BassLegato,
                 ChordMode, ChordInv, ChordSpread, ChordStrum, ChordLead,
                 MelVoices, MelOctave,
+                // Fase 4: samples (texturas y capa de acordes) y calidad
+                TexReverse, TexFilter, TexCat, TexRandStep, TexFollow,
+                ChordSource, ChordSampleLevel, ChordRandStep,
+                Quality,
                 Count };
 }
 
@@ -473,6 +477,21 @@ inline const std::vector<ParamDef>& paramDefs()
             auto& vo = C (P::MelVoices, "melody.voices", "Melodia Voces", { "Poly (4)", "Mono", "Mono legato" }, 0, 4);
             auto& oc = C (P::MelOctave, "melody.octave", "Melodia Octava", { "-2", "-1", "0", "+1", "+2" }, 2, 8);
             for (auto* p : { &vo, &oc }) { p->track = Melody; p->version = 2; }
+        }
+        // Samples (fase 4)
+        {
+            auto& rv = B (P::TexReverse, "texture.reverse", "Texturas Reversa", false);
+            auto& fl = C (P::TexFilter, "texture.filter", "Texturas Filtro", { "Ladder", "SVF" }, 0, 4);
+            auto& ct = C (P::TexCat, "texture.cat", "Texturas Categoria", { "Todas", "CHD", "PAD", "HIT", "SFX" }, 0, 8);
+            auto& rs = B (P::TexRandStep, "texture.randstep", "Texturas Azar por paso", false);
+            auto& fw = B (P::TexFollow, "texture.follow", "Texturas Seguir la tonalidad", true);
+            for (auto* p : { &rv, &fl, &ct, &rs, &fw }) { p->track = Texture; p->version = 2; }
+            auto& src = C (P::ChordSource, "chord.source", "Acordes Fuente", { "Sintesis", "Sample", "Capas" }, 0, 4);
+            auto& lvl = F (P::ChordSampleLevel, "chord.samplelevel", "Acordes Nivel del sample", 0.0f, 1.0f, 0.8f, false, pct, true);
+            auto& crs = B (P::ChordRandStep, "chord.randstep", "Acordes Sample por paso", false);
+            for (auto* p : { &src, &lvl, &crs }) { p->track = Chord; p->version = 2; }
+            auto& q = C (P::Quality, "global.quality", "Calidad", { "LIVE", "ALTA", "AUTO" }, 2, 4);
+            q.version = 2;
         }
         // Las sesiones de antes de la fase 2 tocaban los polirritmos continuos
         v[P::PolyMode].compat = 1.0f;

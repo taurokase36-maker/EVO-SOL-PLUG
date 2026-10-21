@@ -2,6 +2,43 @@
 
 Formato: cada fase del desarrollo suma una entrada. La versión publicada será la 2.0.0.
 
+## 2.0.0 (en desarrollo) — Fase 4: samples de Orbhitz
+
+### Librería
+- Lector de `.mse` en C++ (solo CHD, PAD, HIT y SFX: nada de BAS ni VOX). Los 125 archivos
+  de tu Orbhitz se leen bien (44.3 MB de PCM).
+- **Carpeta configurable** (menú ≡ > Carpeta de samples). Por defecto
+  `Música > OGRO Samples > Orbhitz`; si todavía no existe y la librería está en Descargas,
+  OGRO 2 la usa ahí mismo y el menú ofrece **copiarla** (solo CHD, PAD, HIT y SFX).
+- **Pool compartido** entre todas las instancias: el audio queda en memoria en 16 bits y se
+  carga en un hilo de fondo (el audio nunca espera ni pide memoria).
+- **Análisis de afinación** (cromagrama con saliencia armónica + nota del bajo + plantillas
+  de acordes): raíz con octava, calidad (m, M, m7, maj7, sus, 5ta...) y si tiene altura
+  clara. No confía en la nota raíz del archivo. Se guarda en `ogro2_samples.json` en la
+  carpeta de samples: **lo podés corregir a mano** (raiz, calidad, tonal) y OGRO 2 lo
+  respeta. Los acordes siempre se transponen; los SFX solo si la altura es muy clara.
+  Herramienta para revisarlo en una tabla: `tools/orbhitz/analizar.cpp`.
+
+### Motor de samples
+- Interpolación **Hermite** en LIVE y **sinc de 16 puntos** con antialias al subir el pitch
+  en ALTA. Parámetro **CALIDAD** (MASTER): LIVE / ALTA / AUTO (ALTA cuando Ableton congela
+  o exporta). Conversión de 44.1/48 kHz a la frecuencia de Ableton.
+- **TEXTURAS** (MIDI A1): INICIO, LARGO, PITCH, CORTE, RESO, ENV, DRIVE, P.ENV, REVERSA,
+  filtro LADDER o SVF, ATAQUE / SUSTAIN / RELEASE. **EN TONO**: el sample va a la
+  tonalidad y la NOTA de cada paso mueve la altura. **DADO** con filtro de categoría y
+  **azar por paso** (sale de la semilla).
+- **ACORDES**: FUENTE Síntesis / Sample / Capas (pestaña SAMPLE). El acorde de Orbhitz va a
+  la raíz de cada paso; con azar por paso en modo diatónico elige samples menores o
+  mayores según el grado.
+- El estado guarda el **nombre** del sample, no la ruta: si en otra Mac falta, la sesión
+  abre igual y el inspector avisa.
+
+### Medidas
+- A/B con la 1.0: los 12 presets importados siguen idénticos. Test nuevo `test_samples`
+  (lector, análisis, pool y manifiesto editado a mano, afinación exacta en LIVE y ALTA,
+  antialias, reversa / inicio / largo, sample que falta, acordes con sample, azar por paso).
+  Los tests usan archivos sintéticos: la librería no está en el repo.
+
 ## 2.0.0 (en desarrollo) — Fase 3: tonalidad, bajo, acordes y melodía
 
 ### Tonalidad

@@ -17,7 +17,7 @@ const char* trackDescription (int t)
         "Filtro escalera de 4 polos · 5 formas, sub, acento y slide 303, legato",
         "Polifónico: 2 sierras por nota, filtro con envolvente y chorus · en tono",
         "Pluck, lead, campana u órgano · poly o mono · síntesis limpia",
-        "Samples de Orbhitz (HIT, PAD, SFX): llegan en la próxima fase",
+        "Samples de Orbhitz (HIT, PAD, SFX, CHD) · editables y en tono",
     };
     return d[juce::jlimit (0, kTracks - 1, t)];
 }
@@ -62,7 +62,16 @@ public:
           chordStrum (p, P::ChordStrum, "STRUM"),
           chordLead (p, P::ChordLead, "VOICE LEAD.", col::ledGreen),
           melVoices (p, P::MelVoices, "VOCES"),
-          melOctave (p, P::MelOctave, "OCTAVA")
+          melOctave (p, P::MelOctave, "OCTAVA"),
+          texSample (p, 0, "SAMPLE", false),
+          texCat (p, P::TexCat, T ("CATEGORÍA")),
+          texRand (p, P::TexRandStep, "POR PASO", col::ledGreen),
+          texFollow (p, P::TexFollow, "EN TONO", col::ledGreen),
+          texRev (p, P::TexReverse, "REVERSA", col::orange),
+          chordSource (p, P::ChordSource, "FUENTE"),
+          chordSample (p, 1, "SAMPLE CHD", true),
+          chordRand (p, P::ChordRandStep, "POR PASO", col::ledGreen),
+          chordLevel (p, P::ChordSampleLevel, "NIVEL SAMPLE")
     {
         for (int i = 0; i < kSoundParams; ++i)
             addAndMakeVisible (sound.add (new Knob (p, P::sound (0, i), upperName (0, i))));
@@ -70,8 +79,33 @@ public:
             addAndMakeVisible (c);
         for (auto* c : std::initializer_list<juce::Component*> { &envA, &envS, &envR, &chordType, &melModel, &bassOsc, &bassSub, &bassAccent,
                                                                  &bassLegato, &chordMode, &chordInv, &chordSpread, &chordStrum, &chordLead,
-                                                                 &melVoices, &melOctave })
+                                                                 &melVoices, &melOctave, &texSample, &texDice, &texCat, &texRand, &texFollow,
+                                                                 &texRev, &texFilter, &chordSource, &chordSample, &chordDice, &chordRand, &chordLevel,
+                                                                 &tabVoicing, &tabSample })
             addChildComponent (c);
+        for (auto* b : { &texDice, &chordDice }) { b->setButtonText ("DADO"); styleKey (*b, col::orange); }
+        texDice.setTooltip (T ("Un sample al azar de la categoría elegida"));
+        chordDice.setTooltip (T ("Un acorde de Orbhitz (CHD) al azar"));
+        texDice.onClick = [this] { proc.rollSampleDice (0); texSample.refresh(); };
+        chordDice.onClick = [this] { proc.rollSampleDice (1); chordSample.refresh(); };
+        texRand.button.setTooltip (T ("Cada golpe elige un sample distinto de la categoría (sale de la semilla: con AZAR FIJO se repite igual)"));
+        texFollow.button.setTooltip (T ("El sample se transpone a la tonalidad y la NOTA de cada paso mueve la altura (los samples sin altura clara no se transponen)"));
+        chordRand.button.setTooltip (T ("Cada acorde elige un sample CHD; en modo diatónico prefiere menores o mayores según el grado"));
+        chordSource.box.setTooltip (T ("Síntesis: las sierras de siempre. Sample: un acorde de Orbhitz llevado a la raíz de cada paso. Capas: los dos juntos."));
+        texFilter.setClickingTogglesState (false);
+        styleKey (texFilter, col::keyCream);
+        texFilter.setTooltip (T ("Tipo de filtro: LADDER (4 polos, con carácter) o SVF (12 dB, limpio)"));
+        texFilter.onClick = [this] { proc.setValue (P::TexFilter, proc.value (P::TexFilter) < 0.5f ? 1.0f : 0.0f); };
+        for (auto* b : { &tabVoicing, &tabSample })
+        {
+            styleKey (*b, col::keyCream);
+            b->setColour (juce::TextButton::buttonOnColourId, col::violet);
+            b->setColour (juce::TextButton::textColourOnId, juce::Colours::white);
+        }
+        tabVoicing.setButtonText ("VOICING");
+        tabSample.setButtonText ("SAMPLE");
+        tabVoicing.onClick = [this] { chordTab = 0; trackChanged (track); };
+        tabSample.onClick = [this] { chordTab = 1; trackChanged (track); };
         level.setTravel (420);
         for (auto* k : { &dly, &rev, &pump }) k->setRing (juce::Colour (0xfff2a466));
         ring.slider.setTooltip (T ("Cuánto pasa esta pista por el ring mod (la portadora se ajusta en el panel RING)"));
@@ -91,6 +125,17 @@ public:
         trackChanged (0);
     }
     juce::String title() const override { return trackLabel (track); }
+    void tick() override
+    {
+        if (track == Texture || track == Chord)
+        {
+            texSample.refresh();
+            chordSample.refresh();
+            texFilter.setButtonText (proc.value (P::TexFilter) < 0.5f ? "LADDER" : "SVF");
+            const auto st = proc.sampleStatus (track == Texture ? 0 : 1);
+            if (st != status) { status = st; repaint (0, 0, getWidth(), 34); }
+        }
+    }
 
     void trackChanged (int t) override
     {
@@ -119,8 +164,13 @@ public:
         chordType.setVisible (t == Chord);
         melModel.setVisible (t == Melody);
         for (auto* c : std::initializer_list<juce::Component*> { &bassOsc, &bassSub, &bassAccent, &bassLegato }) c->setVisible (t == Bass);
-        for (auto* c : std::initializer_list<juce::Component*> { &chordMode, &chordInv, &chordSpread, &chordStrum, &chordLead }) c->setVisible (t == Chord);
+        for (auto* c : std::initializer_list<juce::Component*> { &chordMode, &chordInv, &chordSpread, &chordStrum, &chordLead }) c->setVisible (t == Chord && chordTab == 0);
+        for (auto* c : std::initializer_list<juce::Component*> { &chordSource, &chordSample, &chordDice, &chordRand, &chordLevel }) c->setVisible (t == Chord && chordTab == 1);
+        for (auto* c : std::initializer_list<juce::Component*> { &tabVoicing, &tabSample }) c->setVisible (t == Chord);
+        tabVoicing.setToggleState (chordTab == 0, juce::dontSendNotification);
+        tabSample.setToggleState (chordTab == 1, juce::dontSendNotification);
         for (auto* c : std::initializer_list<juce::Component*> { &melVoices, &melOctave }) c->setVisible (t == Melody);
+        for (auto* c : std::initializer_list<juce::Component*> { &texSample, &texDice, &texCat, &texRand, &texFollow, &texRev, &texFilter }) c->setVisible (t == Texture);
         resized();
         repaint();
     }
@@ -137,21 +187,22 @@ public:
         const float nameW = (float) juce::GlyphArrangement::getStringWidthInt (titleFont (19.0f), trackLabel (track)) * 1.1f + 34.0f;
         g.setColour (col::violetValue);
         g.setFont (textFont (14.0f));
-        g.drawText (T (trackDescription (track)), juce::Rectangle<float> (nameW, 0.0f, (float) getWidth() - nameW - 130.0f, 32.0f),
+        const bool warn = (track == Texture || (track == Chord && proc.value (P::ChordSource) > 0.5f)) && status.isNotEmpty();
+        if (warn) g.setColour (juce::Colour (0xffffb35c));
+        g.drawText (warn ? status : T (trackDescription (track)),
+                    juce::Rectangle<float> (nameW, 0.0f, (float) getWidth() - nameW - (track == Texture ? 210.0f : 130.0f), 32.0f),
                     juce::Justification::centredLeft, true);
         // Fila de controles propios (bajo, acordes, melodía)
         if (hasExtras)
         {
             g.setColour (juce::Colours::white.withAlpha (0.06f));
             g.fillRoundedRectangle (extrasBox.toFloat(), 10.0f);
-            if (track == Melody || track == Texture)
+            if (track == Melody)
             {
                 g.setColour (col::violetValue);
                 g.setFont (textFont (13.0f));
-                const auto txt = track == Melody
-                    ? T ("PLUCK: cuerda pulsada (TIMBRE apaga la cuerda) · LEAD: 2 sierras + sub · CAMPANA: FM (TIMBRE = relación, ENV = brillo) · ÓRGANO: 6 armónicos (TIMBRE = drawbars)")
-                    : T ("Los samples de Orbhitz (HIT, PAD, SFX) se cargan en la próxima fase. La pista ya está en el secuenciador (MIDI A1).");
-                g.drawFittedText (txt, extrasBox.reduced (10, 4).withTrimmedLeft (track == Melody ? 240 : 0), juce::Justification::centredLeft, 3);
+                g.drawFittedText (T ("PLUCK: cuerda pulsada (TIMBRE apaga la cuerda) · LEAD: 2 sierras + sub · CAMPANA: FM (TIMBRE = relación, ENV = brillo) · ÓRGANO: 6 armónicos (TIMBRE = drawbars)"),
+                                  extrasBox.reduced (10, 4).withTrimmedLeft (240), juce::Justification::centredLeft, 3);
             }
         }
         // Tarjetas de abajo
@@ -173,6 +224,7 @@ public:
     void resized() override
     {
         audition.setBounds (getWidth() - 120, 0, 120, 32);
+        texFilter.setBounds (getWidth() - 204, 0, 80, 32);
         const int kh = hasExtras ? 100 : 104;
         if (track == Chord || track == Melody)
         {
@@ -194,9 +246,23 @@ public:
             auto place = [ey, eh] (juce::Component& c, int x, int cw) { c.setBounds (x, ey, cw, eh); };
             place (bassOsc, 10, 150); place (bassSub, 172, 136); place (bassAccent, 320, 150);
             bassLegato.setBounds (482, ey + 18, getWidth() - 492, 30);
-            place (chordMode, 10, 116); place (chordInv, 134, 122); place (chordSpread, 268, 110); place (chordStrum, 390, 100);
-            chordLead.setBounds (500, ey + 18, getWidth() - 506, 30);
+            // Acordes: pestañas VOICING / SAMPLE a la izquierda
+            tabVoicing.setBounds (6, ey, 64, 25);
+            tabSample.setBounds (6, ey + 26, 64, 25);
+            place (chordMode, 76, 104); place (chordInv, 184, 112); place (chordSpread, 300, 96); place (chordStrum, 400, 86);
+            chordLead.setBounds (490, ey + 18, getWidth() - 496, 30);
+            place (chordSource, 76, 104); place (chordSample, 184, 160);
+            chordDice.setBounds (348, ey + 18, 52, 30);
+            chordRand.setBounds (404, ey + 18, 96, 30);
+            place (chordLevel, 506, getWidth() - 512);
             place (melVoices, 10, 128); place (melOctave, 146, 84);
+            // Texturas
+            place (texSample, 10, 170);
+            texDice.setBounds (184, ey + 18, 52, 30);
+            place (texCat, 240, 84);
+            texRand.setBounds (330, ey + 18, 96, 30);
+            texFollow.setBounds (430, ey + 18, 92, 30);
+            texRev.setBounds (526, ey + 18, getWidth() - 532, 30);
         }
         const int y = hasExtras ? 214 : 162, h = getHeight() - y;
         const int ky = y + (hasExtras ? 30 : 40), kh2 = hasExtras ? h - 34 : 112;
@@ -251,6 +317,16 @@ private:
     HSlider chordSpread, chordStrum;
     Toggle chordLead;
     Choice melVoices, melOctave;
+    SampleChoice texSample;
+    Choice texCat;
+    Toggle texRand, texFollow, texRev;
+    Choice chordSource;
+    SampleChoice chordSample;
+    Toggle chordRand;
+    HSlider chordLevel;
+    juce::TextButton texDice, chordDice, texFilter, tabVoicing, tabSample;
+    int chordTab = 0;
+    juce::String status;
     juce::TextButton audition;
     bool hasEnv = false, hasAttack = false, hasExtras = false;
     juce::Rectangle<int> mixBox, sendBox, envBox, ringBox, extrasBox;
@@ -807,8 +883,11 @@ public:
           comp (p, P::MComp, T ("COMPRESIÓN")), color (p, P::MColor, "COLOR"),
           warmth (p, P::MWarmth, "CALOR"), parallel (p, P::MParallel, "MEZCLA"),
           texture (p, P::MTexture, "TEXTURA"),
+          quality (p, P::Quality, "CALIDAD"),
           grComp ("COMP", true, 12.0f), grLim ("LIMIT", true, 12.0f)
     {
+        addAndMakeVisible (quality);
+        quality.box.setTooltip (T ("LIVE: liviano para tocar. ALTA: interpolación sinc en los samples (y más calidad en las próximas versiones). AUTO: LIVE en vivo y ALTA cuando Ableton congela o exporta."));
         for (auto* c : std::initializer_list<juce::Component*> { &filter, &reso, &lowcut, &body, &pres, &air, &comp, &color, &warmth,
                                                                  &parallel, &texture, &grComp, &grLim })
             addAndMakeVisible (c);
@@ -834,8 +913,8 @@ public:
         const int h2 = (getHeight() - 12) / 2;
         fBox = { 0, 0, 150, getHeight() };
         eqBox = { 162, 0, getWidth() - 162, h2 };
-        dynBox = { 162, h2 + 12, getWidth() - 162 - 132, h2 };
-        texBox = { getWidth() - 120, h2 + 12, 120, h2 };
+        dynBox = { 162, h2 + 12, getWidth() - 162 - 168, h2 };
+        texBox = { getWidth() - 156, h2 + 12, 156, h2 };
         filter.setBounds (fBox.getX() + 10, 40, 130, 150);
         reso.setBounds (fBox.getX() + 30, 206, 90, 110);
         int x = eqBox.getX() + 8;
@@ -846,12 +925,14 @@ public:
         for (auto* k : { &comp, &color, &warmth, &parallel }) { k->setBounds (x, dynBox.getY() + 30, dw, h2 - 38); x += dw; }
         grComp.setBounds (dynBox.getRight() - 58, dynBox.getY() + 30, 24, h2 - 40);
         grLim.setBounds (dynBox.getRight() - 30, dynBox.getY() + 30, 24, h2 - 40);
-        texture.setBounds (texBox.getX() + 10, texBox.getY() + 30, 100, h2 - 38);
+        texture.setBounds (texBox.getX() + 4, texBox.getY() + 30, 70, h2 - 38);
+        quality.setBounds (texBox.getX() + 78, texBox.getY() + 54, 70, 50);
     }
 
 private:
     Ogro2Processor& proc;
     Knob filter, reso, lowcut, body, pres, air, comp, color, warmth, parallel, texture;
+    Choice quality;
     Meter grComp, grLim;
     juce::Rectangle<int> fBox, eqBox, dynBox, texBox;
 };
@@ -1154,6 +1235,12 @@ void Content::showFileMenu()
     m.addItem (2, T ("Abrir preset propio..."));
     m.addSeparator();
     m.addItem (3, T ("Importar preset de OGRO 1.0..."));
+    m.addSeparator();
+    m.addSectionHeader (T ("SAMPLES  ·  ") + proc.getSampleFolder().getFullPathName().replace (juce::File::getSpecialLocation (juce::File::userHomeDirectory).getFullPathName(), "~"));
+    m.addItem (4, T ("Carpeta de samples..."));
+    const bool canCopy = Ogro2Processor::orbhitzSource().isDirectory() && ! Ogro2Processor::defaultSampleFolder().isDirectory();
+    if (canCopy) m.addItem (5, T ("Copiar Orbhitz a Música > OGRO Samples > Orbhitz (solo CHD, PAD, HIT y SFX)"), ! proc.copying.load());
+    m.addItem (6, T ("Ver el análisis de afinación (JSON editable)"), proc.getSampleFolder().getChildFile ("ogro2_samples.json").existsAsFile());
     m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (fileButton), [this] (int r) {
         if (r == 1)
         {
@@ -1177,6 +1264,23 @@ void Content::showFileMenu()
                                       if (f.existsAsFile() && proc.loadUserPreset (f)) { refreshPreset(); selectTrack (proc.selectedTrack); }
                                   });
         }
+        else if (r == 4)
+        {
+            chooser = std::make_unique<juce::FileChooser> (T ("Carpeta con los samples (.mse de Orbhitz)"), proc.getSampleFolder());
+            chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories,
+                                  [this] (const juce::FileChooser& fc) {
+                                      const auto d = fc.getResult();
+                                      if (d.isDirectory()) proc.setSampleFolder (d);
+                                  });
+        }
+        else if (r == 5)
+        {
+            proc.copyOrbhitz ([] (bool ok, juce::String msg) {
+                juce::AlertWindow::showMessageBoxAsync (ok ? juce::MessageBoxIconType::InfoIcon : juce::MessageBoxIconType::WarningIcon, "OGRO 2", msg);
+            });
+        }
+        else if (r == 6)
+            proc.getSampleFolder().getChildFile ("ogro2_samples.json").revealToUser();
         else if (r == 3)
         {
             const auto v1Dir = juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("OGRO Presets");

@@ -4,7 +4,7 @@ Instrumento para Ableton Live 12 (VST3 / AU, Mac Intel y Apple Silicon). Es un p
 aparte de OGRO 1.0 (carpeta `../ogro`): los dos conviven en el mismo Ableton y las
 sesiones viejas siguen usando la 1.0.
 
-> **Estado:** en desarrollo (fase 3 de 7). Ver [CHANGELOG.md](CHANGELOG.md).
+> **Estado:** en desarrollo (fase 4 de 7). Ver [CHANGELOG.md](CHANGELOG.md).
 
 ## Compatibilidad hacia adelante (2.x)
 
@@ -33,8 +33,8 @@ Fabricante: EVO THE SUN (`Evts`) en los dos, así aparecen juntos en Ableton.
 ## Código
 
 - `Source/engine/` — motor de audio en C++ puro (voces, secuenciador, modulación, presets,
-  efectos de fin de compás `BarFx.h`, generador `Generator.h`, armonía `Harmony.h`),
-  namespace `ogro2`.
+  efectos de fin de compás `BarFx.h`, generador `Generator.h`, armonía `Harmony.h`,
+  samples `Mse.h` / `SampleAnalysis.h` / `SamplePool.h` / `Sampler.h`), namespace `ogro2`.
 - `Source/dsp/` — DSP propio (copia del de EVO SOL, namespace `evo2`). OGRO 2 no depende de
   `../Source/dsp`, así un cambio en EVO SOL nunca cambia su sonido.
 - `Source/Plugin*.cpp`, `Widgets.h`, `Ogro2LookAndFeel.h` — plugin JUCE e interfaz.
@@ -80,6 +80,27 @@ clang++ -std=c++17 -O2 test_tonal.cpp -o bin/test_tonal && ./bin/test_tonal
 
 Fase 3: escalas y MODO TONAL, acordes (diatónico, inversión, apertura, voice leading,
 strum), bajo (sub, formas, 303, legato), afinación de la melodía y generador en tono.
+
+```bash
+clang++ -std=c++17 -O2 test_samples.cpp -o bin/test_samples && ./bin/test_samples
+```
+
+Fase 4 (samples) con archivos `.mse` sintéticos: lector, análisis de afinación, pool y
+manifiesto, reproductor (LIVE / ALTA), texturas y acordes con sample.
+
+## Samples de Orbhitz
+
+Los samples **no van al repo** (`.gitignore` ignora `*.mse`, WAV y cachés). OGRO 2 los busca
+en `Música > OGRO Samples > Orbhitz` (o la carpeta elegida en el menú ≡); el análisis de
+afinación queda en `ogro2_samples.json` dentro de esa carpeta y se puede editar a mano.
+Para verlo en una tabla:
+
+```bash
+clang++ -std=c++17 -O2 ogro2/tools/orbhitz/analizar.cpp -o analizar
+```
+
+Los tests y las capturas usan la carpeta de la variable `OGRO2_SAMPLES` (nunca tocan la
+librería del usuario).
 
 ```bash
 bash ../tools/snapshot/build.sh tests

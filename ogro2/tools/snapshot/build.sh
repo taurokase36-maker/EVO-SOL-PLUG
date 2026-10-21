@@ -39,6 +39,9 @@ clang++ "${FLAGS[@]}" -x objective-c++ -c "$REPO/ogro2/Source/PluginEditor.cpp" 
 FRAMEWORKS=(-framework Cocoa -framework CoreText -framework CoreGraphics -framework QuartzCore
   -framework IOKit -framework Carbon -framework Accelerate -framework AudioToolbox -framework CoreAudio -framework CoreMIDI
   -framework Security -framework Metal -framework MetalKit -framework UniformTypeIdentifiers -framework CoreImage -lobjc)
+# Los tests y las capturas nunca leen ni escriben la librería de samples del usuario
+export OGRO2_SAMPLES="${OGRO2_SAMPLES:-$OBJ/samples_prueba}"
+mkdir -p "$OGRO2_SAMPLES"
 if [ "$1" = "tests" ]; then
   clang++ "${FLAGS[@]}" -x objective-c++ -c "$REPO/ogro2/tools/snapshot/plugin_tests.cpp" -o "$OBJ/plugin_tests.main"
   clang++ "$OBJ"/*.o "$OBJ/plugin_tests.main" -o "$OBJ/plugin_tests" "${FRAMEWORKS[@]}"

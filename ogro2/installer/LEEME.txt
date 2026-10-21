@@ -17,12 +17,34 @@ INSTALAR
 Si macOS dice que está dañado, en Terminal:
   xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/VST3/"OGRO 2.vst3" ~/Library/Audio/Plug-Ins/Components/"OGRO 2.component"
 
-ESTADO: VERSIÓN EN DESARROLLO (fase 3 de 7)
+ESTADO: VERSIÓN EN DESARROLLO (fase 4 de 7)
 - Los IDs de los parámetros son definitivos: lo que guardes con OGRO 2 sigue abriendo en
   las próximas versiones (y suena igual).
 - En el logo vas a ver un "2": así sabés cuál es cuál.
 
-QUÉ PROBAR EN ESTA VERSIÓN (fase 3)
+SAMPLES DE ORBHITZ
+- OGRO 2 usa solo CHD, PAD, HIT y SFX. Los busca en Música > OGRO Samples > Orbhitz.
+- Si todavía los tenés en Descargas (Orbhits-MAC-WIN), OGRO 2 los usa desde ahí y en el
+  menú ≡ aparece "Copiar Orbhitz a Música > OGRO Samples": copia solo esos 125 archivos.
+- Menú ≡ > Carpeta de samples: para usar otra carpeta.
+- La primera vez analiza la afinación de cada sample (unos segundos, en el fondo) y la
+  guarda en ogro2_samples.json en la carpeta. Si un sample quedó mal afinado, corregí ahí
+  "raiz" (nota MIDI, 60 = C4) o poné "tonal": false para que no se transponga.
+
+QUÉ PROBAR EN ESTA VERSIÓN (fase 4)
+1. Menú ≡ > Copiar Orbhitz (si te lo ofrece). Después TEXTURAS (MIDI A1): elegí un sample
+   en SAMPLE (por categoría) o tocá DADO. INVENTAR en esa pista.
+2. EN TONO encendido: cambiá la TONALIDAD y la NOTA de los pasos: el sample se mueve con
+   la escala. Los SFX sin altura clara no se transponen.
+3. Editá: INICIO, LARGO, PITCH, REVERSA, CORTE + RESO + ENV (LADDER o SVF), DRIVE, P.ENV.
+4. POR PASO + CATEGORÍA "HIT" o "SFX": cada golpe un sample distinto (con AZAR FIJO se
+   repite igual en cada render).
+5. ACORDES > pestaña SAMPLE: FUENTE "Sample" o "Capas", elegí un CHD o DADO. Con MODO
+   diatónico y notas distintas por paso, el acorde de Orbhitz sigue la armonía.
+6. MASTER > CALIDAD: AUTO usa la calidad ALTA cuando congelás o exportás en Ableton.
+7. Guardá la sesión, cerrala y abrila: el sample elegido vuelve (se guarda por nombre).
+
+QUÉ PROBAR DE LA FASE 3
 1. TONALIDAD (arriba a la derecha): clic > Tónica, Escala y "Modo tonal". Con MODO TONAL,
    en NOTA cada paso es un grado de la escala: probá subir y bajar notas del bajo y de la
    MELODÍA, nunca desafina. Los presets de la 1.0 lo traen apagado (suenan igual).

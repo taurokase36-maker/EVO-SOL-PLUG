@@ -12,6 +12,10 @@ int main (int argc, char** argv)
     proc.prepareToPlay (44100.0, 512);
     if (argc > 5) proc.loadPreset (std::atoi (argv[5]));
     if (argc > 3) proc.selectedTrack = std::atoi (argv[3]);
+    // Capturas con samples: OGRO2_SAMPLE_TEX / OGRO2_SAMPLE_CHD eligen samples (espera a que carguen)
+    for (int slot = 0; slot < 2; ++slot)
+        if (const char* n = std::getenv (slot == 0 ? "OGRO2_SAMPLE_TEX" : "OGRO2_SAMPLE_CHD")) proc.setSampleName (slot, n);
+    for (int i = 0; i < 400 && ogro2::SamplePool::get().busy(); ++i) juce::Thread::sleep (25);
     std::unique_ptr<Ogro2Editor> ed (dynamic_cast<Ogro2Editor*> (proc.createEditor()));
     if (argc > 4) ed->getContent().setPage (std::atoi (argv[4]));
     if (argc > 6) ed->getContent().setSeqMode (std::atoi (argv[6]));

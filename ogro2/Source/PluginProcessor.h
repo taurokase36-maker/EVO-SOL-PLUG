@@ -6,7 +6,7 @@
 #include "engine/Generator.h"
 #include "engine/Presets.h"
 
-class Ogro2Processor : public juce::AudioProcessor
+class Ogro2Processor : public juce::AudioProcessor, private juce::Timer
 {
 public:
     // Versión del formato del estado guardado (sesiones y presets). Subirla solo con migración.
@@ -16,7 +16,7 @@ public:
     static constexpr int kAuxOutputs = 12;
 
     Ogro2Processor();
-    ~Ogro2Processor() override = default;
+    ~Ogro2Processor() override { stopTimer(); alive->store (false); }
 
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
     void releaseResources() override {}
@@ -67,6 +67,21 @@ public:
     // El largo del patrón (para la cadena y el cambio "al final") sigue a la pista más larga
     void syncPatternLength (int pattern);
 
+    // ---- Samples (fase 4) ----
+    // slot: 0 = TEXTURAS, 1 = ACORDES. El estado guarda el nombre, no la ruta.
+    void setSampleName (int slot, const juce::String& name);
+    juce::String getSampleName (int slot) const;
+    // "" si está todo bien; si no, el aviso para la interfaz ("Falta ...", "Cargando...")
+    juce::String sampleStatus (int slot) const;
+    void rollSampleDice (int slot);   // DADO: uno al azar de la categoría elegida
+    static juce::File defaultSampleFolder();
+    static juce::File orbhitzSource();   // la librería en Descargas, si está
+    juce::File getSampleFolder() const;
+    void setSampleFolder (const juce::File& dir);
+    // Copia CHD, PAD, HIT y SFX de Orbhitz a Música > OGRO Samples > Orbhitz (en el fondo)
+    void copyOrbhitz (std::function<void (bool, juce::String)> done);
+    std::atomic<bool> copying { false };
+
     // Avisa al host que cambió algo que no es un parámetro (patrones, ruteo), para que
     // Ableton marque la sesión como modificada
     void notifyStateChanged();
@@ -94,6 +109,13 @@ private:
     std::vector<float> values;
     std::vector<ogro2::MidiTrigger> midiTriggers;
     std::string bankText() const;
+    void timerCallback() override;
+    void refreshSamples();
+    std::unique_ptr<juce::PropertiesFile> settings;
+    juce::String sampleNames[2];
+    int lastPoolSize = -1, lastCat = -1;
+    mutable juce::SpinLock sampleLock;
+    std::shared_ptr<std::atomic<bool>> alive = std::make_shared<std::atomic<bool>> (true);
     std::vector<std::string> undoStack, redoStack;
     std::atomic<int> currentPreset { 0 };
     juce::String userPresetName;

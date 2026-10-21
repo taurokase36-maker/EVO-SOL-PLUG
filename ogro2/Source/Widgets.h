@@ -392,6 +392,79 @@ private:
     int shown = -1;
 };
 
+// Selector de sample (pool compartido): submenús por categoría; guarda el nombre
+class SampleChoice : public juce::Component
+{
+public:
+    SampleChoice (Ogro2Processor& p, int samplesSlot, const juce::String& t, bool chordsOnly)
+        : proc (p), slot (samplesSlot), title (t), chdOnly (chordsOnly)
+    {
+        addAndMakeVisible (box);
+        box.getProperties().set ("maxFont", 18.0);
+        box.onChange = [this] {
+            const int id = box.getSelectedId();
+            if (id <= 0) return;
+            if (id == 1) proc.setSampleName (slot, {});
+            else if (const auto* e = SamplePool::get().entry (id - 2)) proc.setSampleName (slot, juce::String::fromUTF8 (e->name.c_str()));
+        };
+        refresh();
+    }
+    void refresh()
+    {
+        auto& pool = SamplePool::get();
+        if (pool.size() != builtSize)
+        {
+            builtSize = pool.size();
+            box.clear (juce::dontSendNotification);
+            auto* root = box.getRootMenu();
+            root->addItem (1, "Ninguno");
+            const auto folder = pool.currentFolder();
+            for (int c = 0; c < CatCount; ++c)
+            {
+                if (chdOnly && c != CatChd) continue;
+                juce::PopupMenu sub;
+                for (int i = 0; i < pool.size(); ++i)
+                {
+                    const auto* e = pool.entry (i);
+                    if (e->category != c || e->path.rfind (folder, 0) != 0) continue;
+                    sub.addItem (i + 2, juce::String::fromUTF8 (e->name.c_str()));
+                }
+                if (chdOnly) { for (int i = 0; i < pool.size(); ++i) if (const auto* e = pool.entry (i)) if (e->category == c && e->path.rfind (folder, 0) == 0) root->addItem (i + 2, juce::String::fromUTF8 (e->name.c_str())); }
+                else root->addSubMenu (categoryId (c), sub);
+            }
+        }
+        const auto name = proc.getSampleName (slot);
+        const int idx = name.isEmpty() ? -1 : pool.find (name.toStdString());
+        const int want = name.isEmpty() ? 1 : (idx >= 0 ? idx + 2 : 0);
+        if (want > 0 && box.getSelectedId() != want) box.setSelectedId (want, juce::dontSendNotification);
+        if (want == 0 && box.getText() != name) box.setText (name, juce::dontSendNotification);
+        // Información del análisis en el tooltip
+        juce::String tip = T ("Sample (se guarda por nombre). ");
+        if (idx >= 0)
+        {
+            const auto* e = pool.entry (idx);
+            static const char* pcs[] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
+            tip += juce::String (pcs[e->rootMidi % 12]) + juce::String (e->rootMidi / 12 - 1) + " " + analysisQualities()[(size_t) e->quality]
+                   + (e->tonal ? T (" · se transpone a la tonalidad") : T (" · sin altura clara: no se transpone"));
+        }
+        box.setTooltip (tip);
+    }
+    void paint (juce::Graphics& g) override
+    {
+        g.setColour (col::violetText);
+        drawSpaced (g, upper (title), getLocalBounds().removeFromTop (15).toFloat(), labelFont (12.0f), 0.06f, juce::Justification::centredLeft);
+    }
+    void resized() override { box.setBounds (getLocalBounds().withTrimmedTop (18)); }
+    juce::ComboBox box;
+
+private:
+    Ogro2Processor& proc;
+    int slot;
+    juce::String title;
+    bool chdOnly;
+    int builtSize = -1;
+};
+
 // Tecla con flecha curva (deshacer / rehacer)
 class ArrowButton : public juce::TextButton
 {

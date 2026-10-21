@@ -81,6 +81,153 @@ Ogro2Processor::Ogro2Processor()
     factoryPresets()[0].build (engine.bank);
     engine.prepare (44100.0, 512);
     setLatencySamples (engine.getLatencySamples());
+
+    // Ajustes globales (carpeta de samples) y pool de samples compartido
+    juce::PropertiesFile::Options opt;
+    opt.applicationName = "OGRO 2";
+    opt.filenameSuffix = ".settings";
+    opt.folderName = "OGRO 2";
+    opt.osxLibrarySubFolder = "Application Support";
+    settings = std::make_unique<juce::PropertiesFile> (opt);
+    const auto folder = getSampleFolder();
+    if (SamplePool::get().currentFolder() != folder.getFullPathName().toStdString())
+        SamplePool::get().scan (folder.getFullPathName().toStdString());
+    startTimer (300);
+}
+
+// ---------------------------------------------------------------------------
+// Samples
+// ---------------------------------------------------------------------------
+juce::File Ogro2Processor::defaultSampleFolder()
+{
+    return juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("OGRO Samples").getChildFile ("Orbhitz");
+}
+
+juce::File Ogro2Processor::orbhitzSource()
+{
+    const auto d = juce::File::getSpecialLocation (juce::File::userHomeDirectory).getChildFile ("Downloads/Orbhits-MAC-WIN/Orbhits.instruments");
+    return d.isDirectory() ? d : juce::File();
+}
+
+juce::File Ogro2Processor::getSampleFolder() const
+{
+    // Tests y capturas: carpeta de prueba (no se toca la librería del usuario)
+    if (const char* env = std::getenv ("OGRO2_SAMPLES")) return juce::File (juce::String::fromUTF8 (env));
+    const auto saved = settings != nullptr ? settings->getValue ("carpetaSamples") : juce::String();
+    if (saved.isNotEmpty() && juce::File (saved).isDirectory()) return juce::File (saved);
+    if (defaultSampleFolder().isDirectory()) return defaultSampleFolder();
+    // Si la librería todavía está en Descargas, la usamos ahí mismo (se puede copiar desde el menú)
+    if (orbhitzSource().isDirectory()) return orbhitzSource();
+    return defaultSampleFolder();
+}
+
+void Ogro2Processor::setSampleFolder (const juce::File& dir)
+{
+    if (settings != nullptr) { settings->setValue ("carpetaSamples", dir.getFullPathName()); settings->saveIfNeeded(); }
+    SamplePool::get().scan (dir.getFullPathName().toStdString());
+    lastPoolSize = -1;
+    refreshSamples();
+}
+
+void Ogro2Processor::copyOrbhitz (std::function<void (bool, juce::String)> done)
+{
+    const auto src = orbhitzSource();
+    if (! src.isDirectory() || copying.exchange (true)) return;
+    const auto dst = defaultSampleFolder();
+    juce::Thread::launch ([this, src, dst, done, alive = alive] {
+        bool ok = dst.createDirectory().wasOk();
+        int copied = 0;
+        for (const auto& f : src.findChildFiles (juce::File::findFiles, false, "*.mse"))
+        {
+            if (categoryOf (f.getFileName().toStdString()) < 0) continue;   // solo CHD, PAD, HIT y SFX
+            const auto target = dst.getChildFile (f.getFileName());
+            if (! target.existsAsFile()) ok &= f.copyFileTo (target);
+            ++copied;
+        }
+        const auto manifest = src.getChildFile ("ogro2_samples.json");
+        if (manifest.existsAsFile() && ! dst.getChildFile ("ogro2_samples.json").existsAsFile()) manifest.copyFileTo (dst.getChildFile ("ogro2_samples.json"));
+        juce::MessageManager::callAsync ([this, ok, copied, dst, done, alive] {
+            if (! alive->load()) return;   // el plugin se cerró mientras copiaba
+            copying = false;
+            if (ok) setSampleFolder (dst);
+            if (done) done (ok, ok ? juce::String (copied) + " samples copiados a " + dst.getFullPathName() : juce::String ("No se pudo copiar a ") + dst.getFullPathName());
+        });
+    });
+}
+
+void Ogro2Processor::setSampleName (int slot, const juce::String& name)
+{
+    slot = juce::jlimit (0, 1, slot);
+    {
+        const juce::SpinLock::ScopedLockType lock (sampleLock);
+        sampleNames[slot] = name;
+    }
+    engine.setSelectedSample (slot, name.isEmpty() ? -1 : SamplePool::get().find (name.toStdString()));
+    notifyStateChanged();
+}
+
+juce::String Ogro2Processor::getSampleName (int slot) const
+{
+    const juce::SpinLock::ScopedLockType lock (sampleLock);
+    return sampleNames[juce::jlimit (0, 1, slot)];
+}
+
+juce::String Ogro2Processor::sampleStatus (int slot) const
+{
+    const auto name = getSampleName (slot);
+    auto& pool = SamplePool::get();
+    if (pool.samplesInFolder() == 0)
+        return juce::String::fromUTF8 ("No hay samples en la carpeta: menú ≡ > Carpeta de samples");
+    if (name.isEmpty()) return {};
+    const int i = pool.find (name.toStdString());
+    if (i < 0) return juce::String::fromUTF8 ("Falta «") + name + juce::String::fromUTF8 ("» en la carpeta de samples");
+    const auto* e = pool.entry (i);
+    if (e->failed.load()) return name + ": " + juce::String::fromUTF8 (e->error.c_str());
+    if (! e->ready.load()) return juce::String::fromUTF8 ("Cargando ") + name + "...";
+    return {};
+}
+
+void Ogro2Processor::rollSampleDice (int slot)
+{
+    auto& pool = SamplePool::get();
+    const int cat = slot == 0 ? (int) value (P::TexCat) - 1 : CatChd;
+    std::vector<int> pick;
+    for (int i = 0; i < pool.size(); ++i)
+        if (const auto* e = pool.entry (i))
+            if ((cat < 0 || e->category == cat) && e->ready.load()) pick.push_back (i);
+    if (pick.empty()) return;
+    const int i = pick[(size_t) juce::Random::getSystemRandom().nextInt ((int) pick.size())];
+    setSampleName (slot, juce::String::fromUTF8 (pool.entry (i)->name.c_str()));
+}
+
+// Hilo de mensajes: los nombres se resuelven a índices del pool cuando el pool crece, y los
+// candidatos del "azar por paso" siguen el filtro de categoría
+void Ogro2Processor::refreshSamples()
+{
+    auto& pool = SamplePool::get();
+    for (int slot = 0; slot < 2; ++slot)
+    {
+        const auto name = getSampleName (slot);
+        engine.setSelectedSample (slot, name.isEmpty() ? -1 : pool.find (name.toStdString()));
+    }
+    const int cat = (int) value (P::TexCat) - 1;
+    std::vector<int> tex, chd;
+    for (int i = 0; i < pool.size(); ++i)
+        if (const auto* e = pool.entry (i))
+        {
+            if (e->path.rfind (pool.currentFolder(), 0) != 0) continue;   // solo los de la carpeta actual
+            if (cat < 0 || e->category == cat) tex.push_back (i);
+            if (e->category == CatChd) chd.push_back (i);
+        }
+    engine.setCandidates (Engine::SlotTexture, tex);
+    engine.setCandidates (Engine::SlotChord, chd);
+    lastPoolSize = pool.size();
+    lastCat = cat;
+}
+
+void Ogro2Processor::timerCallback()
+{
+    if (SamplePool::get().size() != lastPoolSize || (int) value (P::TexCat) - 1 != lastCat) refreshSamples();
 }
 
 bool Ogro2Processor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -107,6 +254,7 @@ void Ogro2Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiB
     juce::ScopedNoDenormals noDenormals;
     const int n = buffer.getNumSamples();
     if (n == 0) return;
+    engine.setOffline (isNonRealtime());   // calidad AUTO: ALTA al congelar o exportar
 
     for (size_t i = 0; i < raw.size(); ++i) if (raw[i] != nullptr) values[i] = raw[i]->load (std::memory_order_relaxed);
     engine.setParams (values.data(), (int) values.size());
@@ -130,7 +278,8 @@ void Ogro2Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiB
             else host.looping = false;
         }
 
-    // MIDI: C1..G1 (36..43) disparan las pistas 1..8; el note-off cierra el gate de bajo y acordes
+    // MIDI: C1..G1 (36..43) disparan las 8 pistas de la 1.0; G#1 = MELODÍA, A1 = TEXTURAS.
+    // El note-off cierra el gate de bajo, acordes, melodía y texturas.
     midiTriggers.clear();
     for (const auto meta : midi)
     {
@@ -323,6 +472,10 @@ std::unique_ptr<juce::XmlElement> Ogro2Processor::createStateXml()
         e->setAttribute ("lane", l);
         e->setAttribute ("dst", juce::String (idOf (engine.routing.laneDst[l].load())));
     }
+    // Samples por nombre (si en otra Mac falta alguno, la sesión abre igual y avisa)
+    auto* smp = root->createNewChildElement ("SAMPLES");
+    smp->setAttribute ("texture", getSampleName (0));
+    smp->setAttribute ("chord", getSampleName (1));
     return root;
 }
 
@@ -357,6 +510,12 @@ void Ogro2Processor::restoreFromXml (const juce::XmlElement& xml)
     }
     if (auto* pat = xml.getChildByName ("PATTERNS"))
         engine.bank.deserialise (pat->getAllSubText().toStdString(), [] (const std::string& id) { return paramIndex (id); });
+    if (auto* smp = xml.getChildByName ("SAMPLES"))
+    {
+        setSampleName (0, smp->getStringAttribute ("texture"));
+        setSampleName (1, smp->getStringAttribute ("chord"));
+    }
+    else { setSampleName (0, {}); setSampleName (1, {}); }
     engine.routing.clear();
     if (auto* routing = xml.getChildByName ("ROUTING"))
     {

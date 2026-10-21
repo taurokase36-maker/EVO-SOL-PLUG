@@ -147,6 +147,19 @@ int main()
         all &= report ("migracion", c.value (P::Tonal) == 1.0f && c.value (P::ChordMode) == 0.0f, "estado v2: valores por defecto de OGRO 2");
     }
 
+    // ---- Samples por nombre: viajan en el estado y si faltan la sesión abre igual y avisa ----
+    {
+        Ogro2Processor a;
+        a.setSampleName (0, "HIT-QueNoEsta");
+        a.setSampleName (1, "CHD-TampocoEsta");
+        juce::MemoryBlock mb;
+        a.getStateInformation (mb);
+        Ogro2Processor b;
+        b.setStateInformation (mb.getData(), (int) mb.getSize());
+        const bool ok = b.getSampleName (0) == "HIT-QueNoEsta" && b.getSampleName (1) == "CHD-TampocoEsta" && b.sampleStatus (0).isNotEmpty();
+        all &= report ("samples", ok, "nombres guardados en el estado; aviso: " + b.sampleStatus (0));
+    }
+
     // ---- 4) Importar un preset .ogro de OGRO 1.0: suena igual que la 1.0 ----
     {
         bool ok = true;

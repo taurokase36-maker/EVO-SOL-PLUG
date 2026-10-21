@@ -8,6 +8,7 @@
 #include "BarFx.h"
 #include "Harmony.h"
 #include "ParamDefs.h"
+#include "Sampler.h"
 #include "Sequencer.h"
 #include "Voices.h"
 #include <atomic>
@@ -194,6 +195,7 @@ public:
         chord.prepare (fs, 0xBEEFu);
         melody.prepare (fs, 0x3E10D1u);
         textureVoice.prepare (fs, 0x7E47u);
+        chordSampler.prepare (fs);
         lastChordCount = 0;
         clock.prepare (fs);
         delay.prepare (fs);
@@ -242,6 +244,22 @@ public:
     void audition (int track) { if (track >= 0 && track < kTracks) auditionMask.fetch_or (1u << track); }
     // Botón "TIRAR FX": efectos de fin de compás ya, por el largo elegido
     void fireBarFxNow() { barFxNow.store (true); }
+
+    // Samples (hilo de mensajes): 0 = texturas, 1 = acordes. Índices del SamplePool.
+    enum { SlotTexture = 0, SlotChord = 1, kSampleSlots = 2, kMaxCand = 512 };
+    void setSelectedSample (int slot, int poolIndex) { selSample[clampv (slot, 0, kSampleSlots - 1)].store (poolIndex); }
+    int selectedSample (int slot) const { return selSample[clampv (slot, 0, kSampleSlots - 1)].load(); }
+    // Candidatos del "azar por paso" (los que pasan el filtro de categoría)
+    void setCandidates (int slot, const std::vector<int>& idx)
+    {
+        slot = clampv (slot, 0, kSampleSlots - 1);
+        const int n = std::min ((int) idx.size(), (int) kMaxCand);
+        candCount[slot].store (std::min (n, candCount[slot].load()));
+        for (int i = 0; i < n; ++i) cand[slot][i].store (idx[(size_t) i]);
+        candCount[slot].store (n);
+    }
+    // Ableton está renderizando fuera de tiempo real (congelar / exportar): en AUTO, calidad ALTA
+    void setOffline (bool o) { offline.store (o); }
 
     PatternBank bank;
     ModRouting routing;
@@ -409,6 +427,7 @@ private:
             mixState[t] = target[t];
         }
         lastChordCount = 0;
+        chordSampler.reset();
         delay.clear(); reverb.clear();
         drumComp.resetState(); masterComp.resetState();
         drumSatL.resetState(); drumSatR.resetState(); warmL.resetState(); warmR.resetState();
@@ -462,6 +481,18 @@ private:
         const Tonality ton = tonality();
         const float rawNote = e.hit.note;
         e.hit.note = isPitched (t) ? stepSemis (ton, rawNote, e.hit.octave) : rawNote + (float) (e.hit.octave * 12);
+        if (t == Texture)
+        {
+            const SampleEntry* se = pickSample (SlotTexture, e, ton, false);
+            float semis = eff[(size_t) P::sound (Texture, 2)] * 48.0f - 24.0f;   // PITCH
+            if (se != nullptr)
+            {
+                if (! se->tonal) {}                                          // sin altura clara: solo PITCH
+                else if (eff[P::TexFollow] > 0.5f) semis += (float) fold12 (ton.root - se->rootMidi) + e.hit.note;
+                else semis += e.hit.note;
+            }
+            textureVoice.setNext (se, semis);
+        }
         if (t == Chord)
         {
             ChordShape sh;
@@ -476,6 +507,31 @@ private:
             chord.setNextNotes (notes, count);
             std::copy (notes, notes + count, lastChord);
             lastChordCount = count;
+            // Capa de samples (CHD): la raíz del sample va a la raíz del acorde, en su octava
+            const int source = (int) eff[P::ChordSource];
+            if (source > 0)
+            {
+                if (const SampleEntry* se = pickSample (SlotChord, e, ton, true))
+                {
+                    SampleParams sp;
+                    sp.semis = se->tonal ? (float) fold12 ((int) std::lround (base) - se->rootMidi) : 0.0f;
+                    sp.cutoffHz = maps::chordCut (eff[(size_t) P::sound (Chord, 2)]);
+                    sp.reso = eff[(size_t) P::sound (Chord, 3)] * 0.8f;
+                    sp.envOct = maps::chordEnvOct (eff[(size_t) P::sound (Chord, 4)]) * 0.6f;
+                    sp.attackMs = maps::attackMs (eff[(size_t) P::sound (Chord, 7)]);
+                    const float sus = eff[(size_t) P::track (Chord, P::EnvS)];
+                    sp.sustain = sus;
+                    sp.releaseMs = sus > 0.0f ? eff[(size_t) P::track (Chord, P::EnvR)] : maps::synthDecay (eff[(size_t) P::sound (Chord, 1)]);
+                    sp.gain = eff[P::ChordSampleLevel] * 1.4f;
+                    chordSampler.trigger (se, sp, e.hit);
+                }
+                if (source == 1)   // solo sample: el sinte no suena
+                {
+                    meters.triggers[t].fetch_add (1, std::memory_order_relaxed);
+                    triggerLog.push (sampleClock + e.sample, t);
+                    return;
+                }
+            }
         }
         if (stereo[t]) stereo[t]->trigger (e.hit);
         else if (voices[t])
@@ -486,6 +542,45 @@ private:
         }
         meters.triggers[t].fetch_add (1, std::memory_order_relaxed);
         triggerLog.push (sampleClock + e.sample, t);
+    }
+
+    static int fold12 (int x) { int r = ((x % 12) + 12) % 12; return r > 5 ? r - 12 : r; }
+
+    // Sample de este golpe: el elegido, o uno de los candidatos según (semilla, paso).
+    // En acordes con modo diatónico, prefiere samples menores o mayores según el grado.
+    const SampleEntry* pickSample (int slot, const TriggerEvent& e, const Tonality& ton, bool chordSlot) noexcept
+    {
+        auto& pool = SamplePool::get();
+        const bool perStep = eff[(size_t) (chordSlot ? P::ChordRandStep : P::TexRandStep)] > 0.5f;
+        const int n = candCount[slot].load();
+        if (perStep && n > 0)
+        {
+            uint32_t h = fixedRandom ? hash32 (randomSeed, 0x534D504Cu + (uint32_t) slot, (uint32_t) e.absStep, (uint32_t) (e.absStep >> 32))
+                                     : (uint32_t) (lfoRng.uni() * 4294967295.0f);
+            bool wantMinor = false, filter = false;
+            if (chordSlot && eff[P::ChordMode] < 0.5f)
+            {
+                const int rootDeg = semisToDegree ((int) std::lround (e.hit.note), ton.scale);   // la NOTA ya está en semitonos
+                wantMinor = degreeToSemis (rootDeg + 2, ton.scale) - degreeToSemis (rootDeg, ton.scale) == 3;
+                filter = true;
+            }
+            int matches = 0;
+            if (filter)
+                for (int i = 0; i < n; ++i)
+                    if (const auto* se = pool.entry (cand[slot][i].load()))
+                        matches += se->ready.load() && qualityIsMinor (se->quality) == wantMinor ? 1 : 0;
+            if (matches > 0)
+            {
+                int pick = (int) (h % (uint32_t) matches);
+                for (int i = 0; i < n; ++i)
+                    if (const auto* se = pool.entry (cand[slot][i].load()))
+                        if (se->ready.load() && qualityIsMinor (se->quality) == wantMinor && pick-- == 0) return se;
+            }
+            const auto* se = pool.entry (cand[slot][(size_t) (h % (uint32_t) n)].load());
+            return se != nullptr && se->ready.load() ? se : nullptr;
+        }
+        const auto* se = pool.entry (selSample[slot].load());
+        return se != nullptr && se->ready.load (std::memory_order_acquire) ? se : nullptr;
     }
 
     Tonality tonality() const noexcept
@@ -673,6 +768,13 @@ private:
         chord.setStrum (eff[P::ChordStrum]);
         melody.setEnv (eff[(size_t) P::track (Melody, P::EnvA)], eff[(size_t) P::track (Melody, P::EnvS)], eff[(size_t) P::track (Melody, P::EnvR)]);
         melody.setMode ((int) eff[P::MelVoices], 60.0f + (float) root + 12.0f * (float) ((int) eff[P::MelOctave] - 2));
+        {
+            const int q = (int) eff[P::Quality];
+            highQuality = q == 1 || (q == 2 && offline.load (std::memory_order_relaxed));
+        }
+        textureVoice.setEnv (eff[(size_t) P::track (Texture, P::EnvA)], eff[(size_t) P::track (Texture, P::EnvS)], eff[(size_t) P::track (Texture, P::EnvR)]);
+        textureVoice.setExtras (eff[P::TexReverse] > 0.5f, eff[P::TexFilter] < 0.5f, highQuality);
+        chordSampler.setHighQuality (highQuality);
         const double songSeconds = ppq * 60.0 / std::max (1.0, curBpm);
         for (int t = 0; t < kTracks; ++t)
         {
@@ -765,7 +867,7 @@ private:
         int numActive = 0;
         for (int t = 0; t < kTracks; ++t)
         {
-            const bool sounding = stereo[t] ? stereo[t]->isActive() : voices[t]->isActive();
+            const bool sounding = stereo[t] ? stereo[t]->isActive() || (t == Chord && chordSampler.isActive()) : voices[t]->isActive();
             if (! exactLegacy && ! sounding && quiet[t] > kQuietSkip)
             {
                 mixState[t] = target[t];
@@ -776,6 +878,7 @@ private:
             if (stereo[t])
             {
                 stereo[t]->render (stL[t], stR[t], len);
+                if (t == Chord && chordSampler.isActive()) chordSampler.render (stL[t], stR[t], len);
                 for (int i = 0; i < len; ++i) peak = std::max ({ peak, std::fabs (stL[t][i]), std::fabs (stR[t][i]) });
             }
             else
@@ -932,6 +1035,12 @@ private:
     StereoVoice* stereo[kTracks] {};
     float lastChord[kMaxChordNotes] {};
     int lastChordCount = 0;
+    SamplePlayer chordSampler;
+    std::atomic<int> selSample[kSampleSlots] { -1, -1 };
+    std::atomic<int> cand[kSampleSlots][kMaxCand] {};
+    std::atomic<int> candCount[kSampleSlots] { 0, 0 };
+    std::atomic<bool> offline { false };
+    bool highQuality = false;
 
     StepClock clock;
     TriggerEvent events[kMaxEvents];

@@ -1251,24 +1251,4 @@ private:
     Noise rng;
 };
 
-// ---------------------------------------------------------------------------
-// TEXTURAS: samples de Orbhitz (HIT, PAD, SFX). El motor de samples llega en la fase 4;
-// mientras tanto la pista está, pero en silencio.
-// ---------------------------------------------------------------------------
-class TextureVoice : public StereoVoice
-{
-public:
-    void prepare (double, uint32_t) override {}
-    void setParams (const float* p) override { for (int i = 0; i < kSoundParams; ++i) prm[i] = p[i]; }
-    void setSongTime (double, bool, uint32_t) override {}
-    void trigger (const Hit&) override {}
-    void release() override {}
-    void render (float* outL, float* outR, int n) noexcept override { for (int i = 0; i < n; ++i) outL[i] = outR[i] = 0.0f; }
-    bool isActive() const override { return false; }
-    void resetState() noexcept override {}
-
-private:
-    float prm[kSoundParams] {};
-};
-
 } // namespace ogro2
