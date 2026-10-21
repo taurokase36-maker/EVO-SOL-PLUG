@@ -2,6 +2,28 @@
 
 Formato: cada fase del desarrollo suma una entrada. La versión publicada será la 2.0.0.
 
+## 2.0.0 (en desarrollo) — Estética nueva
+
+La interfaz pasa a la dirección visual de las referencias (ver `design/ESTETICA.md` y la
+maqueta aprobada en `design/maqueta/`). El sonido sigue idéntico a OGRO 1.0.
+
+- Aparato de plástico crema con grilla fina, caño de cobre y logo cromado sobre placa
+  azul con destellos rojo y amarillo.
+- Pantallas de fósforo verde para preset, tempo, tonalidad, largo y secuencia.
+- La pista elegida se edita en una ventana de plástico violeta translúcido (inspector):
+  sonido, mezcla, envíos (con traza de cobre) y ring mod.
+- FX, MOD, MOTION, RING y MASTER se abren como paneles en esa ventana; la matriz MOD
+  queda en segundo plano.
+- Perillas cromadas con anillo de valor. Shift o Cmd al arrastrar = ajuste fino.
+- Volumen de cada pista como perilla en la lista de pistas, con más recorrido.
+- Macros más grandes, con anillo desde el centro (al medio no cambian nada),
+  explicación de lo que mueven y pantalla con cuánto actúan.
+- Teclas de pasos tipo calculadora con LED, luz del color de la pista y nota.
+- Orbe violeta de play y disco negro con anillo de neón para el nivel del master.
+- Tipografías incrustadas (licencia OFL): Michroma, Space Grotesk y VT323.
+- `tools/snapshot/`: compila la interfaz con JUCE en una Mac sin CMake y guarda una
+  captura PNG, para revisar el diseño sin abrir Ableton.
+
 ## 2.0.0 (en desarrollo) — Fase 0: convivencia con OGRO 1.0
 
 OGRO 2 arranca como copia exacta de OGRO 1.0, con identidad propia para que los dos

@@ -47,6 +47,14 @@ target_sources(OGRO2 PRIVATE
 
 target_include_directories(OGRO2 PRIVATE Source Source/dsp)
 
+# Tipografías incrustadas (licencia OFL): Michroma, Space Grotesk y VT323
+juce_add_binary_data(OGRO2_BinaryData SOURCES
+    Resources/fonts/MichromaRegular.ttf
+    Resources/fonts/SpaceGroteskBold.ttf
+    Resources/fonts/SpaceGroteskMedium.ttf
+    Resources/fonts/VT323Regular.ttf
+)
+
 # Símbolos ocultos: OGRO y OGRO 2 se cargan en el mismo proceso de Ableton
 set_target_properties(OGRO2 PROPERTIES
     CXX_VISIBILITY_PRESET hidden
@@ -63,6 +71,7 @@ target_compile_definitions(OGRO2 PUBLIC
 
 target_link_libraries(OGRO2
     PRIVATE
+        OGRO2_BinaryData
         juce::juce_audio_utils
     PUBLIC
         juce::juce_recommended_config_flags

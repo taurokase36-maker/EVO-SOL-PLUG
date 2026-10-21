@@ -126,6 +126,22 @@ struct EngineMeters
     std::atomic<double> bpm { 120.0 };
 };
 
+// Registro de disparos con la muestra exacta (para tests y para la interfaz).
+// Lo escribe solo el hilo de audio; se lee con "count" como índice de escritura.
+struct TriggerLog
+{
+    static constexpr int kSize = 4096;
+    struct Entry { int64_t sample = 0; int track = 0; };
+    Entry entries[kSize] {};
+    std::atomic<uint32_t> count { 0 };
+    void push (int64_t sample, int track) noexcept
+    {
+        const uint32_t c = count.load (std::memory_order_relaxed);
+        entries[c % kSize] = { sample, track };
+        count.store (c + 1, std::memory_order_release);
+    }
+};
+
 struct HostInfo
 {
     bool valid = false, playing = false;
@@ -178,6 +194,7 @@ public:
         internalPpq = 0.0;
         controlCounter = 0;
         lastRandStep = -1;
+        sampleClock = 0;
         updateControl (0.0, false);
     }
 
@@ -199,6 +216,7 @@ public:
 
     PatternBank bank;
     EngineMeters meters;
+    TriggerLog triggerLog;
 
     void process (const HostInfo& host, const MidiTrigger* midi, int numMidi, float* outL, float* outR, int numSamples) noexcept
     {
@@ -294,6 +312,7 @@ private:
         meters.drumGr.store (drumComp.reductionDb(), std::memory_order_relaxed);
         meters.masterGr.store (masterComp.reductionDb(), std::memory_order_relaxed);
         meters.limGr.store (limiter.getReductionDb(), std::memory_order_relaxed);
+        sampleClock += n;
     }
 
     void fire (const TriggerEvent& e) noexcept
@@ -308,6 +327,7 @@ private:
             if (t == Kick) { pumpRise = true; }
         }
         meters.triggers[t].fetch_add (1, std::memory_order_relaxed);
+        triggerLog.push (sampleClock + e.sample, t);
     }
 
     // ------------------------------------------------------------------
@@ -632,6 +652,7 @@ private:
     std::atomic<uint32_t> auditionMask { 0u };
     double internalPpq = 0.0, curPpq = 0.0, curBpm = 120.0, stoppedPpq = 0.0;
     int controlCounter = 0;
+    int64_t sampleClock = 0; // muestras procesadas desde prepare()
 
     float trackBuf[kTracks][kControl] {};
     float chordL[kControl] {}, chordR[kControl] {};

@@ -1,0 +1,460 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>OGRO 2 · vista principal</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Michroma&amp;family=Space+Grotesk:wght@400;500;600;700&amp;family=VT323&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#07060A}
+a{color:#6B3FF0}a:hover{color:#4F25C8}
+.sg{font-family:'Space Grotesk',sans-serif}
+.lbl{font-family:'Space Grotesk',sans-serif;font-size:13px;font-weight:600;letter-spacing:.08em;color:#2A2531;text-transform:uppercase}
+.val{font-family:'Space Grotesk',sans-serif;font-size:13px;font-weight:500;font-variant-numeric:tabular-nums}
+.title{font-family:'Michroma',sans-serif;font-size:12px;letter-spacing:.16em;color:#1E1A24}
+.phos{background:#121807;border-radius:8px;box-shadow:inset 0 3px 10px rgba(0,0,0,.85),inset 0 0 0 1px rgba(216,245,90,.10),0 1px 0 rgba(255,255,255,.75);font-family:'VT323',monospace;color:#D8F55A;text-shadow:0 0 6px rgba(216,245,90,.5)}
+.phos-dim{color:#93AD36;text-shadow:none}
+.card{background:#E3DDD0;border-radius:14px;box-shadow:inset 0 1px 3px rgba(0,0,0,.14),0 1px 0 rgba(255,255,255,.85)}
+.chrome{border-radius:50%;background:radial-gradient(circle at 34% 28%,#FFFFFF 0,#EFEFF4 13%,#BBBBC6 36%,#6C6C7A 64%,#2B2B35 100%);box-shadow:0 4px 7px rgba(0,0,0,.42),inset 0 -2px 3px rgba(0,0,0,.42),inset 0 2px 2px rgba(255,255,255,.85);position:relative}
+.ring{position:absolute;border-radius:50%;-webkit-mask:radial-gradient(circle,transparent 63%,#000 64%);mask:radial-gradient(circle,transparent 63%,#000 64%)}
+.ptr{position:absolute;left:50%;top:50%;width:3px;margin-left:-1.5px;border-radius:2px;background:#17131D;transform-origin:50% 100%}
+.key{border:none;border-radius:7px;font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:13px;letter-spacing:.04em;color:#1E1A24;box-shadow:0 2px 0 rgba(0,0,0,.22),inset 0 1px 0 rgba(255,255,255,.8);cursor:pointer}
+.led{width:12px;height:7px;border-radius:2px}
+.violet{background:linear-gradient(165deg,rgba(84,44,184,.94),rgba(44,16,108,.96));border:1px solid rgba(200,174,255,.5);border-radius:18px;box-shadow:0 12px 32px rgba(70,30,180,.32),inset 0 1px 0 rgba(255,255,255,.22)}
+.vcard{background:rgba(18,6,46,.42);border:1px solid rgba(200,174,255,.18);border-radius:12px}
+.vlbl{font-family:'Space Grotesk',sans-serif;font-size:13px;font-weight:600;letter-spacing:.08em;color:#F3EDFF;text-transform:uppercase}
+.vval{font-family:'Space Grotesk',sans-serif;font-size:13px;font-weight:500;color:#CDBEFF;font-variant-numeric:tabular-nums}
+.copper{background:linear-gradient(180deg,#F8D0A3 0,#E2945A 22%,#B6622C 55%,#7A3913 82%,#DA8C50 100%)}
+.brass{background:linear-gradient(180deg,#F4E6AE,#BA983F 55%,#7B6224)}
+</style>
+</helmet>
+
+<div style="width: 1280px; height: 820px; box-sizing: border-box; padding: 12px; background: #07060A; position: relative; overflow: hidden">
+
+  <!-- APARATO: plástico crema con grilla fina -->
+  <div style="position: relative; width: 100%; height: 100%; box-sizing: border-box; border-radius: 22px; background-color: #ECE8DE; background-image: linear-gradient(rgba(40,30,60,.05) 1px, transparent 1px), linear-gradient(90deg, rgba(40,30,60,.05) 1px, transparent 1px); background-size: 12px 12px; box-shadow: inset 0 2px 0 rgba(255,255,255,.95), inset 0 -3px 0 rgba(0,0,0,.10), 0 0 0 1px #1A1720; display: flex; flex-direction: column; overflow: hidden">
+
+    <!-- ================= CABECERA ================= -->
+    <div style="height: 96px; display: flex; align-items: center; gap: 22px; padding: 0 26px; box-sizing: border-box">
+
+      <!-- Logo: cromo sobre destello rojo y amarillo -->
+      <div style="display: flex; flex-direction: column; gap: 5px; flex-shrink: 0">
+        <div style="position: relative; width: 204px; height: 58px; border-radius: 12px; overflow: hidden; background: linear-gradient(180deg,#1F3B70 0,#3E679C 55%,#6E9BC4 100%); box-shadow: inset 0 0 0 1px rgba(255,255,255,.18), 0 3px 8px rgba(20,30,70,.35)">
+          <svg aria-hidden="true" width="204" height="58" style="position: absolute; left: 0; top: 0">
+            <path d="M142 -6 L147 23 L184 29 L147 35 L142 64 L137 35 L100 29 L137 23 Z" fill="#E5391C"></path>
+            <path d="M142 8 L145 26 L163 29 L145 32 L142 50 L139 32 L121 29 L139 26 Z" fill="#F6C42F"></path>
+            <path d="M24 8 L25.5 15 L32 16.5 L25.5 18 L24 25 L22.5 18 L16 16.5 L22.5 15 Z" fill="#E5391C"></path>
+          </svg>
+          <div style="position: absolute; left: 14px; top: 12px; font-family: 'Michroma', sans-serif; font-size: 32px; letter-spacing: .05em; line-height: 1; background: linear-gradient(180deg,#FFFFFF 0,#E3E5EE 30%,#80838F 50%,#262833 55%,#A7AAB9 78%,#FFFFFF 100%); -webkit-background-clip: text; background-clip: text; color: transparent; filter: drop-shadow(0 2px 2px rgba(0,0,0,.6))">OGRO</div>
+          <div style="position: absolute; left: 174px; top: 8px; font-family: 'Michroma', sans-serif; font-size: 18px; background: linear-gradient(180deg,#FFFFFF 0,#C9CBD6 45%,#3A3C48 55%,#E9EAF0 100%); -webkit-background-clip: text; background-clip: text; color: transparent; filter: drop-shadow(0 1px 1px rgba(0,0,0,.6))">2</div>
+        </div>
+        <div class="sg" style="font-size: 11px; font-weight: 600; letter-spacing: .26em; color: #6A6272; padding-left: 2px">EVO THE SUN · GROOVEBOX</div>
+      </div>
+
+      <!-- Preset -->
+      <div style="display: flex; align-items: center; gap: 6px">
+        <button class="key" aria-label="Preset anterior" style="width: 32px; height: 46px; background: #F4F1EA">‹</button>
+        <div class="phos" style="width: 214px; height: 50px; padding: 4px 12px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center">
+          <div style="font-size: 24px; line-height: 1">MEDIANOCHE MÍNIMA</div>
+          <div class="phos-dim" style="font-size: 17px; line-height: 1">minimal seco · polirritmos</div>
+        </div>
+        <button class="key" aria-label="Preset siguiente" style="width: 32px; height: 46px; background: #F4F1EA">›</button>
+        <button class="key" aria-label="Guardar, abrir o importar presets" style="width: 40px; height: 46px; background: #F4F1EA">
+          <svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" style="display: block; margin: 0 auto"><path d="M2 4h12M2 8h12M2 12h12" stroke="#1E1A24" stroke-width="2" stroke-linecap="round"></path></svg>
+        </button>
+      </div>
+
+      <!-- Patrones A-H -->
+      <div style="display: flex; flex-direction: column; gap: 5px">
+        <div class="lbl" style="font-size: 11px">Patrón</div>
+        <div style="display: flex; gap: 4px">
+          <sc-for list="{{patterns}}" as="p" hint-placeholder-count="8">
+            <div style="display: flex; flex-direction: column; align-items: center; gap: 4px">
+              <div class="led" style="background: {{p.led}}; box-shadow: {{p.glow}}"></div>
+              <button class="key" style="width: 28px; height: 28px; background: {{p.bg}}; color: {{p.fg}}">{{p.name}}</button>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+
+      <!-- Transporte -->
+      <div style="display: flex; align-items: center; gap: 12px">
+        <button aria-label="Play interno" style="width: 54px; height: 54px; border-radius: 50%; border: 2px solid #DCD0FF; background: radial-gradient(circle at 38% 32%,#FFFFFF 0,#DCD0FF 13%,#9C76FF 40%,#5A2ADF 68%,#1E0A5A 100%); box-shadow: 0 0 22px rgba(140,90,255,.8), inset 0 0 4px rgba(255,255,255,.9); cursor: pointer"></button>
+        <div class="phos" style="width: 120px; height: 50px; padding: 2px 10px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center; align-items: flex-end">
+          <div style="font-size: 31px; line-height: 1">127.0</div>
+          <div class="phos-dim" style="font-size: 16px; line-height: 1; white-space: nowrap">BPM · ABLETON</div>
+        </div>
+      </div>
+
+      <!-- Tonalidad -->
+      <div style="margin-left: auto; display: flex; flex-direction: column; gap: 5px; align-items: flex-end">
+        <div class="lbl" style="font-size: 11px">Tonalidad</div>
+        <div class="phos" style="height: 34px; padding: 0 12px; display: flex; align-items: center; font-size: 24px">LA MENOR</div>
+      </div>
+    </div>
+
+    <!-- ================= CAÑO DE COBRE ================= -->
+    <div style="height: 16px; margin: 0 16px; display: flex; align-items: center">
+      <div class="brass" style="width: 14px; height: 16px; border-radius: 3px; box-shadow: 0 1px 2px rgba(0,0,0,.4)"></div>
+      <div class="copper" style="flex: 1; height: 10px; border-radius: 5px; box-shadow: 0 2px 3px rgba(0,0,0,.32)"></div>
+      <div class="brass" style="width: 14px; height: 16px; border-radius: 3px; box-shadow: 0 1px 2px rgba(0,0,0,.4)"></div>
+    </div>
+
+    <!-- ================= ZONA MEDIA ================= -->
+    <div style="height: 424px; display: flex; gap: 16px; padding: 14px 16px 12px; box-sizing: border-box">
+
+      <!-- PISTAS -->
+      <div class="card" style="width: 232px; flex-shrink: 0; padding: 12px 10px; box-sizing: border-box; display: flex; flex-direction: column; gap: 4px">
+        <div class="title" style="margin: 0 0 6px 6px">PISTAS</div>
+        <sc-for list="{{tracks}}" as="t" hint-placeholder-count="10">
+          <div style="height: 33px; border-radius: 9px; display: flex; align-items: center; gap: 9px; padding: 0 8px; box-sizing: border-box; background: {{t.rowBg}}; box-shadow: {{t.rowShadow}}">
+            <div style="width: 9px; height: 9px; border-radius: 50%; background: {{t.led}}; box-shadow: {{t.ledGlow}}"></div>
+            <div class="sg" style="flex: 1; font-weight: 600; font-size: 13px; letter-spacing: .04em; color: {{t.text}}">{{t.name}}</div>
+            <div style="position: relative; width: 28px; height: 28px; flex-shrink: 0">
+              <div class="ring" style="inset: 0; background: conic-gradient(from 225deg, {{t.color}} 0 {{t.deg}}deg, {{t.track}} {{t.deg}}deg 270deg, transparent 270deg)"></div>
+              <div class="chrome" style="position: absolute; left: 6px; top: 6px; width: 16px; height: 16px; box-shadow: 0 2px 3px rgba(0,0,0,.4), inset 0 1px 1px rgba(255,255,255,.8)">
+                <div class="ptr" style="width: 2px; margin-left: -1px; height: 6px; margin-top: -6px; transform: rotate({{t.rot}}deg)"></div>
+              </div>
+            </div>
+            <button class="key" style="width: 22px; height: 20px; font-size: 11px; background: {{t.muteBg}}; box-shadow: none">M</button>
+            <button class="key" style="width: 22px; height: 20px; font-size: 11px; background: {{t.soloBg}}; box-shadow: none">S</button>
+          </div>
+        </sc-for>
+      </div>
+
+      <!-- INSPECTOR: plástico violeta translúcido -->
+      <div class="violet" style="flex: 1; position: relative; padding: 16px 20px; box-sizing: border-box; display: flex; flex-direction: column; gap: 14px; overflow: hidden; min-width: 0">
+        <svg aria-hidden="true" width="640" height="400" style="position: absolute; right: 0; top: 0; opacity: .16; pointer-events: none">
+          <path d="M0 64 H170 V112 H330 V40 H640" stroke="#D2C1FF" stroke-width="2" fill="none"></path>
+          <path d="M40 400 V318 H250 V360 H520 V280 H640" stroke="#D2C1FF" stroke-width="2" fill="none"></path>
+          <path d="M440 0 V150 H610 V230" stroke="#D2C1FF" stroke-width="1.5" fill="none"></path>
+          <circle cx="330" cy="40" r="5" fill="#D2C1FF"></circle><circle cx="250" cy="318" r="5" fill="#D2C1FF"></circle><circle cx="610" cy="230" r="5" fill="#D2C1FF"></circle>
+        </svg>
+
+        <!-- Encabezado de la pista elegida -->
+        <div style="position: relative; display: flex; align-items: center; gap: 12px">
+          <div style="width: 8px; height: 26px; border-radius: 4px; background: #B48CFF; box-shadow: 0 0 10px #B48CFF"></div>
+          <div style="font-family: 'Michroma', sans-serif; font-size: 19px; letter-spacing: .12em; color: #F6F1FF">BAJO</div>
+          <div class="sg" style="font-size: 13px; color: #CDBEFF">Sierra + sub · filtro escalera · acento y glide</div>
+          <button class="key" style="margin-left: auto; height: 30px; padding: 0 14px; background: #F08A3C">PROBAR</button>
+        </div>
+
+        <!-- SONIDO: 8 perillas -->
+        <div style="position: relative; display: flex; justify-content: space-between; padding: 2px 0 0">
+          <sc-for list="{{sound}}" as="k" hint-placeholder-count="8">
+            <div style="width: 70px; display: flex; flex-direction: column; align-items: center; gap: 6px">
+              <div class="vlbl">{{k.name}}</div>
+              <div style="position: relative; width: 58px; height: 58px">
+                <div class="ring" style="inset: 0; background: conic-gradient(from 225deg, #C9AEFF 0 {{k.deg}}deg, rgba(255,255,255,.13) {{k.deg}}deg 270deg, transparent 270deg); box-shadow: 0 0 12px rgba(180,140,255,.4)"></div>
+                <div class="ring" style="inset: -6px; background: {{k.mod}}; -webkit-mask: radial-gradient(circle closest-side, transparent 88%, #000 89%); mask: radial-gradient(circle closest-side, transparent 88%, #000 89%); filter: drop-shadow(0 0 4px #FF5A3C)"></div>
+                <div class="chrome" style="position: absolute; left: 9px; top: 9px; width: 40px; height: 40px">
+                  <div class="ptr" style="height: 15px; margin-top: -15px; transform: rotate({{k.rot}}deg)"></div>
+                </div>
+              </div>
+              <div class="vval">{{k.value}}</div>
+            </div>
+          </sc-for>
+        </div>
+
+        <!-- ENVOLVENTE · TIRA ANALÓGICA · ENVÍOS -->
+        <div style="position: relative; flex: 1; display: flex; gap: 12px; min-height: 0">
+
+          <div class="vcard" style="width: 168px; padding: 10px; box-sizing: border-box; display: flex; flex-direction: column; gap: 8px">
+            <div class="vlbl">Envolvente</div>
+            <div class="phos" style="flex: 1; padding: 8px 8px 6px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: space-between">
+              <svg aria-hidden="true" width="132" height="62" style="display: block">
+                <polyline points="3,60 9,5 46,32 98,32 130,60" fill="none" stroke="#D8F55A" stroke-width="2.5" stroke-linejoin="round" style="filter: drop-shadow(0 0 3px rgba(216,245,90,.8))"></polyline>
+                <line x1="3" y1="60" x2="130" y2="60" stroke="#46551A" stroke-width="1"></line>
+              </svg>
+              <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 8px; font-size: 18px; line-height: 1.05">
+                <div>A 2ms</div><div>D 420ms</div><div>S 60%</div><div>R 180ms</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="vcard" style="flex: 1; min-width: 0; padding: 10px 12px; box-sizing: border-box; display: flex; flex-direction: column; gap: 6px">
+            <div style="display: flex; align-items: center; gap: 8px">
+              <div class="vlbl">Tira analógica</div>
+              <div class="phos" style="margin-left: auto; height: 24px; padding: 0 8px; display: flex; align-items: center; gap: 6px; font-size: 19px">CINTA <span class="phos-dim">▾</span></div>
+            </div>
+            <div style="position: relative; flex: 1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-content: space-evenly">
+              <div class="copper" style="position: absolute; left: 10%; right: 10%; top: 26px; height: 4px; border-radius: 2px; opacity: .85"></div>
+              <div class="copper" style="position: absolute; left: 10%; right: 10%; top: 103px; height: 4px; border-radius: 2px; opacity: .85"></div>
+              <sc-for list="{{strip}}" as="k" hint-placeholder-count="6">
+                <div style="position: relative; display: flex; flex-direction: column; align-items: center; gap: 3px">
+                  <div style="position: relative; width: 48px; height: 48px">
+                    <div class="ring" style="inset: 0; background: conic-gradient(from 225deg, #F2A466 0 {{k.deg}}deg, rgba(255,255,255,.13) {{k.deg}}deg 270deg, transparent 270deg)"></div>
+                    <div class="chrome" style="position: absolute; left: 8px; top: 8px; width: 32px; height: 32px">
+                      <div class="ptr" style="height: 12px; margin-top: -12px; transform: rotate({{k.rot}}deg)"></div>
+                    </div>
+                  </div>
+                  <div class="vlbl" style="font-size: 12px">{{k.name}}</div>
+                  <div class="vval" style="font-size: 12px">{{k.value}}</div>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+
+          <div class="vcard" style="width: 138px; padding: 10px; box-sizing: border-box; display: flex; flex-direction: column; gap: 6px">
+            <div class="vlbl">Envíos</div>
+            <div style="flex: 1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: space-evenly; gap: 8px 4px">
+              <sc-for list="{{sends}}" as="k" hint-placeholder-count="4">
+                <div style="display: flex; flex-direction: column; align-items: center; gap: 3px">
+                  <div style="position: relative; width: 42px; height: 42px">
+                    <div class="ring" style="inset: 0; background: conic-gradient(from 225deg, #C9AEFF 0 {{k.deg}}deg, rgba(255,255,255,.13) {{k.deg}}deg 270deg, transparent 270deg)"></div>
+                    <div class="chrome" style="position: absolute; left: 7px; top: 7px; width: 28px; height: 28px">
+                      <div class="ptr" style="height: 10px; margin-top: -10px; transform: rotate({{k.rot}}deg)"></div>
+                    </div>
+                  </div>
+                  <div class="vlbl" style="font-size: 12px">{{k.name}}</div>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ZONA GLOBAL -->
+      <div style="width: 312px; flex-shrink: 0; display: flex; flex-direction: column; gap: 12px">
+        <div class="card" style="padding: 10px 12px 12px; box-sizing: border-box; display: flex; flex-direction: column; gap: 10px">
+          <div style="display: flex; gap: 4px">
+            <sc-for list="{{globalTabs}}" as="g" hint-placeholder-count="4">
+              <button class="key" style="flex: 1; height: 26px; font-size: 12px; background: {{g.bg}}; color: {{g.fg}}; box-shadow: {{g.shadow}}">{{g.name}}</button>
+            </sc-for>
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 8px; padding: 2px 0">
+            <sc-for list="{{macros}}" as="m" hint-placeholder-count="4">
+              <div style="display: flex; gap: 10px; align-items: center">
+                <div style="position: relative; width: 66px; height: 66px; flex-shrink: 0">
+                  <div class="ring" style="inset: 0; background: conic-gradient(from 225deg, rgba(43,38,51,.16) 0 270deg, transparent 270deg); -webkit-mask: radial-gradient(circle closest-side, transparent 76%, #000 77%); mask: radial-gradient(circle closest-side, transparent 76%, #000 77%)"></div>
+                  <div class="ring" style="inset: 0; background: {{m.arc}}; -webkit-mask: radial-gradient(circle closest-side, transparent 76%, #000 77%); mask: radial-gradient(circle closest-side, transparent 76%, #000 77%); filter: drop-shadow(0 0 5px {{m.color}})"></div>
+                  <div style="position: absolute; left: 32px; top: 1px; width: 2px; height: 5px; border-radius: 1px; background: #2A2531"></div>
+                  <div class="chrome" style="position: absolute; left: 12px; top: 12px; width: 42px; height: 42px">
+                    <div class="ptr" style="height: 15px; margin-top: -15px; transform: rotate({{m.rot}}deg)"></div>
+                  </div>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 3px; min-width: 0">
+                  <div class="sg" style="font-size: 13px; font-weight: 700; letter-spacing: .03em; color: #1E1A24">{{m.name}}</div>
+                  <div class="sg" style="font-size: 12px; line-height: 1.25; color: #5A5262">{{m.caption}}</div>
+                  <div class="phos" style="align-self: flex-start; height: 20px; padding: 0 6px; display: flex; align-items: center; font-size: 18px; border-radius: 5px">{{m.amount}}</div>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+
+        <!-- Master: disco negro con neón -->
+        <div class="card" style="flex: 1; padding: 12px 14px; box-sizing: border-box; display: flex; gap: 14px; align-items: center">
+          <div style="position: relative; width: 148px; height: 148px; flex-shrink: 0; border-radius: 50%; background-color: #0B090E; background-image: repeating-radial-gradient(circle, rgba(255,255,255,.035) 0 1px, transparent 1px 4px); box-shadow: 0 6px 14px rgba(0,0,0,.45), inset 0 0 0 2px #26222C">
+            <div class="ring" style="inset: 10px; background: conic-gradient(from 225deg, #A57CFF 0 196deg, rgba(165,124,255,.12) 196deg 270deg, transparent 270deg); box-shadow: 0 0 16px rgba(165,124,255,.55)"></div>
+            <svg aria-hidden="true" width="148" height="148" style="position: absolute; left: 0; top: 0">
+              <path d="M122 26 L123.6 33 L131 34.5 L123.6 36 L122 43 L120.4 36 L113 34.5 L120.4 33 Z" fill="#E9E1FF"></path>
+            </svg>
+            <div style="position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px">
+              <div style="font-family: 'Michroma', sans-serif; font-size: 12px; letter-spacing: .2em; color: #C9B3FF">MASTER</div>
+              <div style="font-family: 'VT323', monospace; font-size: 30px; line-height: 1; color: #D8F55A; text-shadow: 0 0 6px rgba(216,245,90,.6)">−6.2 dB</div>
+              <div class="sg" style="font-size: 11px; color: #9C8CC8; letter-spacing: .1em">LIMITADOR 0.8 dB</div>
+            </div>
+          </div>
+          <div style="flex: 1; display: flex; flex-direction: column; gap: 14px">
+            <sc-for list="{{master}}" as="k" hint-placeholder-count="2">
+              <div style="display: flex; align-items: center; gap: 10px">
+                <div style="position: relative; width: 42px; height: 42px; flex-shrink: 0">
+                  <div class="ring" style="inset: 0; background: conic-gradient(from 225deg, #6B3FF0 0 {{k.deg}}deg, rgba(43,38,51,.14) {{k.deg}}deg 270deg, transparent 270deg)"></div>
+                  <div class="chrome" style="position: absolute; left: 7px; top: 7px; width: 28px; height: 28px">
+                    <div class="ptr" style="height: 10px; margin-top: -10px; transform: rotate({{k.rot}}deg)"></div>
+                  </div>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 1px">
+                  <div class="lbl" style="font-size: 12px">{{k.name}}</div>
+                  <div class="val" style="font-size: 12px; color: #5A5262">{{k.value}}</div>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================= SECUENCIADOR ================= -->
+    <div style="flex: 1; display: flex; gap: 16px; padding: 0 16px 16px; box-sizing: border-box; min-height: 0">
+
+      <!-- Groove y herramientas -->
+      <div class="card" style="width: 232px; flex-shrink: 0; padding: 12px; box-sizing: border-box; display: flex; flex-direction: column; gap: 10px">
+        <div style="display: flex; align-items: center; gap: 8px">
+          <div style="width: 6px; height: 16px; border-radius: 3px; background: #B48CFF"></div>
+          <div class="title">GROOVE</div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 10px">
+          <div style="position: relative; width: 44px; height: 44px; flex-shrink: 0">
+            <div class="ring" style="inset: 0; background: conic-gradient(from 225deg, #6B3FF0 0 52deg, rgba(43,38,51,.14) 52deg 270deg, transparent 270deg)"></div>
+            <div class="chrome" style="position: absolute; left: 7px; top: 7px; width: 30px; height: 30px">
+              <div class="ptr" style="height: 11px; margin-top: -11px; transform: rotate(-83deg)"></div>
+            </div>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 1px">
+            <div class="lbl" style="font-size: 12px">Swing</div>
+            <div class="val" style="font-size: 12px; color: #5A5262">54 %</div>
+          </div>
+          <div style="margin-left: auto; display: flex; flex-direction: column; gap: 4px; align-items: flex-end">
+            <div class="lbl" style="font-size: 11px">Azar</div>
+            <div style="display: flex; gap: 3px">
+              <button class="key" style="height: 24px; padding: 0 7px; font-size: 11px; background: #6B3FF0; color: #FFFFFF">FIJO</button>
+              <div class="phos" style="height: 24px; padding: 0 6px; display: flex; align-items: center; font-size: 19px">#4721</div>
+            </div>
+          </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 6px">
+          <div class="lbl" style="font-size: 12px; flex: 1">Largo</div>
+          <button class="key" aria-label="Menos pasos" style="width: 28px; height: 26px; background: #F4F1EA">−</button>
+          <div class="phos" style="width: 40px; height: 26px; display: flex; align-items: center; justify-content: center; font-size: 22px">16</div>
+          <button class="key" aria-label="Más pasos" style="width: 28px; height: 26px; background: #F4F1EA">+</button>
+        </div>
+        <button class="key" style="height: 36px; background: #F08A3C; font-size: 14px; letter-spacing: .1em">INVENTAR</button>
+        <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px">
+          <button class="key" style="height: 26px; font-size: 11px; background: #F4F1EA">LIMPIAR</button>
+          <button class="key" style="height: 26px; font-size: 11px; background: #F4F1EA">COPIAR</button>
+          <button class="key" style="height: 26px; font-size: 11px; background: #F4F1EA">PEGAR</button>
+        </div>
+      </div>
+
+      <!-- Carriles + pasos -->
+      <div class="card" style="flex: 1; padding: 12px 14px; box-sizing: border-box; display: flex; flex-direction: column; gap: 10px; min-width: 0">
+        <div style="display: flex; gap: 5px; align-items: center">
+          <div class="title" style="margin-right: 8px">SECUENCIA · BAJO</div>
+          <sc-for list="{{lanes}}" as="l" hint-placeholder-count="6">
+            <button class="key" style="height: 26px; padding: 0 10px; font-size: 12px; background: {{l.bg}}; color: {{l.fg}}; box-shadow: {{l.shadow}}">{{l.name}}</button>
+          </sc-for>
+          <button class="key" style="margin-left: auto; height: 26px; padding: 0 10px; font-size: 12px; background: #F4F1EA">16 · 32</button>
+        </div>
+        <div class="phos" style="position: relative; height: 86px; box-sizing: border-box">
+          <div style="position: absolute; left: 10px; right: 10px; top: 8px; bottom: 8px; display: grid; grid-template-columns: repeat(16, minmax(0, 1fr)); gap: 6px; align-items: end">
+            <sc-for list="{{steps}}" as="s" hint-placeholder-count="16">
+              <div style="height: {{s.barPx}}px; border-radius: 2px; background: {{s.bar}}; box-shadow: {{s.barGlow}}"></div>
+            </sc-for>
+          </div>
+          <svg aria-hidden="true" viewBox="0 0 800 70" preserveAspectRatio="none" style="position: absolute; left: 10px; top: 8px; width: calc(100% - 20px); height: 70px">
+            <polyline points="{{motionPoints}}" fill="none" stroke="#B48CFF" stroke-width="3" vector-effect="non-scaling-stroke" style="filter: drop-shadow(0 0 4px rgba(180,140,255,.95))"></polyline>
+          </svg>
+          <div class="sg" style="position: absolute; right: 12px; top: 6px; font-size: 11px; font-weight: 600; letter-spacing: .1em; color: #B48CFF">MOTION · CORTE</div>
+        </div>
+        <div style="flex: 1; display: grid; grid-template-columns: repeat(16, minmax(0, 1fr)); gap: 6px">
+          <sc-for list="{{steps}}" as="s" hint-placeholder-count="16">
+            <div style="display: flex; flex-direction: column; align-items: center; gap: 5px">
+              <div class="led" style="background: {{s.led}}; box-shadow: {{s.ledGlow}}"></div>
+              <button class="key" style="width: 100%; height: 38px; background: {{s.key}}; outline: {{s.outline}}; outline-offset: 2px">{{s.label}}</button>
+              <div class="sg" style="font-size: 12px; font-weight: 600; color: {{s.numColor}}">{{s.num}}</div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":820}}'>
+class Component extends DCLogic {
+  knob(v) { return { deg: Math.round(v * 270), rot: Math.round(-135 + v * 270) }; }
+  renderVals() {
+    const k = (name, v, value) => Object.assign({ name: name, value: value }, this.knob(v));
+    const patterns = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'].map((n, i) => ({
+      name: n,
+      bg: i === 0 ? '#6B3FF0' : (Math.floor(i / 2) % 2 === 0 ? '#AFC6DF' : '#F4F1EA'),
+      fg: i === 0 ? '#FFFFFF' : '#1E1A24',
+      led: i === 0 ? '#D8F55A' : (i === 1 ? '#F2C744' : '#A39C8D'),
+      glow: i === 0 ? '0 0 8px #D8F55A' : 'none'
+    }));
+    const trackDefs = [
+      ['KICK', '#E0533B', .78, true], ['CLAP', '#F08A3C', .7, false], ['RIM', '#E8B730', .6, true],
+      ['HAT C', '#7FA8D1', .66, true], ['HAT A', '#5E8CC0', .58, false], ['PERC', '#4FB08C', .62, true],
+      ['BAJO', '#B48CFF', .8, true], ['ACORDES', '#E58FD0', .72, false], ['MELODÍA', '#5EC4E8', .64, false],
+      ['TEXTURAS', '#B59E6A', .5, false]
+    ];
+    const tracks = trackDefs.map((d, i) => {
+      const sel = d[0] === 'BAJO';
+      return {
+        name: d[0], color: d[1], deg: Math.round(d[2] * 270), rot: Math.round(-135 + d[2] * 270),
+        rowBg: sel ? '#3A1C8A' : 'rgba(255,255,255,.55)',
+        rowShadow: sel ? '0 0 0 1px #C9AEFF, 0 4px 14px rgba(107,63,240,.35)' : 'none',
+        text: sel ? '#F6F1FF' : '#1E1A24',
+        track: sel ? 'rgba(255,255,255,.2)' : 'rgba(0,0,0,.12)',
+        led: d[3] ? '#E53B1E' : (sel ? '#5B3A99' : '#C9C1B2'),
+        ledGlow: d[3] ? '0 0 6px #E53B1E' : 'none',
+        muteBg: i === 4 ? '#F08A3C' : (sel ? 'rgba(255,255,255,.85)' : 'rgba(0,0,0,.07)'),
+        soloBg: sel ? 'rgba(255,255,255,.85)' : 'rgba(0,0,0,.07)'
+      };
+    });
+    const modArc = (v, d) => 'conic-gradient(from ' + Math.round(225 + v * 270) + 'deg, #FF5A3C 0 ' + Math.round(d * 270) + 'deg, transparent ' + Math.round(d * 270) + 'deg)';
+    const sound = [
+      k('OCTAVA', .375, '−1 oct'), k('DECAY', .55, '420 ms'), k('CORTE', .3, '310 Hz'), k('RESO', .35, '35 %'),
+      k('ENV', .45, '2.7 oct'), k('DRIVE', .35, '35 %'), k('ONDA', .12, 'SIERRA'), k('GLIDE', .25, '40 ms')
+    ].map((x) => Object.assign(x, { mod: x.name === 'CORTE' ? modArc(.3, .12) : (x.name === 'DRIVE' ? modArc(.35, .09) : 'transparent') }));
+    const strip = [
+      k('DRIVE', .3, '30 %'), k('CUERPO', .55, '+3 dB'), k('RUIDO', .08, '8 %'),
+      k('GOLPE', .6, '+20 %'), k('BRILLO', .4, '40 %'), k('COMP', .25, '25 %')
+    ];
+    const sends = [k('DELAY', .15, ''), k('REVERB', .1, ''), k('PUMP', .35, ''), k('RING', 0, '')];
+    const globalTabs = ['MACROS', 'FX', 'MOD'].map((n, i) => ({
+      name: n,
+      bg: i === 0 ? '#1E1A24' : 'transparent',
+      fg: i === 0 ? '#F6F1FF' : '#4A4352',
+      shadow: i === 0 ? '0 2px 0 rgba(0,0,0,.25)' : 'none'
+    }));
+    const macros = [
+      { name: 'CALOR', caption: 'filtros + saturación', color: '#E5391C', v: .66 },
+      { name: 'MOVIMIENTO', caption: 'LFO + MOTION', color: '#F08A3C', v: .74 },
+      { name: 'ESPACIO', caption: 'delay + reverb', color: '#3F7FC4', v: .38 },
+      { name: 'CRUDEZA', caption: 'batería más sucia', color: '#D9A21B', v: .58 }
+    ].map((m) => {
+      const off = (m.v - 0.5) * 270;
+      const arc = off >= 0
+        ? 'conic-gradient(from 0deg, ' + m.color + ' 0 ' + Math.round(off) + 'deg, transparent ' + Math.round(off) + 'deg)'
+        : 'conic-gradient(from ' + Math.round(360 + off) + 'deg, ' + m.color + ' 0 ' + Math.round(-off) + 'deg, transparent ' + Math.round(-off) + 'deg)';
+      const pct = Math.round((m.v - 0.5) * 200);
+      return Object.assign(m, { rot: Math.round(off), arc: arc, amount: (pct > 0 ? '+' : '') + pct + '%' });
+    });
+    const master = [k('TECHO', .95, '−0.3 dB'), k('VOLUMEN', .8, '0.0 dB')];
+    const lanes = ['VELOCIDAD', 'NOTA', 'PROB.', 'RATCHET', 'LIGADO', 'MOTION'].map((n, i) => ({
+      name: n,
+      bg: i === 0 ? '#1E1A24' : (i === 5 ? '#6B3FF0' : 'transparent'),
+      fg: i === 0 || i === 5 ? '#FFFFFF' : '#4A4352',
+      shadow: i === 0 || i === 5 ? '0 2px 0 rgba(0,0,0,.25)' : 'none'
+    }));
+    const pattern = '--x--x----x--x-x';
+    const vels = [0, 0, 100, 0, 0, 72, 0, 0, 0, 0, 127, 0, 0, 96, 0, 110];
+    const notes = ['', '', 'LA', '', '', 'LA', '', '', '', '', 'DO', '', '', 'LA', '', 'RE'];
+    const playing = 5;
+    const keyColors = ['#AFC6DF', '#F4F1EA', '#AFC6DF', '#F4F1EA'];
+    const steps = pattern.split('').map((c, i) => {
+      const on = c !== '-';
+      const accent = vels[i] >= 118;
+      return {
+        num: i + 1,
+        barPx: on ? Math.round(vels[i] / 127 * 66) : 3,
+        bar: on ? '#D8F55A' : '#33401A',
+        barGlow: on ? '0 0 6px rgba(216,245,90,.7)' : 'none',
+        led: i === playing ? '#E53B1E' : (on ? '#C9E84A' : '#B9B3A5'),
+        ledGlow: i === playing ? '0 0 8px #E53B1E' : (on ? '0 0 5px rgba(201,232,74,.9)' : 'none'),
+        key: accent ? '#F08A3C' : keyColors[Math.floor(i / 4)],
+        label: on ? notes[i] : '',
+        outline: i === playing ? '2px solid #6B3FF0' : 'none',
+        numColor: i % 4 === 0 ? '#1E1A24' : '#6A6272'
+      };
+    });
+    const pts = [];
+    for (let i = 0; i <= 64; i++) {
+      const x = i / 64;
+      const y = 0.5 - 0.5 * Math.cos(Math.PI * 2 * x);
+      pts.push(Math.round(x * 800) + ',' + Math.round(64 - y * 56));
+    }
+    return { patterns, tracks, sound, strip, sends, globalTabs, macros, master, lanes, steps, motionPoints: pts.join(' ') };
+  }
+}
+</script>
+</body>
+</html>
