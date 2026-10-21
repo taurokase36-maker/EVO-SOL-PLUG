@@ -22,6 +22,8 @@ public:
     ~Content() override;
     void paint (juce::Graphics&) override;
     void resized() override;
+    void setPage (int i) { showPage (i); } // para capturas y tests
+    void refreshNow() { timerCallback(); }
 
 private:
     enum PageId { PageTrack = 0, PageFx, PageMod, PageMotion, PageRing, PageMaster, PageCount };
@@ -57,11 +59,15 @@ private:
     // Columna derecha: macros, paneles y master
     juce::OwnedArray<MacroKnob> macros;
     juce::OwnedArray<juce::TextButton> panelButtons;
+    juce::TextButton depthButton { "x2" };
     MasterDisc disc;
     std::unique_ptr<Knob> ceiling, volume;
 
     // Groove y secuenciador
     std::unique_ptr<Knob> swing;
+    juce::TextButton randomButton { "FIJO" };
+    SeedBox seedBox { proc };
+    bool stateDirty = false;
     juce::TextButton lenMinus { T ("−") }, lenPlus { "+" }, inventButton, clearButton, copyButton, pasteButton;
     juce::OwnedArray<juce::TextButton> modeButtons;
     StepLane lane;
@@ -84,6 +90,7 @@ class Ogro2Editor : public juce::AudioProcessorEditor
 public:
     explicit Ogro2Editor (Ogro2Processor&);
     ~Ogro2Editor() override;
+    ogro2::ui::Content& getContent() { return content; }
     void paint (juce::Graphics&) override;
     void resized() override;
 

@@ -87,7 +87,7 @@ public:
         const bool v = theme == Theme::Violet;
         g.setColour (v ? col::violetText : col::label);
         if (title.isNotEmpty())
-            drawSpaced (g, title.toUpperCase(), r.removeFromTop (titleSize + 4.0f), labelFont (titleSize), 0.06f, juce::Justification::centred);
+            drawSpaced (g, upper (title), r.removeFromTop (titleSize + 4.0f), labelFont (titleSize), 0.06f, juce::Justification::centred);
         if (showValue)
         {
             g.setColour (v ? col::violetValue : col::caption);
@@ -122,58 +122,145 @@ private:
 class Choice : public juce::Component
 {
 public:
-    Choice (Ogro2Processor& p, int paramIndex, const juce::String& t, bool destMenu = false, Theme th = Theme::Violet)
+    Choice (Ogro2Processor& p, int paramIndex, const juce::String& t, Theme th = Theme::Violet)
         : proc (p), title (t), theme (th)
     {
         addAndMakeVisible (box);
-        bind (paramIndex, destMenu);
+        bind (paramIndex);
     }
-    void bind (int paramIndex, bool destMenu)
+    // El ID de cada ítem es el valor del parámetro + 1. No usamos ComboBoxAttachment porque
+    // mapea por cantidad de ítems y las listas tienen lugares reservados que no se muestran.
+    void bind (int paramIndex)
     {
         attachment.reset();
+        box.onChange = nullptr;
         box.clear (juce::dontSendNotification);
         const auto& d = paramDefs()[(size_t) paramIndex];
-        if (destMenu) fillDestinations();
+        if (d.kind == Kind::Int)
+            for (int v = (int) d.min; v <= (int) d.max; ++v) box.addItem (juce::String::fromUTF8 (d.text ((float) v).c_str()), v + 1);
         else
-            for (int i = 0; i < (int) d.choices.size(); ++i) box.addItem (juce::String::fromUTF8 (d.choices[(size_t) i].c_str()), i + 1);
-        attachment = std::make_unique<APVTS::ComboBoxAttachment> (proc.state, juce::String (d.id), box);
+            for (int i = 0; i < d.validChoices; ++i) box.addItem (juce::String::fromUTF8 (d.choices[(size_t) i].c_str()), i + 1);
+        auto* param = proc.param (paramIndex);
+        if (param == nullptr) return;
+        attachment = std::make_unique<juce::ParameterAttachment> (*param, [this] (float v) {
+            box.setSelectedId (juce::roundToInt (v) + 1, juce::dontSendNotification);
+        });
+        box.onChange = [this] { if (attachment && box.getSelectedId() > 0) attachment->setValueAsCompleteGesture ((float) (box.getSelectedId() - 1)); };
+        attachment->sendInitialUpdate();
         box.setTooltip (juce::String::fromUTF8 (d.name.c_str()));
     }
     void paint (juce::Graphics& g) override
     {
         if (title.isEmpty()) return;
         g.setColour (theme == Theme::Violet ? col::violetText : col::label);
-        drawSpaced (g, title.toUpperCase(), getLocalBounds().removeFromTop (15).toFloat(), labelFont (12.0f), 0.06f, juce::Justification::centredLeft);
+        drawSpaced (g, upper (title), getLocalBounds().removeFromTop (15).toFloat(), labelFont (12.0f), 0.06f, juce::Justification::centredLeft);
     }
     void resized() override { box.setBounds (getLocalBounds().withTrimmedTop (title.isEmpty() ? 0 : 18)); }
 
     juce::ComboBox box;
 
 private:
-    // Destinos de modulación agrupados por pista en submenús
-    void fillDestinations()
-    {
-        const auto& dests = modDests();
-        auto* root = box.getRootMenu();
-        root->addItem (1, "Nada");
-        int id = 2;
-        const int perTrack = kSoundParams + 4;
-        for (int t = 0; t < kTracks; ++t)
-        {
-            juce::PopupMenu sub;
-            for (int k = 0; k < perTrack; ++k, ++id)
-                sub.addItem (id, juce::String::fromUTF8 (dests[(size_t) (id - 1)].name.c_str()));
-            root->addSubMenu (trackName (t), sub);
-        }
-        juce::PopupMenu glob;
-        for (; id <= (int) dests.size(); ++id) glob.addItem (id, juce::String::fromUTF8 (dests[(size_t) (id - 1)].name.c_str()));
-        root->addSubMenu ("GLOBAL", glob);
-    }
-
     Ogro2Processor& proc;
     juce::String title;
     Theme theme;
-    std::unique_ptr<APVTS::ComboBoxAttachment> attachment;
+    std::unique_ptr<juce::ParameterAttachment> attachment;
+};
+
+// ---------------------------------------------------------------------------
+// Fuente o destino de la matriz MOD / de un carril MOTION (se guarda por ID, no es parámetro)
+// ---------------------------------------------------------------------------
+class RouteChoice : public juce::Component
+{
+public:
+    enum class Kind { ModSource, ModDest, LaneDest };
+    RouteChoice (Ogro2Processor& p, Kind k, int index) : proc (p), kind (k), slot (index)
+    {
+        addAndMakeVisible (box);
+        if (kind == Kind::ModSource)
+            for (int i = 0; i < SrcCount; ++i) box.addItem (juce::String::fromUTF8 (modSource (i).name), i + 1);
+        else
+        {
+            // Destinos agrupados por pista en submenús
+            const auto& dests = modDests();
+            auto* root = box.getRootMenu();
+            root->addItem (1, "Nada");
+            for (int t = -1; t < kTracks; ++t)
+            {
+                juce::PopupMenu sub;
+                for (int i = 0; i < (int) dests.size(); ++i)
+                    if (paramDefs()[(size_t) dests[(size_t) i].param].track == t)
+                        sub.addItem (i + 2, juce::String::fromUTF8 (dests[(size_t) i].name.c_str()));
+                root->addSubMenu (t < 0 ? juce::String ("GLOBAL") : juce::String (trackName (t)), sub);
+            }
+        }
+        box.onChange = [this] {
+            const int id = box.getSelectedId();
+            if (id <= 0) return;
+            if (kind == Kind::ModSource) proc.setModSource (slot, id - 1);
+            else
+            {
+                const int param = id == 1 ? -1 : modDests()[(size_t) (id - 2)].param;
+                if (kind == Kind::ModDest) proc.setModDest (slot, param); else proc.setLaneDest (slot, param);
+            }
+        };
+        box.setTooltip (kind == Kind::ModSource ? T ("Fuente de la modulación") : T ("Qué perilla se mueve"));
+        refresh();
+    }
+    // Muestra lo que tiene el motor (después de cargar un preset o una sesión)
+    void refresh()
+    {
+        int id = 1;
+        if (kind == Kind::ModSource) id = proc.engine.routing.src[slot].load() + 1;
+        else
+        {
+            const int param = kind == Kind::ModDest ? proc.engine.routing.dst[slot].load() : proc.engine.routing.laneDst[slot].load();
+            const auto& dests = modDests();
+            for (int i = 0; i < (int) dests.size(); ++i) if (dests[(size_t) i].param == param) id = i + 2;
+        }
+        if (box.getSelectedId() != id) box.setSelectedId (id, juce::dontSendNotification);
+    }
+    void resized() override { box.setBounds (getLocalBounds()); }
+    juce::ComboBox box;
+
+private:
+    Ogro2Processor& proc;
+    Kind kind;
+    int slot;
+};
+
+// ---------------------------------------------------------------------------
+// Semilla del azar: clic = tirar el dado (semilla nueva); arrastrar = elegir
+// ---------------------------------------------------------------------------
+class SeedBox : public juce::Component, public juce::SettableTooltipClient
+{
+public:
+    explicit SeedBox (Ogro2Processor& p) : proc (p)
+    {
+        setTooltip (T ("Semilla del azar: con AZAR FIJO, la misma semilla da siempre el mismo resultado. Clic: tirar el dado. Arrastrá para elegir."));
+    }
+    void paint (juce::Graphics& g) override
+    {
+        auto r = getLocalBounds().toFloat();
+        paint::lcd (g, r, 6.0f);
+        paint::glowText (g, "#" + juce::String ((int) proc.value (P::Seed)), r, lcdFont (r.getHeight() * 0.85f), juce::Justification::centred);
+    }
+    void mouseDown (const juce::MouseEvent&) override { startSeed = (int) proc.value (P::Seed); dragged = false; }
+    void mouseDrag (const juce::MouseEvent& e) override
+    {
+        dragged = true;
+        proc.setValue (P::Seed, (float) juce::jlimit (1, 9999, startSeed - e.getDistanceFromDragStartY() / 3));
+        repaint();
+    }
+    void mouseUp (const juce::MouseEvent&) override
+    {
+        if (! dragged) proc.setValue (P::Seed, (float) juce::Random::getSystemRandom().nextInt ({ 1, 10000 }));
+        repaint();
+    }
+
+private:
+    Ogro2Processor& proc;
+    int startSeed = 1;
+    bool dragged = false;
 };
 
 // ---------------------------------------------------------------------------
@@ -258,7 +345,7 @@ public:
         auto r = getLocalBounds().toFloat();
         paint::lcd (g, r);
         auto in = r.reduced (12.0f, 4.0f);
-        paint::glowText (g, name.toUpperCase(), in.removeFromTop (in.getHeight() * 0.56f), lcdFont (27.0f), juce::Justification::bottomLeft);
+        paint::glowText (g, upper (name), in.removeFromTop (in.getHeight() * 0.56f), lcdFont (27.0f), juce::Justification::bottomLeft);
         g.setColour (col::phosphorDim);
         g.setFont (lcdFont (17.0f));
         g.drawText (mood, in, juce::Justification::topLeft, true);
@@ -532,6 +619,7 @@ private:
 // Edición de pasos
 // ---------------------------------------------------------------------------
 enum class LaneMode { Vel = 0, Note, Prob, Ratchet, Slide };
+constexpr int kViewSteps = 16;
 
 struct SeqContext
 {
@@ -553,9 +641,9 @@ public:
         const int len = ctx.bank().getLength (p, t);
         const bool playing = ctx.proc.engine.meters.playing.load();
         const int cur = ctx.proc.engine.meters.step[t].load();
-        const float w = (float) getWidth() / (float) kSteps;
+        const float w = (float) getWidth() / (float) kViewSteps;
         const int root = (int) ctx.proc.value (P::Root);
-        for (int s = 0; s < kSteps; ++s)
+        for (int s = 0; s < kViewSteps; ++s)
         {
             const Step st = ctx.bank().get (p, t, s);
             const bool active = st.on && s < len;
@@ -630,7 +718,7 @@ public:
     }
 
 private:
-    int stepAt (int x) const { return juce::jlimit (0, kSteps - 1, (int) ((float) x / ((float) getWidth() / kSteps))); }
+    int stepAt (int x) const { return juce::jlimit (0, kViewSteps - 1, (int) ((float) x / ((float) getWidth() / kViewSteps))); }
     SeqContext ctx;
     int dragMode = 0, lastStep = -1;
 };
@@ -650,15 +738,15 @@ public:
         const int t = ctx.track(), p = ctx.pattern();
         const int len = ctx.bank().getLength (p, t);
         const auto in = r.reduced (10.0f, 8.0f);
-        const float w = in.getWidth() / (float) kSteps;
+        const float w = in.getWidth() / (float) kViewSteps;
         const int root = (int) ctx.proc.value (P::Root);
         const int base = t == Bass ? 36 + root : (t == Chord ? 48 + root : 60);
         // Guías
         g.setColour (col::phosphorOff);
-        for (int s = 4; s < kSteps; s += 4) g.fillRect (in.getX() + w * (float) s - 0.5f, in.getY(), 1.0f, in.getHeight());
+        for (int s = 4; s < kViewSteps; s += 4) g.fillRect (in.getX() + w * (float) s - 0.5f, in.getY(), 1.0f, in.getHeight());
         if (mode == LaneMode::Note) g.fillRect (in.getX(), in.getCentreY(), in.getWidth(), 1.0f);
 
-        for (int s = 0; s < kSteps; ++s)
+        for (int s = 0; s < kViewSteps; ++s)
         {
             const Step st = ctx.bank().get (p, t, s);
             const bool active = st.on && s < len;
@@ -709,7 +797,7 @@ private:
     void apply (const juce::MouseEvent& e)
     {
         const auto r = getLocalBounds().toFloat().reduced (10.0f, 8.0f).withTrimmedTop (14.0f);
-        const int s = juce::jlimit (0, kSteps - 1, (int) ((float) (e.x - 10) / (r.getWidth() / kSteps)));
+        const int s = juce::jlimit (0, kViewSteps - 1, (int) ((float) (e.x - 10) / (r.getWidth() / kViewSteps)));
         const float f = juce::jlimit (0.0f, 1.0f, (r.getBottom() - (float) e.y) / r.getHeight());
         const int t = ctx.track(), p = ctx.pattern();
         Step st = ctx.bank().get (p, t, s);
@@ -748,14 +836,14 @@ public:
         auto r = getLocalBounds().toFloat();
         paint::lcd (g, r);
         auto in = r.reduced (6.0f);
-        const int bars = laneBars ((int) proc.value (P::lane (lane, P::LaneBars)));
+        const int bars = juce::jlimit (1, 8, (int) proc.value (P::lane (lane, P::LaneBars)));
         for (int b = 0; b <= bars * 4; ++b)
         {
             const float x = in.getX() + in.getWidth() * (float) b / (float) (bars * 4);
             g.setColour (b % 4 == 0 ? col::phosphorDim.withAlpha (0.5f) : col::phosphorOff);
             g.fillRect (x - 0.5f, in.getY(), 1.0f, in.getHeight());
         }
-        const bool active = (int) proc.value (P::lane (lane, P::LaneDst)) > 0;
+        const bool active = proc.engine.routing.laneDst[lane].load() >= 0;
         const auto c = active ? juce::Colour (0xffb48cff) : col::phosphorDim;
         juce::Path fill, line;
         const float w = in.getWidth() / (float) kLanePoints;

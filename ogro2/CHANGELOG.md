@@ -2,6 +2,84 @@
 
 Formato: cada fase del desarrollo suma una entrada. La versión publicada será la 2.0.0.
 
+## 2.0.0 (en desarrollo) — Fase 1: base y bugs
+
+Desde esta versión los IDs de los parámetros son definitivos: **las sesiones y presets que
+guardes con OGRO 2 siguen abriendo en todas las 2.x.**
+
+### Base para todas las 2.x
+- IDs por nombre que no cambian nunca (`kick.tune`, `bass.cutoff`, `chord.type`,
+  `global.swing`, `master.vol`...), con pista de versión de JUCE.
+- Las listas que pueden crecer (tipos de acorde, formas y velocidades de LFO, tiempos de
+  delay, formas del ring) nacen con lugares reservados: agregar opciones no corre la
+  automatización.
+- Estado guardado con número de versión (`stateVersion`): valores por ID, patrones en
+  formato de texto con versión (32 pasos, p-locks por ID) y ruteo de MOD y MOTION por ID.
+  Lo que una versión no entiende se ignora; lo que falta queda en su valor por defecto.
+- La matriz MOD y los carriles MOTION guardan fuente y destino por ID (en la 1.0 eran un
+  índice: agregar una perilla corría todos los destinos).
+- Pasos de 64 bits (lugar para gate, nudge, condición, octava y tipo de acorde por paso) y
+  hasta 8 p-locks por paso. Los pasos de la 1.0 se leen igual.
+- 12 salidas separadas declaradas desde ahora (por ahora en silencio; se activan en la
+  fase 7), así no cambia la configuración de salidas más adelante.
+- Importar preset de OGRO 1.0 (menú ≡): traduce IDs, destinos de MOD, tipo de acorde, ruteo
+  del ring, MOTION y patrones. Queda en azar VIVO y macros x1: suena igual que en la 1.0.
+  También se leen sesiones guardadas con la fase 0 de OGRO 2.
+- Presets propios en `.ogro2` (en Música > OGRO 2 Presets).
+
+### Bugs corregidos (cada uno con su test)
+1. **Probabilidad + ratchet**: ahora hay una sola decisión por cada vez que pasa el paso y
+   vale para todos sus subgolpes (en la 1.0 los golpes 2 a 4 sonaban siempre).
+2. **Azar reproducible**: parámetros SEMILLA y AZAR (FIJO / VIVO). Con FIJO, la
+   probabilidad, el S&H de los LFO, el azar por paso, la VARIA, el ruido de cada golpe, la
+   fase de los hats, la deriva analógica del bajo y los acordes, el chorus y la textura de
+   vinilo dependen solo de la semilla y de la posición en el tema: cada render sale igual,
+   arranques donde arranques. VIVO se comporta como la 1.0.
+3. **Destinos de modulación por ID** (ver arriba).
+4. **CPU**: las pistas que terminaron de sonar y cuya cola ya no suena no se calculan; el
+   saturador sobremuestreado calcula su curva solo cuando cambia el drive (mismo sonido).
+5. **Envolventes**: BAJO con ATAQUE, SUSTAIN y RELEASE; ACORDES con SUSTAIN y RELEASE y
+   LIGADO (el acorde cambia de notas sin volver a disparar). Con SUSTAIN en 0 suenan como en
+   la 1.0. La nota dura lo que el paso (o lo que la nota MIDI: el note-off cierra el gate).
+6. **Cargar un preset** aplica los valores sin gestos (como cuando Ableton abre la sesión):
+   no llena el historial de deshacer ni escribe automatización.
+7. **Hilos**: el nombre del preset propio se lee y escribe protegido.
+8. **Revisión general**:
+   - Loop de Ableton: OGRO 2 lee los puntos de loop y parte el bloque en el salto; antes, una
+     pista con largo distinto de 16 perdía el golpe del inicio en cada vuelta.
+   - Tempo automatizado: con buffers grandes y rampas de tempo ya no se saltea ningún paso.
+   - Probado con buffers de 1 a 2048 (fijos y variables), a 44.1, 48 y 96 kHz, arranques a
+     mitad de compás y cambios de patrón.
+
+### Otros cambios
+- Macros con el doble de recorrido (parámetro PROFUNDIDAD DE MACROS: x2 por defecto, x1
+  como la 1.0). MOVIMIENTO por encima del medio también mueve cosas solo (filtro de los
+  acordes, envolvente del bajo, decay del hat y tono de la perc), aunque el preset no
+  tenga LFOs.
+- Ring mod con cantidad por pista (0 a 100 %) en vez de encendido/apagado.
+- Interfaz: tarjeta ENVOLVENTE en bajo y acordes, tipo de acorde en pantalla de fósforo,
+  AZAR y SEMILLA (clic = tirar el dado) en GROOVE, cantidad de ring por pista.
+
+### Tests
+- `test_host.cpp`: host simulado (loop, tempo, buffers, frecuencias, arranque, cambio de
+  patrón, probabilidad + ratchet, azar reproducible, gate del bajo).
+- `test_estado.cpp`: pasos, banco, formato de la 1.0, IDs, importador.
+- `ab_v1.cpp --exacto`: los 12 presets importados de la 1.0 dan iguales muestra a muestra.
+  `--normal`: OGRO 2 con azar FIJO conserva nivel y color de cada pista.
+- `tools/snapshot/plugin_tests.cpp` (con JUCE): presets sin gestos, estado completo,
+  importar `.ogro`, sesiones de la fase 0, salidas y procesado con 13 salidas.
+
+### Renders repetibles (azar FIJO)
+- Al arrancar el transporte o saltar a otro lugar del tema (no en los loops), OGRO 2 vuelve
+  todo al mismo estado inicial: voces, colas de delay y reverb, compresores, saturadores,
+  limitador, textura y ring. Dos exportaciones desde el mismo lugar salen idénticas bit a
+  bit, aunque antes haya sonado otra cosa (test: `test_host.cpp`, "azar").
+
+### Medidas (Mac Intel i7-1068NG7, 44.1 kHz, buffers de 512)
+- CPU: 10.6 a 13.1 % de un núcleo por preset (antes 12.5 a 15.1 %).
+- Timing: error de 1 muestra como mucho (registro exacto de disparos), en 44.1/48/96 kHz
+  y buffers de 1 a 2048.
+
 ## 2.0.0 (en desarrollo) — Estética nueva
 
 La interfaz pasa a la dirección visual de las referencias (ver `design/ESTETICA.md` y la

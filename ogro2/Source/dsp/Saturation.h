@@ -29,7 +29,7 @@ public:
     // Sube una muestra a 4 muestras
     inline void up (float x, float* out4) noexcept
     {
-        upPos = (upPos + kPhaseTaps - 1) % kPhaseTaps;
+        upPos = upPos == 0 ? kPhaseTaps - 1 : upPos - 1; // mismo resultado que el módulo, sin dividir
         upHist[upPos] = x;
         upHist[upPos + kPhaseTaps] = x; // espejo para lectura sin módulo
         for (int p = 0; p < kFactor; ++p)
@@ -49,7 +49,7 @@ public:
         float acc = 0.0f;
         for (int p = 0; p < kFactor; ++p)
         {
-            downPos = (downPos + kTaps - 1) % kTaps;
+            downPos = downPos == 0 ? kTaps - 1 : downPos - 1;
             downHist[downPos] = in4[p];
             downHist[downPos + kTaps] = in4[p];
             if (p == 0)
@@ -142,15 +142,22 @@ public:
     static constexpr int latencySamples() { return Oversampler4x::latencySamples(); }
 
     void setDrive (float d) { drive.setTarget (clampv (d, 0.0f, 1.0f)); }
+    // Vuelve al estado inicial sin pedir memoria (render repetible)
+    void resetState() noexcept { os.reset(); preEmph.reset(); deEmph.reset(); dc.reset(); drive.snapToTarget(); }
 
     inline float process (float x) noexcept
     {
         float up4[4];
         os.up (x, up4);
         const float d = drive.next();
-        const float pre = 1.0f + 5.0f * d;
-        const float wet = std::min (1.0f, d * 1.6f);
-        const float comp = 1.0f / std::pow (pre, 0.75f);
+        // pre, wet y comp solo cambian cuando cambia el drive (antes: una potencia por muestra)
+        if (d != lastD)
+        {
+            lastD = d;
+            pre = 1.0f + 5.0f * d;
+            wet = std::min (1.0f, d * 1.6f);
+            comp = 1.0f / std::pow (pre, 0.75f);
+        }
         for (float& s : up4)
         {
             const float e = preEmph.process (s) * pre;
@@ -169,6 +176,7 @@ private:
     Biquad preEmph, deEmph;
     DcBlocker dc;
     SmoothedValue drive;
+    float lastD = -1.0f, pre = 1.0f, wet = 0.0f, comp = 1.0f;
 };
 
 // Clipper suave sobremuestreado (antes del limitador final)

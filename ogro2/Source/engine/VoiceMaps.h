@@ -5,6 +5,7 @@
 #include "../dsp/Common.h"
 #include <cstdio>
 #include <string>
+#include <vector>
 
 namespace ogro2
 {
@@ -28,9 +29,26 @@ struct Hit
 {
     float vel = 1.0f;       // 0..1
     float note = 0.0f;      // semitonos (desde la nota base de la pista)
-    bool slide = false;     // ligado / glide (bajo)
+    bool slide = false;     // ligado / glide (bajo y acordes)
     bool accent = false;
+    double gateSamples = 0; // largo de la nota (0 = sin gate: la envolvente cae sola)
+    bool fixedSeed = false; // azar FIJO: el ruido y la VARIA salen de "seed"
+    uint32_t seed = 0;
 };
+
+// Hash de 32 bits (azar reproducible: mismo paso + misma semilla = mismo resultado)
+inline uint32_t hash32 (uint32_t a, uint32_t b = 0, uint32_t c = 0, uint32_t d = 0)
+{
+    uint64_t h = 0x9E3779B97F4A7C15ull ^ ((uint64_t) a << 32 | b);
+    h ^= ((uint64_t) c << 32 | d) * 0xBF58476D1CE4E5B9ull;
+    h ^= h >> 30; h *= 0xBF58476D1CE4E5B9ull;
+    h ^= h >> 27; h *= 0x94D049BB133111EBull;
+    h ^= h >> 31;
+    const uint32_t r = (uint32_t) (h ^ (h >> 32));
+    return r ? r : 1u;
+}
+inline float hashBipolar (uint32_t h) { return (float) (int32_t) h * (1.0f / 2147483648.0f); }
+inline float hashUnit (uint32_t h) { return (float) (h >> 8) * (1.0f / 16777216.0f); }
 
 // Mapas exponenciales / lineales
 inline float expMap (float n, float lo, float hi) { return lo * std::pow (hi / lo, clampv (n, 0.0f, 1.0f)); }
@@ -38,10 +56,16 @@ inline float linMap (float n, float lo, float hi) { return lo + (hi - lo) * clam
 inline int stepMap (float n, int count) { return clampv ((int) std::floor (clampv (n, 0.0f, 1.0f) * count), 0, count - 1); }
 inline float stepCentre (int idx, int count) { return ((float) idx + 0.5f) / (float) count; }
 
+// Tipos de acorde (la lista solo crece al final: el parámetro tiene 32 lugares)
+inline const std::vector<std::string>& chordTypeNames()
+{
+    static const std::vector<std::string> n { "m7", "m9", "m11", "maj7", "maj9", "9", "sus7", "5ta+8va" };
+    return n;
+}
 inline const char* chordTypeName (int i)
 {
-    static const char* n[] = { "m7", "m9", "m11", "maj7", "maj9", "9", "sus7", "5ta+8va" };
-    return n[clampv (i, 0, 7)];
+    const auto& n = chordTypeNames();
+    return n[(size_t) clampv (i, 0, (int) n.size() - 1)].c_str();
 }
 
 inline const float* chordIntervals (int i, int& count)

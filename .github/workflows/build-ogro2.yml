@@ -34,13 +34,31 @@ jobs:
           ./bin/test_ogro 2>&1 | tee "$LOGS/tests_motor.log"
           bash ci_anotar.sh notice "Tests del motor" "$LOGS/tests_motor.log" 30
 
+      - name: Tests del estado (patrones, IDs, importador de la 1.0)
+        working-directory: ogro2/tests
+        run: |
+          set -o pipefail
+          clang++ -std=c++17 -O2 test_estado.cpp -o bin/test_estado
+          ./bin/test_estado 2>&1 | tee "$LOGS/tests_estado.log"
+          bash ci_anotar.sh notice "Tests del estado" "$LOGS/tests_estado.log" 20
+
+      - name: Host simulado (loop, tempo, buffers, frecuencias, azar, gate)
+        working-directory: ogro2/tests
+        run: |
+          set -o pipefail
+          clang++ -std=c++17 -O2 test_host.cpp -o bin/test_host
+          ./bin/test_host 2>&1 | tee "$LOGS/tests_host.log"
+          bash ci_anotar.sh notice "Host simulado" "$LOGS/tests_host.log" 60
+
       - name: Comparación A/B con OGRO 1.0
         working-directory: ogro2/tests
         run: |
           set -o pipefail
           clang++ -std=c++17 -O2 ab_v1.cpp -o bin/ab_v1
           ./bin/ab_v1 --exacto 2>&1 | tee "$LOGS/ab_v1.log"
-          bash ci_anotar.sh notice "A/B con OGRO 1.0" "$LOGS/ab_v1.log" 30
+          bash ci_anotar.sh notice "A/B con OGRO 1.0 (importado)" "$LOGS/ab_v1.log" 30
+          ./bin/ab_v1 --normal 2>&1 | tee "$LOGS/ab_v1_normal.log"
+          bash ci_anotar.sh notice "A/B con OGRO 1.0 (azar fijo)" "$LOGS/ab_v1_normal.log" 14
 
       - name: Probar el instalador (nunca toca OGRO 1.0)
         run: |
@@ -53,6 +71,12 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
             -DCMAKE_OSX_DEPLOYMENT_TARGET=10.13
+
+      - name: Tests del plugin con JUCE (presets sin gestos, estado, importar 1.0, salidas)
+        run: |
+          set -o pipefail
+          JUCE_DIR=build-ogro2/_deps/juce-src bash ogro2/tools/snapshot/build.sh tests 2>&1 | tee "$LOGS/tests_plugin.log"
+          bash ogro2/tests/ci_anotar.sh notice "Tests del plugin" "$LOGS/tests_plugin.log" 12
 
       - name: Compilar
         run: |

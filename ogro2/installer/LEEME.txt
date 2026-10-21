@@ -17,26 +17,34 @@ INSTALAR
 Si macOS dice que está dañado, en Terminal:
   xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/VST3/"OGRO 2.vst3" ~/Library/Audio/Plug-Ins/Components/"OGRO 2.component"
 
-ESTADO: VERSIÓN EN DESARROLLO (fase 0)
-- Por ahora OGRO 2 suena idéntico a OGRO 1.0: esta compilación sirve para
-  comprobar que los dos conviven en Ableton.
-- NO GUARDES SESIONES NI PRESETS con esta compilación: en la fase 1 se fijan los
-  IDs definitivos de los parámetros y estas sesiones no los van a tener.
-- En el logo vas a ver un "2" rojo al lado de OGRO: así sabés cuál es cuál.
+ESTADO: VERSIÓN EN DESARROLLO (fase 1 de 7)
+- Desde esta versión los IDs de los parámetros son definitivos: lo que guardes con
+  OGRO 2 sigue abriendo en las próximas versiones.
+- En el logo vas a ver un "2": así sabés cuál es cuál.
 
-QUÉ PROBAR
-- Que en Plug-Ins > EVO THE SUN aparezcan OGRO y OGRO 2, en AU y en VST3.
-- Cargar OGRO (1.0) en una pista MIDI y OGRO 2 en otra, en la misma sesión, y
-  darle play: los dos tienen que sonar.
-- Abrir una sesión vieja que usa OGRO 1.0: tiene que abrir y sonar como siempre.
+QUÉ PROBAR EN ESTA VERSIÓN
+1. Cargá un preset y tocá Cmd+Z en Ableton: tiene que deshacer lo último que hiciste,
+   no los cientos de valores del preset. Con Automation Arm encendido, cargar un preset
+   no tiene que escribir curvas.
+2. Menú ≡ > "Importar preset de OGRO 1.0...": elegí un .ogro tuyo de la 1.0. Tiene que
+   sonar igual que en la 1.0 (queda en azar VIVO y macros x1).
+3. Poné un loop de 1 compás en Ableton con un preset de polirritmos (Medianoche Mínima,
+   Hipnosis): cada vuelta tiene que sonar igual, sin perder el primer golpe.
+4. GROOVE > AZAR en FIJO: exportá dos veces el mismo tramo; los dos audios tienen que
+   salir iguales. Clic en la semilla (#4721) = otra variante.
+5. BAJO y ACORDES: subí SUSTAIN en la tarjeta ENVOLVENTE; la nota dura lo que el paso
+   (o lo que dure la nota en tu clip MIDI) y después suelta en RELEASE.
+6. Macros: ahora mueven el doble (botón x2 / x1 arriba a la derecha de MACROS).
+7. Guardá una sesión con OGRO 2, cerrala y abrila: todo tiene que volver igual
+   (sonidos, patrones, MOD y MOTION).
 
 USO RÁPIDO
 - PRESET / MOOD: 12 presets (Amanecer, Medianoche Mínima, Sudor, Terciopelo,
   Hipnosis, Nostalgia 92, Lluvia, Oscuro, Euforia, Sol de Verano, Underground...).
 - PATRÓN A-H: cambia al empezar el próximo compás.
 - SECUENCIADOR: clic en las teclas para prender pasos, clic derecho = acento.
-- GUARDAR / ABRIR: los presets de OGRO 2 se guardan en Música > OGRO 2 Presets
-  (aparte de los de OGRO 1.0).
+- MENÚ ≡: guardar y abrir presets propios (.ogro2, en Música > OGRO 2 Presets, aparte de
+  los de OGRO 1.0) e importar presets .ogro de la 1.0.
 
 MIDI: las notas C1 a G1 (36-43) disparan las 8 pistas, igual que en OGRO 1.0,
 así tus clips MIDI sirven en los dos.

@@ -66,6 +66,7 @@ public:
         env = 0.0f;
     }
     void setTimeSeconds (float s) { timeSm.setTarget (clampv (s, 0.01f, 2.5f) * (float) fs); }
+    void clear() noexcept { dlL.clear(); dlR.clear(); for (auto& f : hp) f.reset(); for (auto& f : lp) f.reset(); env = 0.0f; timeSm.snapToTarget(); }
     void setFeedback (float f) { feedback = clampv (f, 0.0f, 0.92f); }
     void setDuck (float d) { duck = clampv (d, 0.0f, 1.0f); }
     void setMix (float m) { mix = clampv (m, 0.0f, 1.0f); }
@@ -129,6 +130,17 @@ public:
         update();
     }
     void setSize (float s) { size = clampv (s, 0.0f, 1.0f); update(); }
+    void clear() noexcept
+    {
+        for (auto& l : lines) l.clear();
+        pre.clear();
+        for (auto& d : diff) d.clear();
+        for (auto& d : damp) d.reset();
+        inHp.reset(); inLp.reset();
+        modA.prepare (fs, 0.6f, 4242u);
+        modB.prepare (fs, 0.45f, 777u);
+        env = 0.0f;
+    }
     void setDecay (float seconds) { rt60 = clampv (seconds, 0.2f, 8.0f); update(); }
     void setPreDelayMs (float ms) { preDelay = clampv (ms, 0.0f, 180.0f) * 0.001f * (float) fs; }
     void setDamping (float d)

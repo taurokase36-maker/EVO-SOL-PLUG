@@ -66,6 +66,7 @@ public:
     }
     float get() const noexcept { return current; }
     bool isSmoothing() const noexcept { return remaining > 0; }
+    void snapToTarget() noexcept { current = target; remaining = 0; }
 
 private:
     float current = 0.0f, target = 0.0f, inc = 0.0f;
@@ -170,6 +171,7 @@ class DcBlocker
 {
 public:
     void prepare (double fs) { r = (float) std::exp (-kTwoPi * 12.0 / fs); x1 = y1 = 0.0f; }
+    void reset() noexcept { x1 = y1 = 0.0f; }
     inline float process (float x) noexcept
     {
         const float y = x - x1 + r * y1;
@@ -193,7 +195,7 @@ public:
         mask = size - 1;
         w = 0;
     }
-    void clear() { std::fill (buf.begin(), buf.end(), 0.0f); }
+    void clear() { std::fill (buf.begin(), buf.end(), 0.0f); w = 0; }
     inline void push (float x) noexcept { buf[(size_t) w] = x; w = (w + 1) & mask; }
 
     // Lee "d" muestras hacia atrás desde la última escrita (d >= 1)

@@ -7,18 +7,12 @@
 
 using namespace ogro2;
 
-static std::vector<float> presetValues (const Preset& p)
+// Valores de OGRO 2 de un preset de fábrica (y su ruteo de modulación aplicado al motor)
+static std::vector<float> presetValues (const Preset& p, Engine& eng)
 {
-    const auto& defs = paramDefs();
-    std::vector<float> v (defs.size());
-    for (size_t i = 0; i < defs.size(); ++i) v[i] = defs[i].def;
-    for (const auto& [id, val] : p.values)
-    {
-        const int idx = paramIndex (id);
-        if (idx < 0) { std::cerr << "ID desconocido en preset " << p.name << ": " << id << "\n"; std::exit (1); }
-        v[(size_t) idx] = val;
-    }
-    return v;
+    const auto st = factoryState (p);
+    applyRouting (eng.routing, st);
+    return st.values;
 }
 
 struct RenderResult { std::vector<float> l, r; double cpu; };
@@ -58,7 +52,7 @@ int main()
     // ---- 1) Timing: kick solo, sin swing, cada negra exacta ----
     {
         Engine eng;
-        auto v = presetValues (factoryPresets()[0]);
+        auto v = presetValues (factoryPresets()[0], eng);
         for (int t = 1; t < kTracks; ++t) v[(size_t) P::track (t, P::Mute)] = 1.0f;
         v[P::Swing] = 0.5f;
         v[P::MComp] = 0; v[P::MWarmth] = 0; v[P::BusComp] = 0; v[P::BusCrudo] = 0;
@@ -83,7 +77,7 @@ int main()
     // ---- 2) Swing: hat cerrado en semicorcheas impares se retrasa ----
     {
         Engine eng;
-        auto v = presetValues (factoryPresets()[0]);
+        auto v = presetValues (factoryPresets()[0], eng);
         for (int t = 0; t < kTracks; ++t) v[(size_t) P::track (t, P::Mute)] = t == HatC ? 0.0f : 1.0f;
         v[P::Swing] = 0.66f;
         v[P::MComp] = 0; v[P::BusComp] = 0; v[P::BusCrudo] = 0;
@@ -106,7 +100,7 @@ int main()
     {
         Engine eng;
         p.build (eng.bank);
-        auto v = presetValues (p);
+        auto v = presetValues (p, eng);
         auto r = render (eng, v, fs, bpm, 8, 512, 4, 1);
         bool finite = true; float peak = 0; double e = 0;
         for (size_t i = 0; i < r.l.size(); ++i)

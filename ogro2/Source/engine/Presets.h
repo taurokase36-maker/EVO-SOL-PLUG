@@ -1,16 +1,17 @@
 // OGRO 2 — presets de fábrica por mood (minimal, house y deep house).
 // Cada preset trae kit, mezcla, modulaciones, carriles dibujados y 8 patrones.
+// Los 12 de la 1.0 están escritos con los IDs de la 1.0 y se cargan con v1::convert(),
+// así suenan igual que en OGRO 1.0.
 #pragma once
 
-#include "ParamDefs.h"
-#include "Sequencer.h"
+#include "Legacy.h"
 
 namespace ogro2
 {
 struct Preset
 {
     std::string name, mood;
-    std::vector<std::pair<std::string, float>> values;
+    std::vector<std::pair<std::string, float>> values; // IDs de la 1.0
     std::function<void (PatternBank&)> build;
 };
 
@@ -21,7 +22,7 @@ namespace pb
     inline void row (PatternBank& b, int p, int t, const char* g, std::vector<int> notes = {}, int len = 16)
     {
         b.setLength (p, t, len);
-        for (int s = 0; s < kSteps; ++s)
+        for (int s = 0; s < 16; ++s)
         {
             Step st;
             const char c = s < (int) std::strlen (g) ? g[s] : '-';
@@ -55,7 +56,7 @@ namespace pb
         // B: más percusión fantasma y un hat abierto extra
         b.copyPattern (0, 1);
         for (int t : { (int) Rim, (int) Perc, (int) HatC })
-            for (int s = 0; s < kSteps; ++s)
+            for (int s = 0; s < 16; ++s)
             {
                 Step st = b.get (1, t, s);
                 if (! st.on && hashRand (r) % 100 < 22) { st.on = true; st.vel = 40 + (int) (hashRand (r) % 30); st.prob = 80; b.set (1, t, s, st); }
@@ -64,7 +65,7 @@ namespace pb
 
         // C: break sin kick ni clap, el bajo respira
         b.copyPattern (0, 2);
-        for (int s = 0; s < kSteps; ++s)
+        for (int s = 0; s < 16; ++s)
         {
             Step k = b.get (2, Kick, s); k.on = false; b.set (2, Kick, s, k);
             Step c = b.get (2, Clap, s); c.on = false; b.set (2, Clap, s, c);
@@ -99,7 +100,7 @@ namespace pb
         };
     }
 
-    inline float dst (int param) { return (float) destIndexForParam (param); }
+    inline float dst (int v1Dest) { return (float) v1Dest; }
     inline std::string sid (int t, int p) { return "t" + std::to_string (t + 1) + "_p" + std::to_string (p + 1); }
     inline std::string tid (int t, const char* f) { return "t" + std::to_string (t + 1) + "_" + f; }
 }
@@ -111,7 +112,7 @@ inline const std::vector<Preset>& factoryPresets()
         std::vector<Preset> v;
 
         // 1 ─ INICIAL ───────────────────────────────────────────────────
-        v.push_back ({ "Inicial", "House clasico, punto de partida",
+        v.push_back ({ "Inicial", "House clásico, punto de partida",
             { { "root", 9 }, { "swing", 0.54f } },
             [] (PatternBank& b) {
                 b.clearAll();
@@ -124,7 +125,7 @@ inline const std::vector<Preset>& factoryPresets()
             } });
 
         // 2 ─ AMANECER ──────────────────────────────────────────────────
-        v.push_back ({ "Amanecer", "Deep house calido de terraza al salir el sol",
+        v.push_back ({ "Amanecer", "Deep house cálido de terraza al salir el sol",
             { { "root", 9 }, { "swing", 0.58f }, { "tempo", 120 },
               { sid (Kick, 0), 0.32f }, { sid (Kick, 1), 0.5f }, { sid (Kick, 4), 0.2f }, { sid (Kick, 5), 0.25f }, { sid (Kick, 6), 0.45f },
               { sid (HatC, 1), 0.3f }, { sid (HatC, 6), 0.35f }, { tid (HatC, "lvl"), 0.78f }, { tid (HatC, "pan"), 0.6f },
@@ -135,8 +136,8 @@ inline const std::vector<Preset>& factoryPresets()
               { sid (Chord, 0), stepCentre (1, 8) }, { sid (Chord, 1), 0.55f }, { sid (Chord, 2), 0.42f }, { sid (Chord, 4), 0.35f },
               { sid (Chord, 6), 0.75f }, { tid (Chord, "rev"), 0.35f }, { tid (Chord, "dly"), 0.2f }, { tid (Chord, "lvl"), 0.83f }, { tid (Chord, "pump"), 0.45f },
               { "m_texture", 0.22f }, { "macro1", 0.62f }, { "dly_div", 3 }, { "rev_decay", 2.8f },
-              { "mod1_src", SrcLfo1 }, { "mod1_dst", dst (P::sound (Chord, 2)) }, { "mod1_amt", 0.18f }, { "lfo1_shape", 0 }, { "lfo1_rate", 1 },
-              { "lane1_dst", dst (P::track (Chord, P::Delay)) }, { "lane1_bars", 2 }, { "lane1_depth", 0.6f } },
+              { "mod1_src", SrcLfo1 }, { "mod1_dst", dst (v1::dest (Chord, 2)) }, { "mod1_amt", 0.18f }, { "lfo1_shape", 0 }, { "lfo1_rate", 1 },
+              { "lane1_dst", dst (v1::dest (Chord, v1::Delay)) }, { "lane1_bars", 2 }, { "lane1_depth", 0.6f } },
             [] (PatternBank& b) {
                 b.clearAll();
                 row (b, 0, Kick, "x---x---x---x---");
@@ -151,7 +152,7 @@ inline const std::vector<Preset>& factoryPresets()
             } });
 
         // 3 ─ MEDIANOCHE MINIMA ─────────────────────────────────────────
-        v.push_back ({ "Medianoche Minima", "Minimal seco y preciso, polirritmos y clicks",
+        v.push_back ({ "Medianoche Mínima", "Minimal seco y preciso, polirritmos y clicks",
             { { "root", 5 }, { "swing", 0.52f }, { "tempo", 126 },
               { sid (Kick, 0), 0.42f }, { sid (Kick, 1), 0.32f }, { sid (Kick, 4), 0.55f }, { sid (Kick, 5), 0.3f },
               { sid (Rim, 0), 0.62f }, { sid (Rim, 1), 0.12f }, { sid (Rim, 4), 0.8f }, { tid (Rim, "pan"), 0.38f }, { tid (Rim, "ring"), 1 },
@@ -162,10 +163,10 @@ inline const std::vector<Preset>& factoryPresets()
               { tid (Clap, "lvl"), 0.7f }, { sid (Clap, 1), 0.2f }, { sid (Clap, 6), 0.1f },
               { "ring_freq", 1180.0f }, { "ring_mix", 0.55f }, { "ring_wave", 1 },
               { "dly_div", 5 }, { "dly_fb", 0.45f }, { "rev_size", 0.3f }, { "bus_comp", 0.7f },
-              { "lfo1_shape", 5 }, { "lfo1_rate", 7 }, { "mod1_src", SrcLfo1 }, { "mod1_dst", dst (P::sound (Perc, 0)) }, { "mod1_amt", 0.2f },
-              { "mod2_src", SrcRandStep }, { "mod2_dst", dst (P::sound (HatC, 1)) }, { "mod2_amt", 0.25f },
-              { "lfo2_shape", 1 }, { "lfo2_rate", 1 }, { "mod3_src", SrcLfo2 }, { "mod3_dst", dst (P::RingFreq) }, { "mod3_amt", 0.25f },
-              { "lane1_dst", dst (P::sound (Bass, 2)) }, { "lane1_bars", 1 }, { "lane1_depth", 0.45f } },
+              { "lfo1_shape", 5 }, { "lfo1_rate", 7 }, { "mod1_src", SrcLfo1 }, { "mod1_dst", dst (v1::dest (Perc, 0)) }, { "mod1_amt", 0.2f },
+              { "mod2_src", SrcRandStep }, { "mod2_dst", dst (v1::dest (HatC, 1)) }, { "mod2_amt", 0.25f },
+              { "lfo2_shape", 1 }, { "lfo2_rate", 1 }, { "mod3_src", SrcLfo2 }, { "mod3_dst", dst (v1::RingFreqDest) }, { "mod3_amt", 0.25f },
+              { "lane1_dst", dst (v1::dest (Bass, 2)) }, { "lane1_bars", 1 }, { "lane1_depth", 0.45f } },
             [] (PatternBank& b) {
                 b.clearAll();
                 row (b, 0, Kick, "x---x---x---x---");
@@ -191,7 +192,7 @@ inline const std::vector<Preset>& factoryPresets()
               { tid (Chord, "pump"), 0.6f }, { tid (Chord, "dly"), 0.18f }, { tid (Chord, "lvl"), 0.8f },
               { "bus_comp", 0.85f }, { "bus_crudo", 0.55f }, { "m_comp", 0.6f }, { "m_color", 0.65f }, { "macro4", 0.62f },
               { "pump_rel", 160.0f },
-              { "lane1_dst", dst (P::MFilter) }, { "lane1_bars", 3 }, { "lane1_depth", 0.3f } },
+              { "lane1_dst", dst (v1::MFilterDest) }, { "lane1_bars", 3 }, { "lane1_depth", 0.3f } },
             [] (PatternBank& b) {
                 b.clearAll();
                 row (b, 0, Kick, "X---x---X---x---");
@@ -217,8 +218,8 @@ inline const std::vector<Preset>& factoryPresets()
               { tid (Chord, "pump"), 0.35f },
               { "rev_decay", 4.2f }, { "rev_size", 0.8f }, { "dly_div", 1 }, { "dly_fb", 0.5f }, { "m_texture", 0.18f }, { "m_warmth", 0.45f },
               { "macro3", 0.62f },
-              { "lfo1_shape", 6 }, { "lfo1_rate", 2 }, { "mod1_src", SrcLfo1 }, { "mod1_dst", dst (P::sound (Chord, 2)) }, { "mod1_amt", 0.22f },
-              { "lane1_dst", dst (P::sound (Chord, 5)) }, { "lane1_bars", 2 }, { "lane1_depth", 0.5f } },
+              { "lfo1_shape", 6 }, { "lfo1_rate", 2 }, { "mod1_src", SrcLfo1 }, { "mod1_dst", dst (v1::dest (Chord, 2)) }, { "mod1_amt", 0.22f },
+              { "lane1_dst", dst (v1::dest (Chord, 5)) }, { "lane1_bars", 2 }, { "lane1_depth", 0.5f } },
             [] (PatternBank& b) {
                 b.clearAll();
                 row (b, 0, Kick, "x---x---x---x---");
@@ -232,7 +233,7 @@ inline const std::vector<Preset>& factoryPresets()
             } });
 
         // 6 ─ HIPNOSIS ──────────────────────────────────────────────────
-        v.push_back ({ "Hipnosis", "Minimal hipnotico: loops desfasados que nunca se repiten igual",
+        v.push_back ({ "Hipnosis", "Minimal hipnótico: loops desfasados que nunca se repiten igual",
             { { "root", 4 }, { "swing", 0.5f }, { "tempo", 124 },
               { sid (Kick, 1), 0.4f }, { sid (Kick, 4), 0.45f },
               { sid (Perc, 0), 0.5f }, { sid (Perc, 1), 0.22f }, { sid (Perc, 2), 0.42f }, { sid (Perc, 3), 0.85f }, { tid (Perc, "ring"), 1 },
@@ -242,11 +243,11 @@ inline const std::vector<Preset>& factoryPresets()
               { sid (Bass, 1), 0.18f }, { sid (Bass, 3), 0.7f }, { sid (Bass, 4), 0.35f }, { sid (Bass, 2), 0.25f },
               { "ring_freq", 640.0f }, { "ring_mix", 0.6f }, { "ring_spread", 0.6f },
               { "dly_div", 3 }, { "dly_fb", 0.62f },
-              { "lfo1_shape", 1 }, { "lfo1_rate", 0 }, { "mod1_src", SrcLfo1 }, { "mod1_dst", dst (P::RingFreq) }, { "mod1_amt", 0.35f },
-              { "lfo2_shape", 0 }, { "lfo2_rate", 8 }, { "mod2_src", SrcLfo2 }, { "mod2_dst", dst (P::sound (HatC, 3)) }, { "mod2_amt", 0.3f },
-              { "mod3_src", SrcRandSmooth }, { "mod3_dst", dst (P::sound (Perc, 2)) }, { "mod3_amt", 0.3f },
-              { "lane1_dst", dst (P::sound (Perc, 0)) }, { "lane1_bars", 1 }, { "lane1_depth", 0.5f },
-              { "lane2_dst", dst (P::MFilter) }, { "lane2_bars", 3 }, { "lane2_depth", 0.25f } },
+              { "lfo1_shape", 1 }, { "lfo1_rate", 0 }, { "mod1_src", SrcLfo1 }, { "mod1_dst", dst (v1::RingFreqDest) }, { "mod1_amt", 0.35f },
+              { "lfo2_shape", 0 }, { "lfo2_rate", 8 }, { "mod2_src", SrcLfo2 }, { "mod2_dst", dst (v1::dest (HatC, 3)) }, { "mod2_amt", 0.3f },
+              { "mod3_src", SrcRandSmooth }, { "mod3_dst", dst (v1::dest (Perc, 2)) }, { "mod3_amt", 0.3f },
+              { "lane1_dst", dst (v1::dest (Perc, 0)) }, { "lane1_bars", 1 }, { "lane1_depth", 0.5f },
+              { "lane2_dst", dst (v1::MFilterDest) }, { "lane2_bars", 3 }, { "lane2_depth", 0.25f } },
             [] (PatternBank& b) {
                 b.clearAll();
                 row (b, 0, Kick, "x---x---x---x---");
@@ -261,7 +262,7 @@ inline const std::vector<Preset>& factoryPresets()
             } });
 
         // 7 ─ NOSTALGIA 92 ──────────────────────────────────────────────
-        v.push_back ({ "Nostalgia 92", "House clasico de Chicago y Nueva York, stabs y bajo ligado",
+        v.push_back ({ "Nostalgia 92", "House clásico de Chicago y Nueva York, stabs y bajo ligado",
             { { "root", 0 }, { "swing", 0.6f }, { "tempo", 122 },
               { sid (Kick, 1), 0.42f }, { sid (Kick, 4), 0.45f }, { sid (Kick, 5), 0.45f },
               { sid (Clap, 0), 0.4f }, { sid (Clap, 6), 0.4f },
@@ -270,7 +271,7 @@ inline const std::vector<Preset>& factoryPresets()
               { sid (Chord, 0), stepCentre (3, 8) }, { sid (Chord, 1), 0.2f }, { sid (Chord, 2), 0.7f }, { sid (Chord, 4), 0.1f },
               { sid (Chord, 5), 0.15f }, { sid (Chord, 6), 0.15f }, { tid (Chord, "rev"), 0.2f }, { tid (Chord, "lvl"), 0.84f },
               { "m_color", 0.6f }, { "m_texture", 0.12f },
-              { "lfo1_shape", 0 }, { "lfo1_rate", 2 }, { "mod1_src", SrcLfo1 }, { "mod1_dst", dst (P::sound (Bass, 2)) }, { "mod1_amt", 0.2f } },
+              { "lfo1_shape", 0 }, { "lfo1_rate", 2 }, { "mod1_src", SrcLfo1 }, { "mod1_dst", dst (v1::dest (Bass, 2)) }, { "mod1_amt", 0.2f } },
             [] (PatternBank& b) {
                 b.clearAll();
                 row (b, 0, Kick, "x---x---x---x---");
@@ -283,7 +284,7 @@ inline const std::vector<Preset>& factoryPresets()
             } });
 
         // 8 ─ LLUVIA ────────────────────────────────────────────────────
-        v.push_back ({ "Lluvia", "Dub house melancolico, ecos largos y polvo de vinilo",
+        v.push_back ({ "Lluvia", "Dub house melancólico, ecos largos y polvo de vinilo",
             { { "root", 11 }, { "swing", 0.56f }, { "tempo", 118 },
               { sid (Kick, 0), 0.3f }, { sid (Kick, 4), 0.15f }, { sid (Kick, 6), 0.4f },
               { sid (Rim, 1), 0.25f }, { tid (Rim, "dly"), 0.45f }, { tid (Rim, "rev"), 0.3f },
@@ -293,8 +294,8 @@ inline const std::vector<Preset>& factoryPresets()
               { tid (Chord, "dly"), 0.65f }, { tid (Chord, "rev"), 0.4f }, { tid (Chord, "lvl"), 0.8f },
               { "dly_fb", 0.68f }, { "dly_tone", 0.3f }, { "dly_div", 1 }, { "rev_decay", 3.5f }, { "m_texture", 0.6f },
               { "m_filter", -0.12f }, { "macro3", 0.7f },
-              { "lfo1_shape", 6 }, { "lfo1_rate", 0 }, { "mod1_src", SrcLfo1 }, { "mod1_dst", dst (P::DlyFb) }, { "mod1_amt", 0.15f },
-              { "lane1_dst", dst (P::sound (Chord, 2)) }, { "lane1_bars", 2 }, { "lane1_depth", 0.55f } },
+              { "lfo1_shape", 6 }, { "lfo1_rate", 0 }, { "mod1_src", SrcLfo1 }, { "mod1_dst", dst (v1::DlyFbDest) }, { "mod1_amt", 0.15f },
+              { "lane1_dst", dst (v1::dest (Chord, 2)) }, { "lane1_bars", 2 }, { "lane1_depth", 0.55f } },
             [] (PatternBank& b) {
                 b.clearAll();
                 row (b, 0, Kick, "x---x---x---x---");
@@ -307,7 +308,7 @@ inline const std::vector<Preset>& factoryPresets()
             } });
 
         // 9 ─ OSCURO ────────────────────────────────────────────────────
-        v.push_back ({ "Oscuro", "Minimal oscuro y metalico para el after",
+        v.push_back ({ "Oscuro", "Minimal oscuro y metálico para el after",
             { { "root", 6 }, { "swing", 0.52f }, { "tempo", 125 },
               { sid (Kick, 0), 0.3f }, { sid (Kick, 1), 0.55f }, { sid (Kick, 5), 0.6f }, { sid (Kick, 6), 0.4f },
               { sid (HatC, 5), 0.7f }, { sid (HatC, 2), 0.9f }, { sid (HatO, 5), 0.6f },
@@ -317,8 +318,8 @@ inline const std::vector<Preset>& factoryPresets()
               { tid (Chord, "dly"), 0.35f }, { tid (Chord, "lvl"), 0.74f },
               { "ring_freq", 172.0f }, { "ring_wave", 2 }, { "ring_mix", 0.8f },
               { "bus_crudo", 0.6f }, { "rev_size", 0.7f }, { "dly_tone", 0.25f }, { "m_air", 0.5f }, { "macro4", 0.65f },
-              { "lfo1_shape", 5 }, { "lfo1_rate", 6 }, { "mod1_src", SrcLfo1 }, { "mod1_dst", dst (P::sound (Chord, 2)) }, { "mod1_amt", 0.3f },
-              { "lane1_dst", dst (P::RingFreq) }, { "lane1_bars", 1 }, { "lane1_depth", 0.4f } },
+              { "lfo1_shape", 5 }, { "lfo1_rate", 6 }, { "mod1_src", SrcLfo1 }, { "mod1_dst", dst (v1::dest (Chord, 2)) }, { "mod1_amt", 0.3f },
+              { "lane1_dst", dst (v1::RingFreqDest) }, { "lane1_bars", 1 }, { "lane1_depth", 0.4f } },
             [] (PatternBank& b) {
                 b.clearAll();
                 row (b, 0, Kick, "x---x---x---x---");
@@ -341,8 +342,8 @@ inline const std::vector<Preset>& factoryPresets()
               { sid (Chord, 0), stepCentre (4, 8) }, { sid (Chord, 1), 0.45f }, { sid (Chord, 2), 0.6f }, { sid (Chord, 6), 0.6f },
               { tid (Chord, "pump"), 0.7f }, { tid (Chord, "rev"), 0.3f }, { tid (Chord, "dly"), 0.2f }, { tid (Chord, "lvl"), 0.86f },
               { "pump_rel", 220.0f }, { "m_air", 2.5f }, { "macro1", 0.6f },
-              { "lane1_dst", dst (P::sound (Chord, 2)) }, { "lane1_bars", 3 }, { "lane1_depth", 0.7f },
-              { "lfo1_shape", 0 }, { "lfo1_rate", 4 }, { "mod1_src", SrcLfo1 }, { "mod1_dst", dst (P::track (Chord, P::Pan)) }, { "mod1_amt", 0.25f } },
+              { "lane1_dst", dst (v1::dest (Chord, 2)) }, { "lane1_bars", 3 }, { "lane1_depth", 0.7f },
+              { "lfo1_shape", 0 }, { "lfo1_rate", 4 }, { "mod1_src", SrcLfo1 }, { "mod1_dst", dst (v1::dest (Chord, v1::Pan)) }, { "mod1_amt", 0.25f } },
             [] (PatternBank& b) {
                 b.clearAll();
                 row (b, 0, Kick, "x---x---x---x---");
@@ -367,8 +368,8 @@ inline const std::vector<Preset>& factoryPresets()
               { sid (Chord, 0), stepCentre (3, 8) }, { sid (Chord, 1), 0.32f }, { sid (Chord, 2), 0.62f }, { sid (Chord, 6), 0.55f },
               { tid (Chord, "dly"), 0.25f }, { tid (Chord, "rev"), 0.25f }, { tid (Chord, "lvl"), 0.8f },
               { "m_air", 2.2f }, { "dly_div", 3 },
-              { "mod1_src", SrcRandStep }, { "mod1_dst", dst (P::sound (Perc, 0)) }, { "mod1_amt", 0.08f },
-              { "lane1_dst", dst (P::track (Perc, P::Pan)) }, { "lane1_bars", 0 }, { "lane1_depth", 0.5f } },
+              { "mod1_src", SrcRandStep }, { "mod1_dst", dst (v1::dest (Perc, 0)) }, { "mod1_amt", 0.08f },
+              { "lane1_dst", dst (v1::dest (Perc, v1::Pan)) }, { "lane1_bars", 0 }, { "lane1_depth", 0.5f } },
             [] (PatternBank& b) {
                 b.clearAll();
                 row (b, 0, Kick, "x---x---x---x---");
@@ -383,7 +384,7 @@ inline const std::vector<Preset>& factoryPresets()
             } });
 
         // 12 ─ UNDERGROUND ──────────────────────────────────────────────
-        v.push_back ({ "Underground", "Sotano crudo: todo saturado, comprimido y sucio",
+        v.push_back ({ "Underground", "Sótano crudo: todo saturado, comprimido y sucio",
             { { "root", 10 }, { "swing", 0.55f }, { "tempo", 127 },
               { sid (Kick, 2), 0.62f }, { sid (Kick, 4), 0.6f }, { sid (Kick, 5), 0.72f }, { sid (Kick, 6), 0.5f },
               { sid (Clap, 5), 0.6f }, { sid (Clap, 6), 0.55f }, { sid (Clap, 4), 0.7f },
@@ -393,8 +394,8 @@ inline const std::vector<Preset>& factoryPresets()
               { tid (Chord, "dly"), 0.3f }, { tid (Chord, "lvl"), 0.78f },
               { "bus_comp", 0.92f }, { "bus_crudo", 0.8f }, { "m_comp", 0.7f }, { "m_color", 0.85f }, { "m_warmth", 0.55f },
               { "m_texture", 0.35f }, { "macro4", 0.7f },
-              { "mod1_src", SrcKickEnv }, { "mod1_dst", dst (P::sound (HatO, 3)) }, { "mod1_amt", 0.25f },
-              { "lane1_dst", dst (P::sound (Clap, 1)) }, { "lane1_bars", 0 }, { "lane1_depth", 0.4f } },
+              { "mod1_src", SrcKickEnv }, { "mod1_dst", dst (v1::dest (HatO, 3)) }, { "mod1_amt", 0.25f },
+              { "lane1_dst", dst (v1::dest (Clap, 1)) }, { "lane1_bars", 0 }, { "lane1_depth", 0.4f } },
             [] (PatternBank& b) {
                 b.clearAll();
                 row (b, 0, Kick, "X---x---X---x--.");
@@ -411,6 +412,32 @@ inline const std::vector<Preset>& factoryPresets()
         return v;
     }();
     return list;
+}
+
+// Estado de un preset de fábrica en OGRO 2. Los de fábrica usan azar FIJO (renders
+// repetibles); con fixedRandom = false quedan exactamente como en la 1.0.
+// Para usar en OGRO 2 (fixedRandom = true) además pasan a macros x2 con el mismo efecto
+// (valores convertidos: la diferencia de redondeo es inaudible).
+inline v1::State factoryState (const Preset& p, bool fixedRandom = true)
+{
+    auto st = v1::convert (p.values);
+    if (fixedRandom)
+    {
+        st.values[P::RandomMode] = 0.0f;
+        st.values[P::MacroDepth] = 1.0f;
+        for (int m = 0; m < 4; ++m)
+        {
+            auto& v = st.values[(size_t) (P::Macro1 + m)];
+            v = (float) (0.5 + ((double) v - 0.5) * 0.5);
+        }
+    }
+    return st;
+}
+
+inline void applyRouting (ModRouting& r, const v1::State& st)
+{
+    for (int s = 0; s < P::kSlots; ++s) { r.src[s].store (st.src[s]); r.dst[s].store (st.dst[s]); }
+    for (int l = 0; l < P::kMotion; ++l) r.laneDst[l].store (st.laneDst[l]);
 }
 
 } // namespace ogro2

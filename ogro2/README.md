@@ -4,8 +4,17 @@ Instrumento para Ableton Live 12 (VST3 / AU, Mac Intel y Apple Silicon). Es un p
 aparte de OGRO 1.0 (carpeta `../ogro`): los dos conviven en el mismo Ableton y las
 sesiones viejas siguen usando la 1.0.
 
-> **Estado:** en desarrollo (fase 0). Por ahora suena idéntico a OGRO 1.0. Ver
-> [CHANGELOG.md](CHANGELOG.md).
+> **Estado:** en desarrollo (fase 1 de 7). Ver [CHANGELOG.md](CHANGELOG.md).
+
+## Compatibilidad hacia adelante (2.x)
+
+- Cada parámetro tiene un ID de texto que no cambia nunca (`bass.cutoff`). Rango y mapa
+  físico tampoco cambian. Los parámetros nuevos se agregan con una versión mayor.
+- Las listas que pueden crecer tienen lugares reservados ("—").
+- El estado (`<OGRO2 stateVersion="1">`) guarda los valores por ID, los patrones en texto
+  con versión y el ruteo de MOD/MOTION por ID. Si cambia el formato, se sube
+  `stateVersion` y se agrega la migración en `restoreFromXml`.
+- Los índices internos (`P::...`) pueden cambiar entre versiones: no se guardan.
 
 ## Convivencia con OGRO 1.0
 
@@ -42,11 +51,27 @@ mkdir -p bin out && clang++ -std=c++17 -O2 test_ogro.cpp -o bin/test_ogro && ./b
 Timing al sample, swing, CPU por preset y estado. Termina con `TODO OK` (~30 s).
 
 ```bash
-clang++ -std=c++17 -O2 ab_v1.cpp -o bin/ab_v1 && ./bin/ab_v1 --exacto
+clang++ -std=c++17 -O2 ab_v1.cpp -o bin/ab_v1 && ./bin/ab_v1 --exacto && ./bin/ab_v1 --normal
 ```
 
-Compila OGRO 1.0 y OGRO 2 en el mismo programa y compara los 12 presets muestra a muestra
-y la huella de cada pista (~4 min). Termina con `A/B OK`.
+Compila OGRO 1.0 y OGRO 2 en el mismo programa. `--exacto`: los 12 presets importados de
+la 1.0 tienen que dar iguales muestra a muestra. `--normal`: OGRO 2 como se usa (azar FIJO)
+conserva el nivel y el color de cada pista. Terminan con `A/B OK`.
+
+```bash
+clang++ -std=c++17 -O2 test_host.cpp -o bin/test_host && ./bin/test_host
+clang++ -std=c++17 -O2 test_estado.cpp -o bin/test_estado && ./bin/test_estado
+```
+
+Host simulado (loop de Ableton, tempo automatizado, buffers, frecuencias, azar, gate) y
+estado guardado (patrones, IDs, importador de la 1.0).
+
+```bash
+bash ../tools/snapshot/build.sh tests
+```
+
+Tests del plugin con JUCE (necesita JUCE en `build-ogro2/juce-src`): cargar presets sin
+gestos, estado completo, importar `.ogro`, salidas.
 
 ```bash
 bash test_instalador.sh

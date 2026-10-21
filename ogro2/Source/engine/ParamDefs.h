@@ -1,14 +1,24 @@
-// OGRO 2 — tabla única de parámetros (la usan el motor, el plugin y la interfaz)
+// OGRO 2 — tabla única de parámetros (la usan el motor, el plugin y la interfaz).
+//
+// REGLAS PARA QUE LAS SESIONES SIGAN ABRIENDO EN TODAS LAS 2.x
+//  - El ID de texto de un parámetro ("bass.cutoff") no cambia nunca. Ableton guarda
+//    la automatización y el estado por ese ID (JUCE lo convierte en un número fijo).
+//  - El rango y el mapa físico de un parámetro existente no cambian.
+//  - Las listas que pueden crecer nacen con lugares reservados ("—"): agregar una
+//    opción no corre el valor normalizado que guarda la automatización.
+//  - Los parámetros nuevos se agregan con "version" mayor que la última publicada.
+//  - Los índices P::... son internos y pueden cambiar entre versiones (no se guardan).
 #pragma once
 
 #include "VoiceMaps.h"
+#include <atomic>
 #include <cctype>
 #include <functional>
 #include <vector>
 
 namespace ogro2
 {
-enum class Kind { Float, Choice, Bool };
+enum class Kind { Float, Choice, Bool, Int };
 
 struct ParamDef
 {
@@ -16,8 +26,13 @@ struct ParamDef
     Kind kind = Kind::Float;
     float min = 0.0f, max = 1.0f, def = 0.0f;
     bool log = false;
-    std::vector<std::string> choices;
+    std::vector<std::string> choices; // con los lugares reservados incluidos
+    int validChoices = 0;             // opciones reales (el resto son reservas)
     std::function<std::string (float)> text;
+    int version = 1;                  // pista de versión de JUCE (2.0.0 = 1)
+    bool modulatable = false;         // destino de MOD, MOTION y p-locks
+    int track = -1;                   // pista dueña (-1 = global)
+    bool exists = true;               // los campos de pista que no aplican no se crean
 
     float toNorm (float v) const
     {
@@ -30,19 +45,24 @@ struct ParamDef
     {
         n = clampv (n, 0.0f, 1.0f);
         if (kind == Kind::Bool) return n > 0.5f ? 1.0f : 0.0f;
-        if (kind == Kind::Choice) return (float) clampv ((int) std::floor (n * (float) choices.size()), 0, (int) choices.size() - 1);
+        if (kind == Kind::Choice || kind == Kind::Int)
+        {
+            const int lo = (int) min, hi = kind == Kind::Choice ? std::max (0, validChoices - 1) : (int) max;
+            return (float) clampv ((int) std::lround (min + n * (max - min)), lo, hi);
+        }
         if (log) return min * std::pow (max / min, n);
         return min + (max - min) * n;
     }
 };
 
 // ---------------------------------------------------------------------------
-// Índices
+// Índices internos
 // ---------------------------------------------------------------------------
 namespace P
 {
-    enum Global { Swing = 0, Pattern, Root, Tempo, Macro1, Macro2, Macro3, Macro4, GlobalCount };
-    enum TrackField { S1 = 0, S2, S3, S4, S5, S6, S7, S8, Level, Pan, Delay, Reverb, Pump, Ring, Mute, Solo, TrackFieldCount };
+    enum Global { Swing = 0, Pattern, Root, Tempo, Macro1, Macro2, Macro3, Macro4, Seed, RandomMode, MacroDepth, GlobalCount };
+    enum TrackField { S1 = 0, S2, S3, S4, S5, S6, S7, S8, Level, Pan, Delay, Reverb, Pump, Ring, Mute, Solo,
+                      EnvA, EnvS, EnvR, TrackFieldCount };
     constexpr int TrackBase = GlobalCount;
     constexpr int track (int t, int f) { return TrackBase + t * TrackFieldCount + f; }
     constexpr int sound (int t, int p) { return track (t, p); }
@@ -53,24 +73,54 @@ namespace P
     constexpr int lfo (int l, int f) { return LfoBase + l * LfoFieldCount + f; }
 
     constexpr int kSlots = 12;
-    enum ModField { ModSrc = 0, ModDst, ModAmt, ModFieldCount };
+    enum ModField { ModAmt = 0, ModFieldCount };
     constexpr int ModBase = LfoBase + kLfos * LfoFieldCount;
     constexpr int mod (int s, int f) { return ModBase + s * ModFieldCount + f; }
 
-    enum LaneField { LaneDst = 0, LaneBars, LaneDepth, LaneFieldCount };
+    constexpr int kMotion = 4;
+    enum LaneField { LaneBars = 0, LaneDepth, LaneFieldCount };
     constexpr int LaneBase = ModBase + kSlots * ModFieldCount;
     constexpr int lane (int l, int f) { return LaneBase + l * LaneFieldCount + f; }
 
-    enum Ring { RingOn = LaneBase + 4 * LaneFieldCount, RingFreq, RingWave, RingMix, RingSpread,
+    enum Rest { RingOn = LaneBase + kMotion * LaneFieldCount, RingFreq, RingWave, RingMix, RingSpread,
                 DlyDiv, DlyFb, DlyTone, DlyRet, RevSize, RevDecay, RevRet, PumpRel,
                 BusComp, BusCrudo,
                 MFilter, MReso, MLowCut, MBody, MPres, MAir, MComp, MColor, MWarmth, MParallel, MTexture, MCeiling, MVol,
                 Count };
 }
 
+// Prefijos de ID de cada pista (no cambian)
+inline const char* trackId (int t)
+{
+    static const char* ids[] = { "kick", "clap", "rim", "hatc", "hato", "perc", "bass", "chord" };
+    return ids[clampv (t, 0, kTracks - 1)];
+}
+
+// Sufijo de ID de cada perilla de sonido (no cambian)
+inline const char* soundId (int t, int p)
+{
+    static const char* ids[kTracks][kSoundParams] = {
+        { "tune", "decay", "punch", "curve", "click", "drive", "color", "varia" },
+        { "tone", "decay", "spread", "bursts", "grain", "drive", "room", "varia" },
+        { "tone", "decay", "noise", "body", "click", "drive", "bright", "varia" },
+        { "tone", "decay", "metal", "filter", "reso", "drive", "air", "varia" },
+        { "tone", "decay", "metal", "filter", "reso", "drive", "air", "varia" },
+        { "tone", "decay", "fm", "ratio", "pitch", "drive", "noise", "varia" },
+        { "octave", "decay", "cutoff", "reso", "envamt", "drive", "wave", "glide" },
+        { "type", "decay", "cutoff", "reso", "envamt", "detune", "chorus", "attack" },
+    };
+    return ids[clampv (t, 0, kTracks - 1)][clampv (p, 0, kSoundParams - 1)];
+}
+
 // ---------------------------------------------------------------------------
-// Listas
+// Listas (con reservas para crecer sin romper la automatización)
 // ---------------------------------------------------------------------------
+inline std::vector<std::string> withReserve (std::vector<std::string> v, size_t total)
+{
+    while (v.size() < total) v.push_back ("—");
+    return v;
+}
+
 inline const std::vector<std::string>& lfoShapeNames()
 {
     static const std::vector<std::string> v { "Seno", "Triangulo", "Sierra +", "Sierra -", "Cuadrada", "S&H", "Azar suave" };
@@ -97,30 +147,36 @@ inline double delayDivBeats (int i)
     static const double b[] = { 2.0, 1.5, 1.0, 0.75, 0.5, 1.0 / 3.0, 0.25 };
     return b[clampv (i, 0, 6)];
 }
-inline const std::vector<std::string>& laneBarNames()
-{
-    static const std::vector<std::string> v { "1 compas", "2 compases", "4 compases", "8 compases" };
-    return v;
-}
-inline int laneBars (int i) { static const int b[] = { 1, 2, 4, 8 }; return b[clampv (i, 0, 3)]; }
 
-inline const std::vector<std::string>& modSourceNames()
-{
-    static const std::vector<std::string> v { "Nada", "LFO 1", "LFO 2", "LFO 3", "LFO 4", "Azar por paso", "Azar suave",
-                                               "Envolvente kick", "Macro 1", "Macro 2", "Macro 3", "Macro 4" };
-    return v;
-}
+// Fuentes de modulación: ID estable + nombre
+struct ModSourceInfo { const char* id; const char* name; };
 enum ModSource { SrcNone = 0, SrcLfo1, SrcLfo2, SrcLfo3, SrcLfo4, SrcRandStep, SrcRandSmooth, SrcKickEnv,
                  SrcMacro1, SrcMacro2, SrcMacro3, SrcMacro4, SrcCount };
+inline const ModSourceInfo& modSource (int i)
+{
+    static const ModSourceInfo s[SrcCount] = {
+        { "none", "Nada" }, { "lfo1", "LFO 1" }, { "lfo2", "LFO 2" }, { "lfo3", "LFO 3" }, { "lfo4", "LFO 4" },
+        { "rand_step", "Azar por paso" }, { "rand_smooth", "Azar suave" }, { "kick_env", "Envolvente kick" },
+        { "macro1", "Calor" }, { "macro2", "Movimiento" }, { "macro3", "Espacio" }, { "macro4", "Crudeza" },
+    };
+    return s[clampv (i, 0, SrcCount - 1)];
+}
+inline int modSourceIndex (const std::string& id)
+{
+    for (int i = 0; i < SrcCount; ++i) if (id == modSource (i).id) return i;
+    return SrcNone;
+}
 
 inline const char* macroName (int m)
 {
     static const char* n[] = { "CALOR", "MOVIMIENTO", "ESPACIO", "CRUDEZA" };
     return n[clampv (m, 0, 3)];
 }
-
-// Destinos de modulación: índice de parámetro (o -1 = nada) + nombre
-struct ModDest { int param; std::string name; };
+inline const char* macroId (int m)
+{
+    static const char* n[] = { "macro.calor", "macro.movimiento", "macro.espacio", "macro.crudeza" };
+    return n[clampv (m, 0, 3)];
+}
 
 inline std::string capitalise (const char* s)
 {
@@ -129,41 +185,7 @@ inline std::string capitalise (const char* s)
     return r;
 }
 
-inline const std::vector<ModDest>& modDests()
-{
-    static const std::vector<ModDest> v = [] {
-        std::vector<ModDest> d;
-        d.push_back ({ -1, "Nada" });
-        for (int t = 0; t < kTracks; ++t)
-        {
-            const std::string tn = capitalise (trackName (t));
-            for (int p = 0; p < kSoundParams; ++p)
-                d.push_back ({ P::sound (t, p), tn + " " + capitalise (soundParamInfo (t, p).name) });
-            d.push_back ({ P::track (t, P::Level), tn + " Nivel" });
-            d.push_back ({ P::track (t, P::Pan), tn + " Paneo" });
-            d.push_back ({ P::track (t, P::Delay), tn + " Delay" });
-            d.push_back ({ P::track (t, P::Reverb), tn + " Reverb" });
-        }
-        d.push_back ({ P::MFilter, "Filtro DJ" });
-        d.push_back ({ P::RingFreq, "Ring frecuencia" });
-        d.push_back ({ P::RingMix, "Ring mezcla" });
-        d.push_back ({ P::DlyFb, "Delay feedback" });
-        d.push_back ({ P::DlyRet, "Delay retorno" });
-        d.push_back ({ P::RevRet, "Reverb retorno" });
-        d.push_back ({ P::RevSize, "Reverb tamano" });
-        d.push_back ({ P::BusCrudo, "Drum bus crudo" });
-        d.push_back ({ P::MWarmth, "Master calor" });
-        return d;
-    }();
-    return v;
-}
-
-inline int destIndexForParam (int param)
-{
-    const auto& d = modDests();
-    for (int i = 0; i < (int) d.size(); ++i) if (d[(size_t) i].param == param) return i;
-    return 0;
-}
+inline std::string fmtSemis (float x) { return fmt ("%+.0f st", x); }
 
 // ---------------------------------------------------------------------------
 // Tabla de parámetros
@@ -172,132 +194,163 @@ inline const std::vector<ParamDef>& paramDefs()
 {
     static const std::vector<ParamDef> defs = [] {
         std::vector<ParamDef> v ((size_t) P::Count);
+        for (auto& p : v) p.exists = false;
         auto pct = [] (float x) { return fmtPct (x); };
         auto db = [] (float x) { return fmt ("%+.1f dB", x); };
         auto F = [&] (int i, std::string id, std::string name, float mn, float mx, float def, bool log,
-                      std::function<std::string (float)> text)
+                      std::function<std::string (float)> text, bool modulatable = false) -> ParamDef&
         {
             auto& p = v[(size_t) i];
-            p.id = std::move (id); p.name = std::move (name); p.kind = Kind::Float;
-            p.min = mn; p.max = mx; p.def = def; p.log = log; p.text = std::move (text);
+            p.id = std::move (id); p.name = std::move (name); p.kind = Kind::Float; p.exists = true;
+            p.min = mn; p.max = mx; p.def = def; p.log = log; p.text = std::move (text); p.modulatable = modulatable;
+            return p;
         };
-        auto C = [&] (int i, std::string id, std::string name, std::vector<std::string> choices, int def)
+        auto C = [&] (int i, std::string id, std::string name, std::vector<std::string> choices, int def, size_t reserve = 0) -> ParamDef&
         {
             auto& p = v[(size_t) i];
-            p.id = std::move (id); p.name = std::move (name); p.kind = Kind::Choice;
-            p.min = 0; p.max = (float) choices.size() - 1; p.def = (float) def; p.choices = std::move (choices);
+            p.id = std::move (id); p.name = std::move (name); p.kind = Kind::Choice; p.exists = true;
+            p.validChoices = (int) choices.size();
+            p.choices = withReserve (std::move (choices), std::max (reserve, (size_t) p.validChoices));
+            p.min = 0; p.max = (float) p.choices.size() - 1; p.def = (float) def;
+            return p;
         };
-        auto B = [&] (int i, std::string id, std::string name, bool def)
+        auto I = [&] (int i, std::string id, std::string name, int mn, int mx, int def, std::function<std::string (float)> text = {}) -> ParamDef&
         {
             auto& p = v[(size_t) i];
-            p.id = std::move (id); p.name = std::move (name); p.kind = Kind::Bool;
+            p.id = std::move (id); p.name = std::move (name); p.kind = Kind::Int; p.exists = true;
+            p.min = (float) mn; p.max = (float) mx; p.def = (float) def; p.text = std::move (text);
+            return p;
+        };
+        auto B = [&] (int i, std::string id, std::string name, bool def) -> ParamDef&
+        {
+            auto& p = v[(size_t) i];
+            p.id = std::move (id); p.name = std::move (name); p.kind = Kind::Bool; p.exists = true;
             p.min = 0; p.max = 1; p.def = def ? 1.0f : 0.0f;
+            return p;
         };
 
         // Global
-        F (P::Swing, "swing", "Swing", 0.5f, 0.75f, 0.54f, false, [] (float x) { return fmt ("%.0f %%", x * 100.0); });
-        C (P::Pattern, "pattern", "Patron", { "A", "B", "C", "D", "E", "F", "G", "H" }, 0);
-        C (P::Root, "root", "Tonalidad", { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" }, 9);
-        F (P::Tempo, "tempo", "Tempo interno", 60.0f, 180.0f, 124.0f, false, [] (float x) { return fmt ("%.1f BPM", x); });
+        F (P::Swing, "global.swing", "Swing", 0.5f, 0.75f, 0.54f, false, [] (float x) { return fmt ("%.0f %%", x * 100.0); });
+        C (P::Pattern, "global.pattern", "Patron", { "A", "B", "C", "D", "E", "F", "G", "H" }, 0);
+        C (P::Root, "global.root", "Tonalidad", { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" }, 9);
+        F (P::Tempo, "global.tempo", "Tempo interno", 60.0f, 180.0f, 127.0f, false, [] (float x) { return fmt ("%.1f BPM", x); });
         for (int m = 0; m < 4; ++m)
-            F (P::Macro1 + m, "macro" + std::to_string (m + 1), capitalise (macroName (m)), 0.0f, 1.0f, 0.5f, false, pct);
+            F (P::Macro1 + m, macroId (m), capitalise (macroName (m)), 0.0f, 1.0f, 0.5f, false,
+               [] (float x) { return fmt ("%+.0f %%", (x - 0.5) * 200.0); });
+        I (P::Seed, "global.seed", "Semilla", 1, 9999, 4721, [] (float x) { return fmt ("#%.0f", x); });
+        C (P::RandomMode, "global.random", "Azar", { "Fijo", "Vivo" }, 0);
+        // Recorrido de las macros: x2 en OGRO 2; los presets importados de la 1.0 usan x1 (suenan igual)
+        C (P::MacroDepth, "global.macrodepth", "Profundidad de macros", { "x1 (como la 1.0)", "x2" }, 1, 4);
 
         // Pistas
         for (int t = 0; t < kTracks; ++t)
         {
-            const std::string pre = "t" + std::to_string (t + 1) + "_";
+            const std::string pre = std::string (trackId (t)) + ".";
             const std::string tn = capitalise (trackName (t));
             for (int s = 0; s < kSoundParams; ++s)
             {
                 const auto info = soundParamInfo (t, s);
-                F (P::sound (t, s), pre + "p" + std::to_string (s + 1), tn + " " + capitalise (info.name), 0.0f, 1.0f, info.def, false,
-                   [t, s] (float x) { return describeSound (t, s, x); });
+                if (t == Chord && s == 0)
+                {
+                    auto& p = C (P::sound (t, s), pre + soundId (t, s), tn + " Tipo", chordTypeNames(), 1, 32);
+                    p.modulatable = true; p.track = t;
+                    continue;
+                }
+                auto& p = F (P::sound (t, s), pre + soundId (t, s), tn + " " + capitalise (info.name), 0.0f, 1.0f, info.def, false,
+                             [t, s] (float x) { return describeSound (t, s, x); }, true);
+                p.track = t;
             }
-            F (P::track (t, P::Level), pre + "lvl", tn + " Nivel", 0.0f, 1.0f, 0.889f, false,
-               [] (float x) { return x <= 0.001f ? std::string ("-inf") : fmt ("%+.1f dB", levelDb (x)); });
-            F (P::track (t, P::Pan), pre + "pan", tn + " Paneo", 0.0f, 1.0f, 0.5f, false,
-               [] (float x) { const int p = (int) std::lround ((x - 0.5f) * 200.0f); return p == 0 ? std::string ("C") : (p < 0 ? fmt ("%.0f L", -p) : fmt ("%.0f R", p)); });
-            F (P::track (t, P::Delay), pre + "dly", tn + " Delay", 0.0f, 1.0f, 0.0f, false, pct);
-            F (P::track (t, P::Reverb), pre + "rev", tn + " Reverb", 0.0f, 1.0f, 0.0f, false, pct);
-            F (P::track (t, P::Pump), pre + "pump", tn + " Pump", 0.0f, 1.0f, t >= Bass ? 0.35f : 0.0f, false, pct);
-            B (P::track (t, P::Ring), pre + "ring", tn + " Ring mod", false);
-            B (P::track (t, P::Mute), pre + "mute", tn + " Mute", false);
-            B (P::track (t, P::Solo), pre + "solo", tn + " Solo", false);
+            auto& lvl = F (P::track (t, P::Level), pre + "level", tn + " Nivel", 0.0f, 1.0f, 0.889f, false,
+                           [] (float x) { return x <= 0.001f ? std::string ("-inf") : fmt ("%+.1f dB", levelDb (x)); }, true);
+            auto& pan = F (P::track (t, P::Pan), pre + "pan", tn + " Paneo", 0.0f, 1.0f, 0.5f, false,
+                           [] (float x) { const int p = (int) std::lround ((x - 0.5f) * 200.0f); return p == 0 ? std::string ("C") : (p < 0 ? fmt ("%.0f L", -p) : fmt ("%.0f R", p)); }, true);
+            auto& dly = F (P::track (t, P::Delay), pre + "dly", tn + " Delay", 0.0f, 1.0f, 0.0f, false, pct, true);
+            auto& rev = F (P::track (t, P::Reverb), pre + "rev", tn + " Reverb", 0.0f, 1.0f, 0.0f, false, pct, true);
+            auto& pmp = F (P::track (t, P::Pump), pre + "pump", tn + " Pump", 0.0f, 1.0f, t >= Bass ? 0.35f : 0.0f, false, pct, true);
+            auto& rng = F (P::track (t, P::Ring), pre + "ring", tn + " Ring mod", 0.0f, 1.0f, 0.0f, false, pct, true);
+            auto& mut = B (P::track (t, P::Mute), pre + "mute", tn + " Mute", false);
+            auto& sol = B (P::track (t, P::Solo), pre + "solo", tn + " Solo", false);
+            for (auto* p : { &lvl, &pan, &dly, &rev, &pmp, &rng, &mut, &sol }) p->track = t;
+            // Envolvente con sustain (bajo y acordes). Con SUSTAIN en 0 suena como en la 1.0.
+            if (t == Bass || t == Chord)
+            {
+                if (t == Bass)
+                {
+                    auto& a = F (P::track (t, P::EnvA), pre + "attack", tn + " Ataque", 0.5f, 2000.0f, 2.0f, true, [] (float x) { return fmtMs (x); }, true);
+                    a.track = t;
+                }
+                auto& s = F (P::track (t, P::EnvS), pre + "sustain", tn + " Sustain", 0.0f, 1.0f, 0.0f, false, pct, true);
+                auto& r = F (P::track (t, P::EnvR), pre + "release", tn + " Release", 5.0f, 4000.0f, t == Bass ? 120.0f : 300.0f, true,
+                             [] (float x) { return fmtMs (x); }, true);
+                s.track = r.track = t;
+            }
         }
 
         // LFOs
         for (int l = 0; l < P::kLfos; ++l)
         {
-            const std::string pre = "lfo" + std::to_string (l + 1) + "_";
-            C (P::lfo (l, P::LfoShape), pre + "shape", "LFO " + std::to_string (l + 1) + " Forma", lfoShapeNames(), l % 3);
-            C (P::lfo (l, P::LfoRate), pre + "rate", "LFO " + std::to_string (l + 1) + " Velocidad", lfoRateNames(), 3 + l);
+            const std::string pre = "lfo" + std::to_string (l + 1) + ".";
+            C (P::lfo (l, P::LfoShape), pre + "shape", "LFO " + std::to_string (l + 1) + " Forma", lfoShapeNames(), l % 3, 16);
+            C (P::lfo (l, P::LfoRate), pre + "rate", "LFO " + std::to_string (l + 1) + " Velocidad", lfoRateNames(), 3 + l, 24);
         }
 
-        // Matriz
-        std::vector<std::string> destNames;
-        for (const auto& d : modDests()) destNames.push_back (d.name);
+        // Matriz: la fuente y el destino se guardan por ID en el estado; la cantidad es automatizable
         for (int s = 0; s < P::kSlots; ++s)
-        {
-            const std::string pre = "mod" + std::to_string (s + 1) + "_";
-            const std::string nm = "Mod " + std::to_string (s + 1);
-            C (P::mod (s, P::ModSrc), pre + "src", nm + " Fuente", modSourceNames(), 0);
-            C (P::mod (s, P::ModDst), pre + "dst", nm + " Destino", destNames, 0);
-            F (P::mod (s, P::ModAmt), pre + "amt", nm + " Cantidad", -1.0f, 1.0f, 0.0f, false,
-               [] (float x) { return fmt ("%+.0f %%", x * 100.0); });
-        }
+            F (P::mod (s, P::ModAmt), "mod" + std::to_string (s + 1) + ".amt", "Mod " + std::to_string (s + 1) + " Cantidad",
+               -1.0f, 1.0f, 0.0f, false, [] (float x) { return fmt ("%+.0f %%", x * 100.0); });
 
-        // Carriles dibujables
-        for (int l = 0; l < 4; ++l)
+        // Carriles MOTION: el destino y la curva se guardan en el estado
+        for (int l = 0; l < P::kMotion; ++l)
         {
-            const std::string pre = "lane" + std::to_string (l + 1) + "_";
+            const std::string pre = "motion" + std::to_string (l + 1) + ".";
             const std::string nm = "Motion " + std::to_string (l + 1);
-            C (P::lane (l, P::LaneDst), pre + "dst", nm + " Destino", destNames, 0);
-            C (P::lane (l, P::LaneBars), pre + "bars", nm + " Largo", laneBarNames(), 1);
+            I (P::lane (l, P::LaneBars), pre + "bars", nm + " Largo", 1, 8, 2, [] (float x) { return fmt (x < 1.5f ? "%.0f compas" : "%.0f compases", x); });
             F (P::lane (l, P::LaneDepth), pre + "depth", nm + " Profundidad", 0.0f, 1.0f, 0.5f, false, pct);
         }
 
         // Ring mod
-        B (P::RingOn, "ring_on", "Ring mod", true);
-        F (P::RingFreq, "ring_freq", "Ring frecuencia", 20.0f, 5000.0f, 440.0f, true, [] (float x) { return fmtHz (x); });
-        C (P::RingWave, "ring_wave", "Ring forma", { "Seno", "Triangulo", "Cuadrada" }, 0);
-        F (P::RingMix, "ring_mix", "Ring mezcla", 0.0f, 1.0f, 0.5f, false, pct);
-        F (P::RingSpread, "ring_spread", "Ring estereo", 0.0f, 1.0f, 0.2f, false, pct);
+        B (P::RingOn, "ring.on", "Ring mod", true);
+        F (P::RingFreq, "ring.freq", "Ring frecuencia", 20.0f, 5000.0f, 440.0f, true, [] (float x) { return fmtHz (x); }, true);
+        C (P::RingWave, "ring.wave", "Ring forma", { "Seno", "Triangulo", "Cuadrada" }, 0, 8);
+        F (P::RingMix, "ring.mix", "Ring mezcla", 0.0f, 1.0f, 0.5f, false, pct, true);
+        F (P::RingSpread, "ring.spread", "Ring estereo", 0.0f, 1.0f, 0.2f, false, pct, true);
 
         // FX
-        C (P::DlyDiv, "dly_div", "Delay tiempo", delayDivNames(), 3);
-        F (P::DlyFb, "dly_fb", "Delay feedback", 0.0f, 0.9f, 0.4f, false, pct);
-        F (P::DlyTone, "dly_tone", "Delay tono", 0.0f, 1.0f, 0.45f, false, pct);
-        F (P::DlyRet, "dly_ret", "Delay retorno", 0.0f, 1.0f, 0.6f, false, pct);
-        F (P::RevSize, "rev_size", "Reverb tamano", 0.0f, 1.0f, 0.55f, false, pct);
-        F (P::RevDecay, "rev_decay", "Reverb decay", 0.3f, 8.0f, 2.2f, true, [] (float x) { return fmt ("%.1f s", x); });
-        F (P::RevRet, "rev_ret", "Reverb retorno", 0.0f, 1.0f, 0.6f, false, pct);
-        F (P::PumpRel, "pump_rel", "Pump tiempo", 40.0f, 600.0f, 180.0f, true, [] (float x) { return fmtMs (x); });
+        C (P::DlyDiv, "dly.div", "Delay tiempo", delayDivNames(), 3, 16);
+        F (P::DlyFb, "dly.fb", "Delay feedback", 0.0f, 0.9f, 0.4f, false, pct, true);
+        F (P::DlyTone, "dly.tone", "Delay tono", 0.0f, 1.0f, 0.45f, false, pct, true);
+        F (P::DlyRet, "dly.ret", "Delay retorno", 0.0f, 1.0f, 0.6f, false, pct, true);
+        F (P::RevSize, "rev.size", "Reverb tamano", 0.0f, 1.0f, 0.55f, false, pct, true);
+        F (P::RevDecay, "rev.decay", "Reverb decay", 0.3f, 8.0f, 2.2f, true, [] (float x) { return fmt ("%.1f s", x); }, true);
+        F (P::RevRet, "rev.ret", "Reverb retorno", 0.0f, 1.0f, 0.6f, false, pct, true);
+        F (P::PumpRel, "pump.rel", "Pump tiempo", 40.0f, 600.0f, 180.0f, true, [] (float x) { return fmtMs (x); }, true);
 
         // Drum bus
-        F (P::BusComp, "bus_comp", "Drum bus compresion", 0.0f, 1.0f, 0.6f, false, pct);
-        F (P::BusCrudo, "bus_crudo", "Drum bus crudo", 0.0f, 1.0f, 0.35f, false, pct);
+        F (P::BusComp, "bus.comp", "Drum bus compresion", 0.0f, 1.0f, 0.6f, false, pct, true);
+        F (P::BusCrudo, "bus.crudo", "Drum bus crudo", 0.0f, 1.0f, 0.35f, false, pct, true);
 
         // Master
-        F (P::MFilter, "m_filter", "Filtro DJ", -1.0f, 1.0f, 0.0f, false,
-           [] (float x) { return std::fabs (x) < 0.02f ? std::string ("Abierto") : (x < 0 ? fmt ("LP %.0f %%", -x * 100.0) : fmt ("HP %.0f %%", x * 100.0)); });
-        F (P::MReso, "m_reso", "Filtro resonancia", 0.0f, 1.0f, 0.25f, false, pct);
-        F (P::MLowCut, "m_lowcut", "Low-cut", 20.0f, 200.0f, 25.0f, true, [] (float x) { return fmtHz (x); });
-        F (P::MBody, "m_body", "Cuerpo", -6.0f, 6.0f, 0.0f, false, db);
-        F (P::MPres, "m_pres", "Presencia", -6.0f, 6.0f, 0.5f, false, db);
-        F (P::MAir, "m_air", "Aire", 0.0f, 10.0f, 1.5f, false, db);
-        F (P::MComp, "m_comp", "Compresion", 0.0f, 1.0f, 0.4f, false, pct);
-        F (P::MColor, "m_color", "Color", 0.0f, 1.0f, 0.5f, false, pct);
-        F (P::MWarmth, "m_warmth", "Calor", 0.0f, 1.0f, 0.3f, false, pct);
-        F (P::MParallel, "m_parallel", "Mezcla", 0.0f, 1.0f, 1.0f, false, pct);
-        F (P::MTexture, "m_texture", "Textura", 0.0f, 1.0f, 0.0f, false, pct);
-        F (P::MCeiling, "m_ceiling", "Techo", -6.0f, 0.0f, -0.3f, false, db);
-        F (P::MVol, "m_vol", "Volumen", -24.0f, 6.0f, 0.0f, false, db);
+        F (P::MFilter, "master.filter", "Filtro DJ", -1.0f, 1.0f, 0.0f, false,
+           [] (float x) { return std::fabs (x) < 0.02f ? std::string ("Abierto") : (x < 0 ? fmt ("LP %.0f %%", -x * 100.0) : fmt ("HP %.0f %%", x * 100.0)); }, true);
+        F (P::MReso, "master.reso", "Filtro resonancia", 0.0f, 1.0f, 0.25f, false, pct, true);
+        F (P::MLowCut, "master.lowcut", "Low-cut", 20.0f, 200.0f, 25.0f, true, [] (float x) { return fmtHz (x); });
+        F (P::MBody, "master.body", "Cuerpo", -6.0f, 6.0f, 0.0f, false, db);
+        F (P::MPres, "master.pres", "Presencia", -6.0f, 6.0f, 0.5f, false, db);
+        F (P::MAir, "master.air", "Aire", 0.0f, 10.0f, 1.5f, false, db);
+        F (P::MComp, "master.comp", "Compresion", 0.0f, 1.0f, 0.4f, false, pct);
+        F (P::MColor, "master.color", "Color", 0.0f, 1.0f, 0.5f, false, pct);
+        F (P::MWarmth, "master.warmth", "Calor", 0.0f, 1.0f, 0.3f, false, pct, true);
+        F (P::MParallel, "master.parallel", "Mezcla", 0.0f, 1.0f, 1.0f, false, pct);
+        F (P::MTexture, "master.texture", "Textura", 0.0f, 1.0f, 0.0f, false, pct, true);
+        F (P::MCeiling, "master.ceiling", "Techo", -6.0f, 0.0f, -0.3f, false, db);
+        F (P::MVol, "master.vol", "Volumen", -24.0f, 6.0f, 0.0f, false, db);
 
         for (auto& p : v)
-            if (! p.text)
+            if (p.exists && ! p.text)
                 p.text = [kind = p.kind, choices = p.choices] (float x) {
                     if (kind == Kind::Choice) return choices[(size_t) clampv ((int) std::lround (x), 0, (int) choices.size() - 1)];
                     if (kind == Kind::Bool) return std::string (x > 0.5f ? "ON" : "OFF");
+                    if (kind == Kind::Int) return fmt ("%.0f", x);
                     return fmt ("%.2f", x);
                 };
         return v;
@@ -307,9 +360,50 @@ inline const std::vector<ParamDef>& paramDefs()
 
 inline int paramIndex (const std::string& id)
 {
-    const auto& d = paramDefs();
-    for (int i = 0; i < (int) d.size(); ++i) if (d[(size_t) i].id == id) return i;
-    return -1;
+    static const std::vector<std::pair<std::string, int>> sorted = [] {
+        std::vector<std::pair<std::string, int>> s;
+        const auto& d = paramDefs();
+        for (int i = 0; i < (int) d.size(); ++i) if (d[(size_t) i].exists) s.push_back ({ d[(size_t) i].id, i });
+        std::sort (s.begin(), s.end());
+        return s;
+    }();
+    auto it = std::lower_bound (sorted.begin(), sorted.end(), std::make_pair (id, -1));
+    return (it != sorted.end() && it->first == id) ? it->second : -1;
+}
+
+// Ruteo de la matriz MOD y de los carriles MOTION. Se guarda por ID en el estado (no son
+// parámetros del host), así agregar destinos en una 2.x no corre nada.
+struct ModRouting
+{
+    std::atomic<int> src[P::kSlots];   // índice de modSource()
+    std::atomic<int> dst[P::kSlots];   // índice interno de parámetro (-1 = nada)
+    std::atomic<int> laneDst[P::kMotion];
+    ModRouting() { clear(); }
+    void clear()
+    {
+        for (auto& v : src) v.store (SrcNone);
+        for (auto& v : dst) v.store (-1);
+        for (auto& v : laneDst) v.store (-1);
+    }
+};
+
+// Destinos de modulación (MOD y MOTION) en el orden de los menús: por pista y global
+struct ModDest { int param; std::string name; };
+inline const std::vector<ModDest>& modDests()
+{
+    static const std::vector<ModDest> v = [] {
+        std::vector<ModDest> d;
+        const auto& defs = paramDefs();
+        for (int t = 0; t < kTracks; ++t)
+            for (int i = 0; i < (int) defs.size(); ++i)
+                if (defs[(size_t) i].exists && defs[(size_t) i].modulatable && defs[(size_t) i].track == t)
+                    d.push_back ({ i, defs[(size_t) i].name });
+        for (int i = 0; i < (int) defs.size(); ++i)
+            if (defs[(size_t) i].exists && defs[(size_t) i].modulatable && defs[(size_t) i].track < 0)
+                d.push_back ({ i, defs[(size_t) i].name });
+        return d;
+    }();
+    return v;
 }
 
 } // namespace ogro2

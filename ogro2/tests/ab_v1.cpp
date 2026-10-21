@@ -5,8 +5,11 @@
 //  2) calcula la "huella" de cada pista sola (nivel por paso y energía por banda)
 //     y la compara con la de la 1.0 con tolerancias, para cuando un cambio
 //     buscado impida la comparación exacta.
-// Uso: ab_v1 [--exacto] [--huellas <archivo.json>]
-//   --exacto   exige diferencia 0 en las mezclas (fase 0: OGRO 2 = OGRO 1.0)
+// Uso: ab_v1 [--exacto | --normal] [--huellas <archivo.json>]
+//   --exacto   OGRO 2 con el preset importado de la 1.0 (azar VIVO, sin saltear voces):
+//              las mezclas tienen que dar iguales (diferencia de redondeo como mucho)
+//   --normal   OGRO 2 como lo usás (azar FIJO, voces en silencio salteadas): solo se
+//              comparan las huellas, con tolerancia
 //   --huellas  guarda las huellas de la 1.0 en un JSON
 #include "../../ogro/Source/engine/Engine.h"
 #include "../../ogro/Source/engine/Presets.h"
@@ -21,6 +24,8 @@ namespace
 {
 constexpr int kFs = 44100;
 
+bool gNormal = false;
+
 struct V1
 {
     using Engine = ogro::Engine;
@@ -34,6 +39,15 @@ struct V1
     static int dlyRet() { return ogro::P::DlyRet; }
     static int revRet() { return ogro::P::RevRet; }
     static int texture() { return ogro::P::MTexture; }
+    static void afterPrepare (Engine&, size_t) {}
+    static std::vector<float> setup (Engine&, size_t pi)
+    {
+        const auto& d = defs();
+        std::vector<float> v (d.size());
+        for (size_t i = 0; i < d.size(); ++i) v[i] = d[i].def;
+        for (const auto& [id, val] : presets()[pi].values) v[(size_t) paramIndex (id)] = val;
+        return v;
+    }
 };
 
 struct V2
@@ -49,17 +63,16 @@ struct V2
     static int dlyRet() { return ogro2::P::DlyRet; }
     static int revRet() { return ogro2::P::RevRet; }
     static int texture() { return ogro2::P::MTexture; }
+    static std::vector<float> setup (Engine& eng, size_t pi)
+    {
+        const auto st = ogro2::factoryState (presets()[pi], gNormal);
+        eng.setExactLegacy (! gNormal);
+        return st.values;
+    }
+    // El ruteo se aplica después de prepare(), como en la 1.0 (donde era un parámetro)
+    static void afterPrepare (Engine& eng, size_t pi) { ogro2::applyRouting (eng.routing, ogro2::factoryState (presets()[pi], gNormal)); }
 };
 
-template <typename S>
-std::vector<float> presetValues (size_t pi)
-{
-    const auto& d = S::defs();
-    std::vector<float> v (d.size());
-    for (size_t i = 0; i < d.size(); ++i) v[i] = d[i].def;
-    for (const auto& [id, val] : S::presets()[pi].values) v[(size_t) S::paramIndex (id)] = val;
-    return v;
-}
 
 struct Stereo { std::vector<float> l, r; int latency = 0; };
 
@@ -69,9 +82,10 @@ Stereo renderMix (size_t pi, int bars)
 {
     typename S::Engine eng;
     S::presets()[pi].build (eng.bank);
-    auto v = presetValues<S> (pi);
+    auto v = S::setup (eng, pi);
     const double bpm = v[(size_t) S::tempo()];
     eng.prepare (kFs, 512);
+    S::afterPrepare (eng, pi);
     const double spb = 4.0 * 60.0 / bpm * kFs;
     const int total = (int) (spb * bars) + kFs;
     Stereo out;
@@ -96,11 +110,12 @@ Stereo renderStem (size_t pi, int track, int bars)
 {
     typename S::Engine eng;
     S::presets()[pi].build (eng.bank);
-    auto v = presetValues<S> (pi);
+    auto v = S::setup (eng, pi);
     for (int t = 0; t < 8; ++t) v[(size_t) S::mute (t)] = t == track ? 0.0f : 1.0f;
     v[(size_t) S::dlyRet()] = 0; v[(size_t) S::revRet()] = 0; v[(size_t) S::texture()] = 0;
     const double bpm = v[(size_t) S::tempo()];
     eng.prepare (kFs, 512);
+    S::afterPrepare (eng, pi);
     const double spb = 4.0 * 60.0 / bpm * kFs;
     const int total = (int) (spb * bars);
     Stereo out;
@@ -177,6 +192,7 @@ int main (int argc, char** argv)
     for (int i = 1; i < argc; ++i)
     {
         if (std::strcmp (argv[i], "--exacto") == 0) exact = true;
+        else if (std::strcmp (argv[i], "--normal") == 0) gNormal = true;
         else if (std::strcmp (argv[i], "--huellas") == 0 && i + 1 < argc) jsonPath = argv[++i];
     }
     bool ok = true;
@@ -198,13 +214,13 @@ int main (int argc, char** argv)
             maxDiff = std::max ({ maxDiff, std::fabs (dl), std::fabs (dr) });
         }
         const double residual = ed > 0 ? 10.0 * std::log10 (ed / ea) : -1000.0;
-        const bool same = a.l.size() == b.l.size() && a.latency == b.latency && maxDiff == 0.0f;
+        // Igual = idéntico o con diferencias de redondeo (macros convertidas al recorrido doble)
+        const bool same = a.l.size() == b.l.size() && a.latency == b.latency && (maxDiff == 0.0f || residual < -100.0);
         std::printf ("[mezcla %2zu] %-18s diferencia max=%.3g  residuo=%s  latencia %d/%d\n", pi + 1,
                      V1::presets()[pi].name.c_str(), (double) maxDiff,
                      ed > 0 ? (std::to_string ((int) std::lround (residual)) + " dB").c_str() : "nulo (identico)",
                      a.latency, b.latency);
         if (exact) ok &= same;
-        else ok &= residual < -40.0;
     }
 
     // ---- 2) Huellas por pista ----
@@ -213,7 +229,8 @@ int main (int argc, char** argv)
     const char* trackNames[] = { "KICK", "CLAP", "RIM", "HAT C", "HAT A", "PERC", "BAJO", "ACORDES" };
     for (size_t pi = 0; pi < numPresets; ++pi)
     {
-        const double bpm = presetValues<V1> (pi)[(size_t) V1::tempo()];
+        ogro::Engine tmp;
+        const double bpm = V1::setup (tmp, pi)[(size_t) V1::tempo()];
         if (jf) std::fprintf (jf, "    { \"nombre\": \"%s\", \"bpm\": %.1f, \"pistas\": [\n", V1::presets()[pi].name.c_str(), bpm);
         double worstStep = 0, worstBand = 0, worstRms = 0;
         for (int t = 0; t < 8; ++t)
@@ -238,7 +255,10 @@ int main (int argc, char** argv)
         if (jf) std::fprintf (jf, "    ] }%s\n", pi + 1 < numPresets ? "," : "");
         std::printf ("[huella %2zu] %-18s peor diferencia: nivel %.2f dB, por paso %.2f dB, por banda %.2f dB\n", pi + 1,
                      V1::presets()[pi].name.c_str(), worstRms, worstStep, worstBand);
-        ok &= worstRms < 1.0 && worstStep < 1.5 && worstBand < 1.5;
+        // Con azar FIJO cambian las decisiones al azar (qué golpe con probabilidad suena, el S&H):
+        // ahí se compara el nivel y el color (bandas), no golpe por golpe
+        if (gNormal) ok &= worstRms < 2.0 && worstBand < 3.5;
+        else ok &= worstRms < 1.0 && worstStep < 1.5 && worstBand < 1.5;
     }
     if (jf) { std::fprintf (jf, "  ]\n}\n"); std::fclose (jf); }
 

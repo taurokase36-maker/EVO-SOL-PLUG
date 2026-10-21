@@ -238,6 +238,17 @@ public:
         gOut = 1.0f;
     }
     int getLatencySamples() const noexcept { return look; }
+    void reset() noexcept
+    {
+        dl[0].clear(); dl[1].clear();
+        std::fill (gHist.begin(), gHist.end(), 1.0f);
+        std::fill (maBuf.begin(), maBuf.end(), 1.0);
+        maSum = (double) look;
+        maPos = histPos = 0;
+        dqHead = dqTail = 0;
+        counter = 0;
+        gOut = 1.0f;
+    }
     void setCeilingDb (float db) { ceiling = dbToGain (db); }
     void setReleaseMs (float ms) { rel = onePoleCoef (ms, fs); }
     float getReductionDb() const noexcept { return -gainToDb (gOut, -40.0f); }

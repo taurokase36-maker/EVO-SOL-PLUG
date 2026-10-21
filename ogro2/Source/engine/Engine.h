@@ -1,4 +1,4 @@
-// OGRO 2 — motor completo: secuenciador + 8 voces + modulaciones + ring mod +
+// OGRO 2 — motor completo: secuenciador + voces + modulaciones + ring mod +
 // drum bus + FX + master (EQ y compresión estilo EVO SOL).
 #pragma once
 
@@ -44,6 +44,7 @@ public:
         enabled = a > 0.001f;
     }
     float reductionDb() const { return fet + opto; }
+    void resetState() noexcept { fet = opto = sq = 0.0f; makeup = makeupTarget; dcL.reset(); dcR.reset(); }
 
     inline void process (float& l, float& r) noexcept
     {
@@ -95,6 +96,8 @@ public:
         crackBp.set (Biquad::Type::BandPass, fs, 3200.0, 0.9);
         rumble.set (Biquad::Type::LowPass, fs, 90.0, 0.7);
     }
+    void reseed (uint32_t s) { rng.seed (s); }
+    void resetState() noexcept { crackAmp = 0.0f; hissL.reset(); hissR.reset(); crackBp.reset(); rumble.reset(); }
     inline void process (float amount, float& l, float& r) noexcept
     {
         if (amount <= 0.001f) return;
@@ -146,9 +149,20 @@ struct HostInfo
 {
     bool valid = false, playing = false;
     double ppq = 0.0, bpm = 120.0;
+    bool looping = false;               // loop de Ableton activo
+    double loopStart = 0.0, loopEnd = 0.0;
 };
 
-struct MidiTrigger { int sample; int track; float vel; };
+struct MidiTrigger { int sample; int track; float vel; bool off = false; };
+
+// Macros: -1..+1 desde el centro (al medio no cambian nada)
+inline float macroAmount (float v) { return (v - 0.5f) * 2.0f; }
+// MOVIMIENTO: con recorrido x2 va de 0 (quieto) a 3 veces la modulación; con x1, de 0 a 2 (como la 1.0)
+inline float movementScale (float v, bool doubleDepth)
+{
+    if (! doubleDepth) return v * 2.0f;
+    return v <= 0.5f ? v * 2.0f : 1.0f + (v - 0.5f) * 4.0f;
+}
 
 class Engine
 {
@@ -209,12 +223,16 @@ public:
         for (int i = 0; i < count && i < (int) base.size(); ++i) base[(size_t) i] = values[i];
     }
 
+    // Tests: sin saltear voces en silencio (comparación muestra a muestra con la 1.0)
+    void setExactLegacy (bool e) { exactLegacy = e; }
+
     // Llamadas seguras desde la interfaz
     void setInternalPlay (bool p) { internalPlayReq.store (p); }
     bool isInternalPlaying() const { return internalPlayReq.load(); }
     void audition (int track) { if (track >= 0 && track < kTracks) auditionMask.fetch_or (1u << track); }
 
     PatternBank bank;
+    ModRouting routing;
     EngineMeters meters;
     TriggerLog triggerLog;
 
@@ -224,7 +242,11 @@ public:
         {
             const int n = std::min (maxBlockSize, numSamples - start);
             HostInfo h = host;
-            if (h.valid && h.playing) h.ppq += (double) start * h.bpm / 60.0 / fs;
+            if (h.valid && h.playing)
+            {
+                h.ppq += (double) start * h.bpm / 60.0 / fs;
+                if (h.looping && h.loopEnd > h.loopStart && h.ppq >= h.loopEnd) h.ppq -= h.loopEnd - h.loopStart;
+            }
             processChunk (h, midi, numMidi, start, outL + start, outR + start, n);
         }
     }
@@ -240,7 +262,11 @@ private:
         Transport tr;
         const double bpm = host.valid && host.bpm > 0.0 ? host.bpm : (double) base[P::Tempo];
         tr.bpm = bpm;
-        if (host.valid && host.playing) { tr.playing = true; tr.ppq = host.ppq; internalPpq = host.ppq; }
+        if (host.valid && host.playing)
+        {
+            tr.playing = true; tr.ppq = host.ppq; internalPpq = host.ppq;
+            tr.looping = host.looping; tr.loopStart = host.loopStart; tr.loopEnd = host.loopEnd;
+        }
         else if (internalPlay) { tr.playing = true; tr.ppq = internalPpq; internalPpq += (double) n * bpm / 60.0 / fs; }
         if (internalPlayReq.load (std::memory_order_relaxed) != internalPlay)
         {
@@ -251,18 +277,31 @@ private:
         curPpq = tr.ppq;
         curBpm = bpm;
 
+        fixedRandom = ! exactLegacy && base[P::RandomMode] < 0.5f;
+        randomSeed = (uint32_t) std::lround (base[P::Seed]);
+        clock.setRandom (fixedRandom, randomSeed);
         clock.setSwing (base[P::Swing]);
         clock.requestPattern ((int) base[P::Pattern]);
         int numEvents = clock.process (tr, n, bank, rngState, events, kMaxEvents);
+        // Azar FIJO: al arrancar el transporte o al saltar a otro lugar, todo vuelve al mismo estado
+        // inicial (voces, efectos, compresores, ring): dos renders desde el mismo lugar salen iguales
+        if (clock.relocated() && fixedRandom) resetForRender (tr.ppq);
 
-        // Disparos MIDI (C1..G1 = pistas 1..8)
+        // Disparos MIDI (C1..G1 = pistas 1..8). El note-off cierra el gate de bajo y acordes.
         for (int i = 0; i < numMidi && numEvents < kMaxEvents; ++i)
         {
             const int s = midi[i].sample - offset;
             if (s < 0 || s >= n) continue;
             TriggerEvent e;
             e.sample = s; e.track = midi[i].track;
+            e.release = midi[i].off;
             e.hit.vel = midi[i].vel; e.hit.accent = midi[i].vel > 0.93f;
+            if (fixedRandom)
+            {
+                const int64_t k = (int64_t) std::floor ((curPpq + (double) s * curBpm / 60.0 / fs) * 4.0);
+                e.hit.fixedSeed = true;
+                e.hit.seed = hash32 (randomSeed, (uint32_t) e.track, (uint32_t) k, 0x4D494449u);
+            }
             int j = numEvents++;
             while (j > 0 && events[j - 1].sample > s) { events[j] = events[j - 1]; --j; }
             events[j] = e;
@@ -315,10 +354,48 @@ private:
         sampleClock += n;
     }
 
-    void fire (const TriggerEvent& e) noexcept
+    void resetForRender (double ppq) noexcept
     {
-        const int t = e.track;
+        // Primero los valores de este lugar del tema (los suavizadores quedan fijos en ellos)
+        lastFilter = 99.0f; lastReso = -1.0f;
+        lastDlyTone = lastRevSize = lastRevDecay = -1.0f;
+        lastEq[0] = lastEq[1] = lastEq[2] = lastEq[3] = -999.0f;
+        updateControl (ppq, true);
+        controlCounter = kControl;
+        for (int t = 0; t < kTracks; ++t) { if (voices[t]) voices[t]->resetState(); quiet[t] = 0; mixState[t] = target[t]; }
+        chord.resetState();
+        delay.clear(); reverb.clear();
+        drumComp.resetState(); masterComp.resetState();
+        drumSatL.resetState(); drumSatR.resetState(); warmL.resetState(); warmR.resetState();
+        clipL.reset(); clipR.reset();
+        limiter.reset();
+        texture.resetState();
+        synthAlignL.clear(); synthAlignR.clear(); dryL.clear(); dryR.clear();
+        djL.reset(); djR.reset();
+        for (int c = 0; c < 2; ++c) { hp1[c].reset(); hp2[c].reset(); body[c].reset(); pres[c].reset(); air[c].reset(); }
+        pumpEnv = 0.0f; pumpRise = false;
+        // Portadora del ring: la fase sale de la posición del tema
+        const double secs = ppq * 60.0 / std::max (1.0, curBpm);
+        const double cyc = secs * (double) ringFreq;
+        ringPhL = ringPhR = (float) (cyc - std::floor (cyc));
+        ringMix = ringMixTarget;
+        vol = volTarget;
+        lastTextureBar = INT64_MIN;
+    }
+
+    void fire (const TriggerEvent& ev) noexcept
+    {
+        const int t = ev.track;
         if (t < 0 || t >= kTracks) return;
+        quiet[t] = 0;
+        if (ev.release)
+        {
+            if (t == Chord) chord.release();
+            else if (voices[t]) voices[t]->release();
+            return;
+        }
+        TriggerEvent e = ev;
+        if (e.gateBeats > 0.0) e.hit.gateSamples = e.gateBeats * 60.0 / curBpm * fs;
         if (t == Chord) chord.trigger (e.hit);
         else if (voices[t])
         {
@@ -346,7 +423,14 @@ private:
             case 5:
             case 6:
             {
-                if (cycle != lfoCycle[l]) { lfoPrev[l] = lfoHold[l]; lfoHold[l] = lfoRng.next(); lfoCycle[l] = cycle; }
+                if (fixedRandom)
+                {
+                    // Azar FIJO: el valor de cada ciclo sale de (semilla, LFO, ciclo)
+                    lfoHold[l] = hashBipolar (hash32 (randomSeed, 0x4C464Fu + (uint32_t) l, (uint32_t) cycle, (uint32_t) (cycle >> 32)));
+                    lfoPrev[l] = hashBipolar (hash32 (randomSeed, 0x4C464Fu + (uint32_t) l, (uint32_t) (cycle - 1), (uint32_t) ((cycle - 1) >> 32)));
+                    lfoCycle[l] = cycle;
+                }
+                else if (cycle != lfoCycle[l]) { lfoPrev[l] = lfoHold[l]; lfoHold[l] = lfoRng.next(); lfoCycle[l] = cycle; }
                 if (shape == 5) return lfoHold[l];
                 const float s = ph * ph * (3.0f - 2.0f * ph);
                 return lfoPrev[l] + (lfoHold[l] - lfoPrev[l]) * s;
@@ -358,6 +442,8 @@ private:
     void updateControl (double ppq, bool isPlaying) noexcept
     {
         const auto& defs = paramDefs();
+        fixedRandom = ! exactLegacy && base[P::RandomMode] < 0.5f;
+        randomSeed = (uint32_t) std::lround (base[P::Seed]);
         if (! isPlaying) ppq = stoppedPpq += (double) kControl * curBpm / 60.0 / fs; // los LFO siguen girando
         else stoppedPpq = ppq;
 
@@ -373,45 +459,58 @@ private:
             meters.lfo[l].store (v, std::memory_order_relaxed);
         }
         const int64_t stepIdx = (int64_t) std::floor (ppq * 4.0);
-        if (stepIdx != lastRandStep) { randPrev = randStep; randStep = lfoRng.next(); lastRandStep = stepIdx; }
+        if (fixedRandom)
+        {
+            randStep = hashBipolar (hash32 (randomSeed, 0x52535445u, (uint32_t) stepIdx, (uint32_t) (stepIdx >> 32)));
+            randPrev = hashBipolar (hash32 (randomSeed, 0x52535445u, (uint32_t) (stepIdx - 1), (uint32_t) ((stepIdx - 1) >> 32)));
+            lastRandStep = stepIdx;
+        }
+        else if (stepIdx != lastRandStep) { randPrev = randStep; randStep = lfoRng.next(); lastRandStep = stepIdx; }
         src[SrcRandStep] = randStep;
         const float stepFrac = (float) (ppq * 4.0 - std::floor (ppq * 4.0));
         src[SrcRandSmooth] = randPrev + (randStep - randPrev) * stepFrac;
         src[SrcKickEnv] = pumpEnv;
-        for (int m = 0; m < 4; ++m) src[SrcMacro1 + m] = base[(size_t) (P::Macro1 + m)];
+        // Macros como fuente (con recorrido x2, el doble alrededor del centro)
+        const bool doubleDepth = base[P::MacroDepth] > 0.5f;
+        const float depth = doubleDepth ? 2.0f : 1.0f;
+        for (int m = 0; m < 4; ++m)
+        {
+            const float v = base[(size_t) (P::Macro1 + m)];
+            src[SrcMacro1 + m] = doubleDepth ? 0.5f + macroAmount (v) : v;
+        }
 
         std::fill (modNorm.begin(), modNorm.end(), 0.0f);
-        const float movement = base[P::Macro2] * 2.0f; // MOVIMIENTO escala toda la modulación
-        const auto& dests = modDests();
+        const float movement = movementScale (base[P::Macro2], doubleDepth); // MOVIMIENTO escala toda la modulación
+        const int numParams = (int) base.size();
         for (int s = 0; s < P::kSlots; ++s)
         {
-            const int si = (int) base[(size_t) P::mod (s, P::ModSrc)];
-            const int di = (int) base[(size_t) P::mod (s, P::ModDst)];
+            const int si = routing.src[s].load (std::memory_order_relaxed);
+            const int di = routing.dst[s].load (std::memory_order_relaxed);
             const float amt = base[(size_t) P::mod (s, P::ModAmt)];
-            if (si <= SrcNone || si >= SrcCount || di <= 0 || di >= (int) dests.size() || amt == 0.0f) continue;
+            if (si <= SrcNone || si >= SrcCount || di < 0 || di >= numParams || amt == 0.0f) continue;
             const bool isMacro = si >= SrcMacro1;
-            modNorm[(size_t) dests[(size_t) di].param] += src[si] * amt * (isMacro ? 1.0f : movement);
+            modNorm[(size_t) di] += src[si] * amt * (isMacro ? 1.0f : movement);
         }
         // Carriles dibujados
         for (int l = 0; l < kLanes; ++l)
         {
-            const int bars = laneBars ((int) base[(size_t) P::lane (l, P::LaneBars)]);
+            const int bars = clampv ((int) base[(size_t) P::lane (l, P::LaneBars)], 1, 8);
             const double len = 4.0 * bars;
             double ph = std::fmod (ppq, len) / len;
             if (ph < 0) ph += 1.0;
             meters.lanePhase[l].store ((float) ph, std::memory_order_relaxed);
-            const int di = (int) base[(size_t) P::lane (l, P::LaneDst)];
-            if (di <= 0 || di >= (int) dests.size()) continue;
+            const int di = routing.laneDst[l].load (std::memory_order_relaxed);
+            if (di < 0 || di >= numParams) continue;
             const float fi = (float) ph * kLanePoints;
             const int i0 = (int) fi % kLanePoints, i1 = (i0 + 1) % kLanePoints;
             const float fr = fi - std::floor (fi);
             const float v = bank.lane (l, i0) + (bank.lane (l, i1) - bank.lane (l, i0)) * fr;
-            modNorm[(size_t) dests[(size_t) di].param] += (v - 0.5f) * 2.0f * base[(size_t) P::lane (l, P::LaneDepth)] * movement;
+            modNorm[(size_t) di] += (v - 0.5f) * 2.0f * base[(size_t) P::lane (l, P::LaneDepth)] * movement;
         }
-        // Macros fijas
-        const float calor = (base[P::Macro1] - 0.5f) * 2.0f;
-        const float espacio = (base[P::Macro3] - 0.5f) * 2.0f;
-        const float crudeza = (base[P::Macro4] - 0.5f) * 2.0f;
+        // Macros fijas (con recorrido x2, el doble que en la 1.0)
+        const float calor = macroAmount (base[P::Macro1]) * depth;
+        const float espacio = macroAmount (base[P::Macro3]) * depth;
+        const float crudeza = macroAmount (base[P::Macro4]) * depth;
         modNorm[(size_t) P::sound (Chord, 2)] += 0.22f * calor;
         modNorm[(size_t) P::sound (Bass, 2)] += 0.18f * calor;
         modNorm[(size_t) P::sound (Bass, 5)] += 0.15f * calor;
@@ -424,11 +523,27 @@ private:
         modNorm[(size_t) P::BusCrudo] += 0.4f * crudeza;
         modNorm[(size_t) P::BusComp] += 0.3f * crudeza;
         for (int t = 0; t <= Perc; ++t) modNorm[(size_t) P::sound (t, 5)] += 0.2f * crudeza;
+        // MOVIMIENTO por encima del medio también mueve cosas solo (aunque el preset no tenga LFOs)
+        const float extra = doubleDepth ? std::max (0.0f, base[P::Macro2] - 0.5f) * 2.0f : 0.0f;
+        if (extra > 0.0f)
+        {
+            const double bars2 = ppq / 8.0, bars4 = ppq / 16.0;
+            const float slow = (float) std::sin (kTwoPi * (bars2 - std::floor (bars2)));
+            const float tri = (float) (bars4 - std::floor (bars4));
+            const float tri4 = tri < 0.5f ? 4.0f * tri - 1.0f : 3.0f - 4.0f * tri;
+            const float stepRnd = fixedRandom ? hashBipolar (hash32 (randomSeed, 0x4D4F56u, (uint32_t) stepIdx, (uint32_t) (stepIdx >> 32)))
+                                              : randStep;
+            modNorm[(size_t) P::sound (Chord, 2)] += 0.12f * extra * slow;
+            modNorm[(size_t) P::sound (Bass, 4)] += 0.10f * extra * tri4;
+            modNorm[(size_t) P::sound (HatC, 1)] += 0.10f * extra * stepRnd;
+            modNorm[(size_t) P::sound (Perc, 0)] += 0.05f * extra * src[SrcRandSmooth];
+        }
 
-        // Valores efectivos
+        // Valores efectivos (los de elección modulables se cuantizan)
         for (size_t i = 0; i < base.size(); ++i)
         {
-            if (modNorm[i] == 0.0f || defs[i].kind != Kind::Float) { eff[i] = base[i]; continue; }
+            const bool canMod = defs[i].kind == Kind::Float || (defs[i].kind == Kind::Choice && defs[i].modulatable);
+            if (modNorm[i] == 0.0f || ! canMod) { eff[i] = base[i]; continue; }
             eff[i] = defs[i].fromNorm (defs[i].toNorm (base[i]) + modNorm[i]);
         }
 
@@ -436,11 +551,17 @@ private:
         const int root = (int) eff[P::Root];
         bass.setRoot (root);
         chord.setRoot (root);
+        bass.setEnv (eff[(size_t) P::track (Bass, P::EnvA)], eff[(size_t) P::track (Bass, P::EnvS)], eff[(size_t) P::track (Bass, P::EnvR)]);
+        chord.setEnv (eff[(size_t) P::track (Chord, P::EnvS)], eff[(size_t) P::track (Chord, P::EnvR)]);
+        const double songSeconds = ppq * 60.0 / std::max (1.0, curBpm);
         for (int t = 0; t < kTracks; ++t)
         {
-            if (t == Chord) chord.setParams (&eff[(size_t) P::sound (t, 0)]);
-            else voices[t]->setParams (&eff[(size_t) P::sound (t, 0)]);
+            if (t == Chord) { chord.setParams (&eff[(size_t) P::sound (t, 0)]); chord.setSongTime (songSeconds, fixedRandom, randomSeed); }
+            else { voices[t]->setParams (&eff[(size_t) P::sound (t, 0)]); voices[t]->setSongTime (songSeconds, fixedRandom, randomSeed); }
         }
+        // Azar FIJO: la textura de vinilo arranca cada compás desde su semilla
+        const int64_t bar = (int64_t) std::floor (ppq / 4.0);
+        if (fixedRandom && bar != lastTextureBar) { texture.reseed (hash32 (randomSeed, 0x54455854u, (uint32_t) bar, (uint32_t) (bar >> 32))); lastTextureBar = bar; }
 
         // Mezcla por pista
         bool anySolo = false;
@@ -456,7 +577,7 @@ private:
             target[t].dly = audible ? eff[(size_t) P::track (t, P::Delay)] : 0.0f;
             target[t].rev = audible ? eff[(size_t) P::track (t, P::Reverb)] : 0.0f;
             pumpAmt[t] = eff[(size_t) P::track (t, P::Pump)];
-            ringRoute[t] = eff[(size_t) P::track (t, P::Ring)] > 0.5f;
+            ringAmt[t] = eff[(size_t) P::track (t, P::Ring)];
         }
 
         // Ring mod
@@ -519,10 +640,31 @@ private:
     // ------------------------------------------------------------------
     void renderSegment (float* outL, float* outR, int len) noexcept
     {
+        // Pistas en silencio: cuando la voz terminó y su cola ya no suena, no se calcula
+        int activeList[kTracks];
+        int numActive = 0;
         for (int t = 0; t < kTracks; ++t)
         {
-            if (t == Chord) chord.render (chordL, chordR, len);
-            else voices[t]->render (trackBuf[t], len);
+            const bool sounding = t == Chord ? chord.isActive() : voices[t]->isActive();
+            if (! exactLegacy && ! sounding && quiet[t] > kQuietSkip)
+            {
+                mixState[t] = target[t];
+                continue;
+            }
+            activeList[numActive++] = t;
+            float peak = 0.0f;
+            if (t == Chord)
+            {
+                chord.render (chordL, chordR, len);
+                for (int i = 0; i < len; ++i) peak = std::max ({ peak, std::fabs (chordL[i]), std::fabs (chordR[i]) });
+            }
+            else
+            {
+                voices[t]->render (trackBuf[t], len);
+                for (int i = 0; i < len; ++i) peak = std::max (peak, std::fabs (trackBuf[t][i]));
+            }
+            if (sounding || peak > 1.0e-6f) quiet[t] = 0;
+            else quiet[t] += len;
         }
         const float inv = 1.0f / (float) len;
         MixState stepMix[kTracks];
@@ -557,8 +699,9 @@ private:
             }
 
             float dL = 0, dR = 0, sL = 0, sR = 0, sendD = 0, sendR = 0;
-            for (int t = 0; t < kTracks; ++t)
+            for (int a = 0; a < numActive; ++a)
             {
+                const int t = activeList[a];
                 auto& m = mixState[t];
                 m.gL += stepMix[t].gL; m.gR += stepMix[t].gR; m.dly += stepMix[t].dly; m.rev += stepMix[t].rev;
                 float xl, xr;
@@ -566,10 +709,11 @@ private:
                 else xl = xr = trackBuf[t][i];
                 const float pg = 1.0f - pumpAmt[t] * pumpEnv * 0.92f;
                 xl *= m.gL * pg; xr *= m.gR * pg;
-                if (ringActive && ringRoute[t])
+                if (ringActive && ringAmt[t] > 0.0f)
                 {
-                    xl += ringMix * (xl * cL - xl);
-                    xr += ringMix * (xr * cR - xr);
+                    const float rm = ringMix * ringAmt[t];
+                    xl += rm * (xl * cL - xl);
+                    xr += rm * (xr * cR - xr);
                 }
                 const float mono = 0.5f * (xl + xr);
                 sendD += mono * m.dly;
@@ -636,6 +780,7 @@ private:
 
     // ------------------------------------------------------------------
     static constexpr int kMaxEvents = 512;
+    static constexpr int kQuietSkip = 8192;
     double fs = 44100.0;
     int maxBlockSize = 512;
     std::vector<float> base, eff, modNorm;
@@ -658,7 +803,11 @@ private:
     float chordL[kControl] {}, chordR[kControl] {};
     MixState mixState[kTracks], target[kTracks];
     float pumpAmt[kTracks] {};
-    bool ringRoute[kTracks] {};
+    float ringAmt[kTracks] {};
+    int quiet[kTracks] {};          // muestras seguidas en silencio (para saltear la voz)
+    bool exactLegacy = false, fixedRandom = true;
+    uint32_t randomSeed = 1;
+    int64_t lastTextureBar = INT64_MIN;
 
     // Modulación
     Noise lfoRng { 0xABCDEFu };

@@ -126,6 +126,19 @@ private:
     float g = 0.1f, G = 0.09f, k = 0.0f, s[4] {};
 };
 
+// Deriva suave que depende solo del tiempo del tema (azar FIJO): mismo lugar = misma deriva
+inline float positionalDrift (uint32_t seed, uint32_t gen, double seconds, float rateHz)
+{
+    const double x = seconds * (double) rateHz;
+    const double fl = std::floor (x);
+    const int64_t seg = (int64_t) fl;
+    const float t = (float) (x - fl);
+    const float a = hashBipolar (hash32 (seed, gen, (uint32_t) seg, (uint32_t) (seg >> 32)));
+    const float b = hashBipolar (hash32 (seed, gen, (uint32_t) (seg + 1), (uint32_t) ((seg + 1) >> 32)));
+    const float sm = t * t * (3.0f - 2.0f * t);
+    return a + (b - a) * sm;
+}
+
 // Suaviza el reinicio de una voz que todavía sonaba (evita clicks)
 struct Declick
 {
@@ -147,6 +160,7 @@ public:
     virtual void prepare (double sampleRate, uint32_t seed)
     {
         fs = sampleRate;
+        initSeed = seed;
         rng.seed (seed);
         declick.prepare (fs);
     }
@@ -154,10 +168,21 @@ public:
     virtual void trigger (const Hit& h) = 0;
     virtual void render (float* out, int n) noexcept = 0;
     virtual void choke() {}
+    virtual void release() {}
+    // Estado inicial (render repetible con azar FIJO). No pide memoria.
+    virtual void resetState() noexcept { active = false; lastOut = 0.0f; declick.offset = 0.0f; rng.seed (initSeed); }
+    // Tiempo del tema en segundos (azar FIJO: deriva y LFOs internos dependen de la posición)
+    void setSongTime (double seconds, bool fixed, uint32_t s) { songSeconds = seconds; fixedRandom = fixed; randomSeed = s; }
     bool isActive() const { return active; }
     float lastOut = 0.0f;
 
 protected:
+    // Azar FIJO: el ruido y la VARIA de cada golpe salen de su semilla
+    void beginHit (const Hit& h) { if (h.fixedSeed) rng.seed (h.seed); }
+    double songSeconds = 0.0;
+    bool fixedRandom = false;
+    uint32_t randomSeed = 1, initSeed = 1;
+
     // VARIA: variación humana por golpe (afinación, decay y nivel)
     void humanize (float amount, float& pitchSemis, float& decayMul, float& gainMul)
     {
@@ -187,6 +212,7 @@ public:
     }
     void trigger (const Hit& h) override
     {
+        beginHit (h);
         declick.start (lastOut);
         float ps, dm, gm;
         humanize (prm[7], ps, dm, gm);
@@ -231,6 +257,15 @@ public:
         clickHp.flush();
     }
 
+public:
+    void resetState() noexcept override
+    {
+        MonoVoice::resetState();
+        phase = amp = pitchEnv = clickEnv = 0.0f;
+        gain = noteMul = decayMul = 1.0f; accentDrive = 0.0f;
+        clickHp.reset(); color.reset();
+    }
+
 private:
     float phase = 0, amp = 0, pitchEnv = 0, clickEnv = 0, gain = 1, noteMul = 1, decayMul = 1, accentDrive = 0;
     Biquad clickHp;
@@ -251,6 +286,7 @@ public:
     }
     void trigger (const Hit& h) override
     {
+        beginHit (h);
         float ps, dm, gm;
         humanize (prm[7], ps, dm, gm);
         t = 0;
@@ -307,6 +343,16 @@ public:
         bp.flush();
     }
 
+public:
+    void resetState() noexcept override
+    {
+        MonoVoice::resetState();
+        t = 0; tail = 0.0f;
+        gain = toneMul = decayMul = 1.0f;
+        bp.reset(); roomLp.reset();
+        for (auto& r : room) r.clear();
+    }
+
 private:
     int t = 0;
     float tail = 0, gain = 1, toneMul = 1, decayMul = 1;
@@ -323,6 +369,7 @@ class RimVoice : public MonoVoice
 public:
     void trigger (const Hit& h) override
     {
+        beginHit (h);
         declick.start (lastOut);
         float ps, dm, gm;
         humanize (prm[7], ps, dm, gm);
@@ -360,6 +407,15 @@ public:
         noiseHp.flush();
     }
 
+public:
+    void resetState() noexcept override
+    {
+        MonoVoice::resetState();
+        ph1 = ph2 = amp = noiseEnv = clickEnv = 0.0f;
+        gain = toneMul = decayMul = 1.0f;
+        noiseHp.reset();
+    }
+
 private:
     float ph1 = 0, ph2 = 0, amp = 0, noiseEnv = 0, clickEnv = 0, gain = 1, toneMul = 1, decayMul = 1;
     Svf noiseHp;
@@ -380,8 +436,11 @@ public:
     }
     void trigger (const Hit& h) override
     {
+        beginHit (h);
         float ps, dm, gm;
         humanize (prm[7], ps, dm, gm);
+        // Azar FIJO: la fase de los 6 osciladores también sale de la semilla del golpe
+        if (h.fixedSeed) for (int k = 0; k < 6; ++k) ph[k] = hashUnit (hash32 (h.seed, 0x484154u, (uint32_t) k));
         amp = 1.0f;
         att = 0.0f;
         chokeMul = 1.0f;
@@ -435,6 +494,17 @@ public:
         bpf.flush(); hpf.flush(); air.flush();
     }
 
+public:
+    void resetState() noexcept override
+    {
+        MonoVoice::resetState();
+        choking = false; amp = att = 0.0f; chokeMul = 1.0f;
+        gain = toneMul = decayMul = 1.0f;
+        for (auto& p : ph) p = 0.0f;
+        bpf.reset(); hpf.reset(); air.reset();
+        lastAir = -100.0f;
+    }
+
 private:
     bool open = false, choking = false;
     float ph[6] {}, amp = 0, att = 0, chokeMul = 1, gain = 1, toneMul = 1, decayMul = 1, lastAir = -100.0f;
@@ -450,6 +520,7 @@ class PercVoice : public MonoVoice
 public:
     void trigger (const Hit& h) override
     {
+        beginHit (h);
         declick.start (lastOut);
         float ps, dm, gm;
         humanize (prm[7], ps, dm, gm);
@@ -487,6 +558,14 @@ public:
         }
     }
 
+public:
+    void resetState() noexcept override
+    {
+        MonoVoice::resetState();
+        pc = pm = amp = pe = ie = ne = 0.0f;
+        gain = toneMul = decayMul = 1.0f;
+    }
+
 private:
     float pc = 0, pm = 0, amp = 0, pe = 0, ie = 0, ne = 0, gain = 1, toneMul = 1, decayMul = 1;
 };
@@ -503,10 +582,21 @@ public:
         ladder.reset();
         drift.prepare (fs, 0.3f, seed ^ 0xABCDu);
         curNote = targetNote = 36.0f;
+        envA = envR = -1.0f;
+        setEnv (2.0f, 0.0f, 120.0f);
     }
     void setRoot (int r) { root = r; }
+    // Envolvente: ataque (ms), sustain (0..1) y release (ms). Con sustain 0 suena como en la 1.0.
+    void setEnv (float attackMs, float sus, float releaseMs)
+    {
+        if (attackMs != envA) { envA = attackMs; atkC = 1.0f - (float) std::exp (-1.0 / ((double) attackMs * 0.001 * fs)); }
+        envS = clampv (sus, 0.0f, 1.0f);
+        if (releaseMs != envR) { envR = releaseMs; relC = decayCoef (releaseMs, fs); }
+    }
+    void release() override { if (envS > 0.0f) released = true; }
     void trigger (const Hit& h) override
     {
+        beginHit (h);
         const int oct = maps::bassOctave (prm[0]);
         const float note = 36.0f + (float) root + 12.0f * (float) oct + h.note;
         targetNote = note;
@@ -519,6 +609,8 @@ public:
             fenv = 1.0f;
             sustain = 1.0f;
         }
+        gateLeft = h.gateSamples > 0.0 ? h.gateSamples : 1.0e18;
+        released = false;
         gain = velGain (h.vel) * (h.accent ? 1.2f : 1.0f);
         accent = h.accent ? 1.0f : 0.0f;
         if (h.slide && active) fenv = std::max (fenv, 0.6f);
@@ -530,17 +622,19 @@ public:
         const float dec = synthDecay (prm[1]);
         const float aC = decayCoef (dec, fs), fC = decayCoef (dec * 0.55f, fs);
         const float glideC = 1.0f - (float) std::exp (-1.0 / (glideMs (prm[7]) * 0.001 * fs));
+        const float sus = envS;
+        const float driftFixed = fixedRandom ? positionalDrift (randomSeed, 0xBA55u, songSeconds, 0.3f) : 0.0f;
         const float cut = bassCut (prm[2]);
         const float reso = bassReso (prm[3]);
         const float envAmt = envOct (prm[4]) * (1.0f + 0.4f * accent);
         const float drive = 1.0f + prm[5] * prm[5] * 6.0f;
         const float wave = prm[6];
-        const float atkC = 1.0f - (float) std::exp (-1.0 / (0.002 * fs));
         for (int i = 0; i < n; ++i)
         {
             if (! active) { out[i] = declick.apply (0.0f); continue; }
             curNote += glideC * (targetNote - curNote);
-            const float hz = 440.0f * std::exp2 ((curNote - 69.0f + drift.next() * 0.06f) / 12.0f);
+            const float dr = fixedRandom ? driftFixed : drift.next();
+            const float hz = 440.0f * std::exp2 ((curNote - 69.0f + dr * 0.06f) / 12.0f);
             const float dt = hz / (float) fs;
             ph += dt; if (ph >= 1.0f) ph -= 1.0f;
             phSub += dt * 0.5f; if (phSub >= 1.0f) phSub -= 1.0f;
@@ -553,7 +647,12 @@ public:
                 ladder.set (fs, std::min (cut * std::exp2 (envAmt * fenv), 18000.0f), reso);
             float y = ladder.process (osc * 0.9f * drive) / std::sqrt (drive);
             amp += atkC * (ampTarget - amp);
-            ampTarget *= aC;
+            if (sus > 0.0f)
+            {
+                if (! released && (gateLeft -= 1.0) <= 0.0) released = true;
+                ampTarget = released ? ampTarget * relC : sus + (ampTarget - sus) * aC;
+            }
+            else ampTarget *= aC;
             fenv *= fC;
             y *= amp * gain;
             y = std::tanh (y * 1.6f) * 0.9f;
@@ -563,9 +662,22 @@ public:
         ladder.flush();
     }
 
+public:
+    void resetState() noexcept override
+    {
+        MonoVoice::resetState();
+        ph = phSub = amp = ampTarget = fenv = 0.0f;
+        curNote = targetNote = 36.0f;
+        gateLeft = 0.0; released = false;
+        ladder.reset();
+    }
+
 private:
     int root = 0;
     float ph = 0, phSub = 0, curNote = 36, targetNote = 36, amp = 0, ampTarget = 0, fenv = 0, sustain = 1, gain = 1, accent = 0;
+    float envA = -1.0f, envS = 0.0f, envR = -1.0f, atkC = 0.1f, relC = 0.999f;
+    double gateLeft = 0.0;
+    bool released = false;
     Ladder ladder;
     SmoothRandom drift;
 };
@@ -579,23 +691,58 @@ public:
     void prepare (double sampleRate, uint32_t seed)
     {
         fs = sampleRate;
+        initSeed = seed;
         rng.seed (seed);
         for (auto& s : slots) { s.active = false; s.fl.reset(); s.fr.reset(); }
         chorusL.prepare ((int) (0.03 * fs));
         chorusR.prepare ((int) (0.03 * fs));
         chorusLfo = 0.0f;
+        envR = -1.0f;
+        setEnv (0.0f, 300.0f);
         for (int i = 0; i < 10; ++i) drift[i].prepare (fs, 0.2f + 0.05f * (float) i, seed + 17u * (uint32_t) i);
     }
     void setParams (const float* p) { for (int i = 0; i < kSoundParams; ++i) prm[i] = p[i]; }
     void setRoot (int r) { root = r; }
+    void setEnv (float sus, float releaseMs)
+    {
+        envS = clampv (sus, 0.0f, 1.0f);
+        if (releaseMs != envR) { envR = releaseMs; userRelC = decayCoef (releaseMs, fs); }
+    }
+    void setSongTime (double seconds, bool fixed, uint32_t s) { songSeconds = seconds; fixedRandom = fixed; randomSeed = s; }
     bool isActive() const { return slots[0].active || slots[1].active; }
+    void release() { if (envS > 0.0f) for (auto& s : slots) s.gateLeft = 0.0; }
+    void resetState() noexcept
+    {
+        for (auto& s : slots) { s.active = s.attackDone = s.release = false; s.amp = s.fenv = 0.0f; s.gateLeft = 0.0; s.fl.reset(); s.fr.reset(); }
+        chorusL.clear(); chorusR.clear();
+        cur = 0;
+        rng.seed (initSeed);
+    }
 
     void trigger (const Hit& h)
     {
+        if (h.fixedSeed) rng.seed (h.seed);
+        const int type = (int) std::lround (prm[0]);
+        // LIGADO: si el acorde sigue sonando, cambian las notas sin volver a disparar la envolvente
+        Slot& prev = slots[(size_t) cur];
+        if (h.slide && prev.active && ! prev.release)
+        {
+            int count = 0;
+            const float* iv = chordIntervals (type, count);
+            const float rootNote = 48.0f + (float) root + h.note;
+            for (int k = 0; k < count; ++k)
+            {
+                if (k >= prev.count) { prev.ph[k][0] = rng.uni(); prev.ph[k][1] = rng.uni(); }
+                prev.note[k] = rootNote + iv[k];
+            }
+            prev.count = count;
+            prev.gateLeft = h.gateSamples > 0.0 ? h.gateSamples : 1.0e18;
+            return;
+        }
         cur = 1 - cur;
         Slot& s = slots[(size_t) cur];
         int count = 0;
-        const float* iv = chordIntervals (maps::chordType (prm[0]), count);
+        const float* iv = chordIntervals (type, count);
         s.count = count;
         const float rootNote = 48.0f + (float) root + h.note;
         for (int k = 0; k < count; ++k)
@@ -603,6 +750,7 @@ public:
             s.note[k] = rootNote + iv[k];
             s.ph[k][0] = rng.uni(); s.ph[k][1] = rng.uni();
         }
+        s.gateLeft = h.gateSamples > 0.0 ? h.gateSamples : 1.0e18;
         s.amp = 0.0f;
         s.ampTarget = 1.0f;
         s.attackDone = false;
@@ -627,6 +775,14 @@ public:
         const float det = detuneCents (prm[5]);
         const float chorus = prm[6];
         const float lfoInc = (float) (0.55 / fs);
+        const float sus = envS;
+        float driftFixed[10] {};
+        if (fixedRandom)
+        {
+            for (int k = 0; k < 10; ++k) driftFixed[k] = positionalDrift (randomSeed, 0xC40Du + (uint32_t) k, songSeconds, 0.2f + 0.05f * (float) k);
+            const double ph = songSeconds * 0.55;
+            chorusLfo = (float) (ph - std::floor (ph));
+        }
 
         for (int i = 0; i < n; ++i)
         {
@@ -639,6 +795,12 @@ public:
                     s.amp += atkC * (1.0f - s.amp);
                     s.fenv += atkC * (1.0f - s.fenv);
                     if (s.amp > 0.97f) s.attackDone = true;
+                }
+                else if (sus > 0.0f && ! s.release)
+                {
+                    if (s.gateLeft > 0.0) { s.gateLeft -= 1.0; s.amp = sus + (s.amp - sus) * aC; }
+                    else s.amp *= userRelC;
+                    s.fenv *= fC;
                 }
                 else
                 {
@@ -656,7 +818,8 @@ public:
                 {
                     for (int o = 0; o < 2; ++o)
                     {
-                        const float cents = (o == 0 ? -det : det) + drift[(k * 2 + o) % 10].next() * 4.0f;
+                        const float dr = fixedRandom ? driftFixed[(k * 2 + o) % 10] : drift[(k * 2 + o) % 10].next();
+                        const float cents = (o == 0 ? -det : det) + dr * 4.0f;
                         if ((i & 31) == 0)
                             s.inc[k][o] = 440.0f * std::exp2 ((s.note[k] - 69.0f + cents / 100.0f) / 12.0f) / (float) fs;
                         float& p = s.ph[k][o];
@@ -690,9 +853,13 @@ private:
         int count = 0;
         float note[5] {}, ph[5][2] {}, inc[5][2] {};
         float amp = 0, ampTarget = 0, fenv = 0, gain = 1;
+        double gateLeft = 0.0;
         Svf fl, fr;
     };
-    double fs = 44100.0;
+    double fs = 44100.0, songSeconds = 0.0;
+    bool fixedRandom = false;
+    uint32_t randomSeed = 1, initSeed = 1;
+    float envS = 0.0f, envR = -1.0f, userRelC = 0.999f;
     float prm[kSoundParams] {};
     int root = 0, cur = 0;
     Slot slots[2];

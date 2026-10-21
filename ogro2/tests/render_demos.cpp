@@ -16,9 +16,9 @@ int main (int argc, char** argv)
         const auto& p = list[pi];
         Engine eng;
         p.build (eng.bank);
-        std::vector<float> v (defs.size());
-        for (size_t i = 0; i < defs.size(); ++i) v[i] = defs[i].def;
-        for (const auto& [id, val] : p.values) v[(size_t) paramIndex (id)] = val;
+        const auto st = factoryState (p);
+        applyRouting (eng.routing, st);
+        auto v = st.values;
         double bpm = v[P::Tempo];
         eng.prepare (fs, 512);
         const double spb = 4.0 * 60.0 / bpm * fs;

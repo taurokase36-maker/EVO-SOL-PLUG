@@ -12,8 +12,9 @@ int main (int argc, char** argv)
     for (int solo = 0; solo < kTracks; ++solo)
     {
         Engine eng; p.build (eng.bank);
-        std::vector<float> v (defs.size()); for (size_t i = 0; i < defs.size(); ++i) v[i] = defs[i].def;
-        for (auto& [id, val] : p.values) v[(size_t) paramIndex (id)] = val;
+        const auto st = factoryState (p);
+        applyRouting (eng.routing, st);
+        auto v = st.values;
         for (int t = 0; t < kTracks; ++t) v[(size_t) P::track (t, P::Mute)] = t == solo ? 0.f : 1.f;
         v[P::DlyRet] = 0; v[P::RevRet] = 0; v[P::MTexture] = 0;
         eng.prepare (fs, 512);

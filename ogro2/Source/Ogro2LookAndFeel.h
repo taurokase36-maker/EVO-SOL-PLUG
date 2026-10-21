@@ -10,6 +10,24 @@ namespace ogro2::ui
 {
 inline juce::String T (const char* utf8) { return juce::String::fromUTF8 (utf8); }
 
+// Mayúsculas que no dependen del idioma del sistema (towupper no siempre convierte "á" o "ñ")
+inline juce::String upper (const juce::String& s)
+{
+    juce::String out;
+    for (auto c : s)
+    {
+        switch (c)
+        {
+            case 0xe1: c = 0xc1; break; case 0xe9: c = 0xc9; break; case 0xed: c = 0xcd; break;
+            case 0xf3: c = 0xd3; break; case 0xfa: c = 0xda; break; case 0xf1: c = 0xd1; break;
+            case 0xfc: c = 0xdc; break;
+            default: if (c >= 'a' && c <= 'z') c = (juce::juce_wchar) (c - 'a' + 'A');
+        }
+        out += juce::String::charToString (c);
+    }
+    return out;
+}
+
 namespace col
 {
     // Aparato
@@ -150,7 +168,7 @@ namespace paint
         if (title.isNotEmpty())
         {
             g.setColour (col::violetText);
-            drawSpaced (g, title.toUpperCase(), { r.getX() + 12.0f, r.getY() + 9.0f, r.getWidth() - 24.0f, 16.0f },
+            drawSpaced (g, upper (title), { r.getX() + 12.0f, r.getY() + 9.0f, r.getWidth() - 24.0f, 16.0f },
                         labelFont (13.0f), 0.08f, juce::Justification::centredLeft);
         }
     }

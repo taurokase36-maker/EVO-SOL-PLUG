@@ -1,5 +1,5 @@
-// OGRO 2 — secuenciador de 16 pasos x 8 pistas x 8 patrones, carriles de
-// automatización dibujables y reloj sincronizado al host.
+// OGRO 2 — secuenciador: pasos (hasta 32 por pista) x pistas x 8 patrones, p-locks,
+// carriles de automatización dibujables y reloj sincronizado al host.
 // Todos los datos son atómicos: la interfaz edita mientras el audio lee.
 #pragma once
 
@@ -7,44 +7,79 @@
 #include <atomic>
 #include <cstdio>
 #include <cstdlib>
+#include <sstream>
 
 namespace ogro2
 {
-constexpr int kSteps = 16;
+constexpr int kSteps = 32;      // capacidad por pista
 constexpr int kPatterns = 8;
 constexpr int kLanes = 4;
 constexpr int kLanePoints = 64;
-constexpr int kMaxRatchet = 4;
+constexpr int kMaxRatchet = 8;
+constexpr int kMaxLocks = 8;    // p-locks por paso
 
-// Un paso empaquetado en 32 bits
+// Un paso empaquetado en 64 bits. Los 26 bits bajos son idénticos al formato de la 1.0.
 struct Step
 {
     bool on = false;
     int vel = 100;      // 1..127
-    int note = 0;       // -24..+24 semitonos
+    int note = 0;       // -24..+24 semitonos (o grados con MODO TONAL)
     int prob = 100;     // 0..100 %
-    int ratchet = 1;    // 1..4
+    int ratchet = 1;    // 1..8
     bool slide = false; // ligado (bajo / acordes)
+    int gate = 0;       // 0 = automático; 1..63 = largo en octavos de paso
+    int nudge = 0;      // -50..+50 % de un paso (microtiming)
+    int cond = 0;       // condición de disparo (0 = siempre)
+    int octave = 0;     // -3..+3
+    int chordType = 0;  // 0 = el de la pista; 1..31 = tipo + 1
 
-    uint32_t pack() const
+    uint64_t pack() const
     {
-        return (uint32_t) (on ? 1 : 0)
-             | ((uint32_t) clampv (vel, 0, 127) << 1)
-             | ((uint32_t) clampv (note + 64, 0, 127) << 8)
-             | ((uint32_t) clampv (prob, 0, 100) << 15)
-             | ((uint32_t) (clampv (ratchet, 1, kMaxRatchet) - 1) << 22)
-             | ((uint32_t) (slide ? 1 : 0) << 25);
+        return (uint64_t) (on ? 1 : 0)
+             | ((uint64_t) clampv (vel, 0, 127) << 1)
+             | ((uint64_t) clampv (note + 64, 0, 127) << 8)
+             | ((uint64_t) clampv (prob, 0, 100) << 15)
+             | ((uint64_t) (clampv (ratchet, 1, kMaxRatchet) - 1) << 22)
+             | ((uint64_t) (slide ? 1 : 0) << 25)
+             | ((uint64_t) clampv (gate, 0, 63) << 26)
+             | ((uint64_t) (clampv (nudge, -50, 50) & 0x7f) << 32)
+             | ((uint64_t) clampv (cond, 0, 31) << 39)
+             | ((uint64_t) (clampv (octave, -3, 3) & 0x7) << 44)
+             | ((uint64_t) clampv (chordType, 0, 31) << 47);
     }
-    static Step unpack (uint32_t v)
+    static Step unpack (uint64_t v)
     {
         Step s;
         s.on = (v & 1u) != 0;
         s.vel = (int) ((v >> 1) & 127u);
         s.note = (int) ((v >> 8) & 127u) - 64;
-        s.prob = (int) ((v >> 15) & 127u);
+        s.prob = std::min (100, (int) ((v >> 15) & 127u));
         s.ratchet = (int) ((v >> 22) & 7u) + 1;
         s.slide = ((v >> 25) & 1u) != 0;
+        s.gate = (int) ((v >> 26) & 63u);
+        const int n = (int) ((v >> 32) & 0x7fu);
+        s.nudge = n >= 64 ? n - 128 : n;
+        s.cond = (int) ((v >> 39) & 31u);
+        const int o = (int) ((v >> 44) & 7u);
+        s.octave = o >= 4 ? o - 8 : o;
+        s.chordType = (int) ((v >> 47) & 31u);
         return s;
+    }
+};
+
+// P-lock: valor propio de una perilla en un paso (índice de parámetro + valor normalizado)
+struct Lock
+{
+    int param = -1;      // índice interno de parámetro (-1 = vacío)
+    float value = 0.0f;  // 0..1
+    uint32_t pack() const { return param < 0 ? 0xFFFFFFFFu : ((uint32_t) param << 16) | (uint32_t) std::lround (clampv (value, 0.0f, 1.0f) * 65535.0f); }
+    static Lock unpack (uint32_t v)
+    {
+        Lock l;
+        if (v == 0xFFFFFFFFu) return l;
+        l.param = (int) (v >> 16);
+        l.value = (float) (v & 0xFFFFu) / 65535.0f;
+        return l;
     }
 };
 
@@ -58,77 +93,212 @@ public:
         for (int p = 0; p < kPatterns; ++p) clearPattern (p);
         for (int l = 0; l < kLanes; ++l)
             for (int i = 0; i < kLanePoints; ++i) lanes[l][i].store (0.5f);
+        ++revision;
     }
     void clearPattern (int p)
     {
-        for (int t = 0; t < kTracks; ++t)
+        patLength[idx (p)].store (16);
+        for (int t = 0; t < kTracks; ++t) clearTrack (p, t);
+        ++revision;
+    }
+    void clearTrack (int p, int t)
+    {
+        length[idx (p)][tr (t)].store (16);
+        for (int s = 0; s < kSteps; ++s)
         {
-            length[p][t].store (kSteps);
-            for (int s = 0; s < kSteps; ++s) steps[p][t][s].store (Step().pack());
+            steps[idx (p)][tr (t)][s].store (Step().pack());
+            for (int k = 0; k < kMaxLocks; ++k) locks[idx (p)][tr (t)][s][k].store (0xFFFFFFFFu);
         }
+        ++revision;
     }
 
     Step get (int p, int t, int s) const { return Step::unpack (steps[idx (p)][tr (t)][st (s)].load (std::memory_order_relaxed)); }
     void set (int p, int t, int s, const Step& v) { steps[idx (p)][tr (t)][st (s)].store (v.pack(), std::memory_order_relaxed); ++revision; }
     int getLength (int p, int t) const { return length[idx (p)][tr (t)].load (std::memory_order_relaxed); }
     void setLength (int p, int t, int len) { length[idx (p)][tr (t)].store (clampv (len, 1, kSteps)); ++revision; }
+    int getPatternLength (int p) const { return patLength[idx (p)].load (std::memory_order_relaxed); }
+    void setPatternLength (int p, int len) { patLength[idx (p)].store (clampv (len, 1, kSteps)); ++revision; }
+
+    // P-locks
+    Lock getLock (int p, int t, int s, int k) const { return Lock::unpack (locks[idx (p)][tr (t)][st (s)][clampv (k, 0, kMaxLocks - 1)].load (std::memory_order_relaxed)); }
+    int lockCount (int p, int t, int s) const
+    {
+        int n = 0;
+        for (int k = 0; k < kMaxLocks; ++k) n += getLock (p, t, s, k).param >= 0 ? 1 : 0;
+        return n;
+    }
+    // Busca el lock de un parámetro en un paso (-1 si no hay)
+    float lockValue (int p, int t, int s, int param) const
+    {
+        for (int k = 0; k < kMaxLocks; ++k)
+        {
+            const auto l = getLock (p, t, s, k);
+            if (l.param == param) return l.value;
+        }
+        return -1.0f;
+    }
+    // Pone o cambia un lock; devuelve false si el paso ya tiene 8
+    bool setLock (int p, int t, int s, int param, float value)
+    {
+        int freeSlot = -1;
+        for (int k = 0; k < kMaxLocks; ++k)
+        {
+            const auto l = getLock (p, t, s, k);
+            if (l.param == param) { writeLock (p, t, s, k, { param, value }); return true; }
+            if (l.param < 0 && freeSlot < 0) freeSlot = k;
+        }
+        if (freeSlot < 0) return false;
+        writeLock (p, t, s, freeSlot, { param, value });
+        return true;
+    }
+    void clearLock (int p, int t, int s, int param)
+    {
+        for (int k = 0; k < kMaxLocks; ++k)
+            if (getLock (p, t, s, k).param == param) writeLock (p, t, s, k, {});
+    }
+    void clearLocks (int p, int t, int s) { for (int k = 0; k < kMaxLocks; ++k) writeLock (p, t, s, k, {}); }
 
     float lane (int l, int i) const { return lanes[clampv (l, 0, kLanes - 1)][clampv (i, 0, kLanePoints - 1)].load (std::memory_order_relaxed); }
     void setLane (int l, int i, float v) { lanes[clampv (l, 0, kLanes - 1)][clampv (i, 0, kLanePoints - 1)].store (clampv (v, 0.0f, 1.0f)); ++revision; }
 
-    void copyPattern (int from, int to)
+    void copyTrack (int fromP, int fromT, int toP, int toT)
     {
-        for (int t = 0; t < kTracks; ++t)
+        setLength (toP, toT, getLength (fromP, fromT));
+        for (int s = 0; s < kSteps; ++s)
         {
-            setLength (to, t, getLength (from, t));
-            for (int s = 0; s < kSteps; ++s) set (to, t, s, get (from, t, s));
+            set (toP, toT, s, get (fromP, fromT, s));
+            for (int k = 0; k < kMaxLocks; ++k) writeLock (toP, toT, s, k, getLock (fromP, fromT, s, k));
         }
     }
-
-    // Texto compacto para guardar el estado
-    std::string serialise() const
+    void copyPattern (int from, int to)
     {
-        std::string out;
-        char buf[16];
-        for (int p = 0; p < kPatterns; ++p)
-            for (int t = 0; t < kTracks; ++t)
-            {
-                std::snprintf (buf, sizeof (buf), "%x:", getLength (p, t));
-                out += buf;
-                for (int s = 0; s < kSteps; ++s)
-                {
-                    std::snprintf (buf, sizeof (buf), "%x,", steps[p][t][s].load());
-                    out += buf;
-                }
-                out += ";";
-            }
-        out += "|";
-        for (int l = 0; l < kLanes; ++l)
-            for (int i = 0; i < kLanePoints; ++i)
-            {
-                std::snprintf (buf, sizeof (buf), "%d,", (int) std::lround (lane (l, i) * 1000.0f));
-                out += buf;
-            }
-        return out;
+        setPatternLength (to, getPatternLength (from));
+        for (int t = 0; t < kTracks; ++t) copyTrack (from, t, to, t);
     }
 
-    bool deserialise (const std::string& text)
+    // ---- Guardado (formato de texto con versión; se ignora lo que no se entiende) ----
+    // paramId: índice -> ID de texto, para guardar los p-locks por ID
+    std::string serialise (const std::function<std::string (int)>& paramId = {}) const
+    {
+        std::ostringstream o;
+        o << "OGRO2PAT 1\n";
+        const uint64_t def = Step().pack();
+        char buf[64];
+        for (int p = 0; p < kPatterns; ++p)
+        {
+            o << "L " << p << " " << getPatternLength (p) << "\n";
+            for (int t = 0; t < kTracks; ++t)
+            {
+                o << "T " << p << " " << trackId (t) << " " << getLength (p, t);
+                for (int s = 0; s < kSteps; ++s)
+                {
+                    const uint64_t v = steps[p][t][s].load();
+                    if (v == def) continue;
+                    std::snprintf (buf, sizeof (buf), " %d=%llx", s, (unsigned long long) v);
+                    o << buf;
+                }
+                o << "\n";
+                if (! paramId) continue;
+                for (int s = 0; s < kSteps; ++s)
+                    for (int k = 0; k < kMaxLocks; ++k)
+                    {
+                        const auto l = getLock (p, t, s, k);
+                        if (l.param < 0) continue;
+                        const auto id = paramId (l.param);
+                        if (id.empty()) continue;
+                        std::snprintf (buf, sizeof (buf), "%.5f", (double) l.value);
+                        o << "K " << p << " " << trackId (t) << " " << s << " " << id << " " << buf << "\n";
+                    }
+            }
+        }
+        for (int l = 0; l < kLanes; ++l)
+        {
+            o << "M " << l;
+            for (int i = 0; i < kLanePoints; ++i) o << (i == 0 ? " " : ",") << (int) std::lround (lane (l, i) * 1000.0f);
+            o << "\n";
+        }
+        return o.str();
+    }
+
+    bool deserialise (const std::string& text, const std::function<int (const std::string&)>& paramIndex = {})
+    {
+        if (text.rfind ("OGRO2PAT", 0) != 0) return deserialiseV1 (text);
+        clearAll();
+        std::istringstream in (text);
+        std::string line;
+        std::getline (in, line);
+        while (std::getline (in, line))
+        {
+            std::istringstream ls (line);
+            std::string kind;
+            ls >> kind;
+            if (kind == "L")
+            {
+                int p = 0, len = 16;
+                ls >> p >> len;
+                if (p >= 0 && p < kPatterns) setPatternLength (p, len);
+            }
+            else if (kind == "T")
+            {
+                int p = 0, len = 16;
+                std::string tid;
+                ls >> p >> tid >> len;
+                const int t = trackIndex (tid);
+                if (p < 0 || p >= kPatterns || t < 0) continue;
+                setLength (p, t, len);
+                std::string tok;
+                while (ls >> tok)
+                {
+                    const auto eq = tok.find ('=');
+                    if (eq == std::string::npos) continue;
+                    const int s = std::atoi (tok.substr (0, eq).c_str());
+                    if (s < 0 || s >= kSteps) continue;
+                    steps[p][t][s].store ((uint64_t) std::strtoull (tok.substr (eq + 1).c_str(), nullptr, 16));
+                }
+            }
+            else if (kind == "K" && paramIndex)
+            {
+                int p = 0, s = 0;
+                std::string tid, pid;
+                double v = 0.0;
+                ls >> p >> tid >> s >> pid >> v;
+                const int t = trackIndex (tid), param = paramIndex (pid);
+                if (p >= 0 && p < kPatterns && t >= 0 && s >= 0 && s < kSteps && param >= 0) setLock (p, t, s, param, (float) v);
+            }
+            else if (kind == "M")
+            {
+                int l = 0;
+                std::string vals;
+                ls >> l >> vals;
+                if (l < 0 || l >= kLanes) continue;
+                std::istringstream vs (vals);
+                std::string num;
+                for (int i = 0; i < kLanePoints && std::getline (vs, num, ','); ++i) setLane (l, i, (float) std::atoi (num.c_str()) / 1000.0f);
+            }
+        }
+        ++revision;
+        return true;
+    }
+
+    // Formato de OGRO 1.0: 8 patrones x 8 pistas x 16 pasos de 32 bits + carriles
+    bool deserialiseV1 (const std::string& text)
     {
         const auto bar = text.find ('|');
         if (bar == std::string::npos) return false;
+        clearAll();
         size_t pos = 0;
-        for (int p = 0; p < kPatterns; ++p)
-            for (int t = 0; t < kTracks; ++t)
+        for (int p = 0; p < 8; ++p)
+            for (int t = 0; t < 8; ++t)
             {
                 const auto colon = text.find (':', pos);
                 if (colon == std::string::npos || colon > bar) return false;
                 setLength (p, t, (int) std::strtol (text.substr (pos, colon - pos).c_str(), nullptr, 16));
                 pos = colon + 1;
-                for (int s = 0; s < kSteps; ++s)
+                for (int s = 0; s < 16; ++s)
                 {
                     const auto comma = text.find (',', pos);
                     if (comma == std::string::npos) return false;
-                    steps[p][t][s].store ((uint32_t) std::strtoul (text.substr (pos, comma - pos).c_str(), nullptr, 16));
+                    steps[p][t][s].store ((uint64_t) (uint32_t) std::strtoul (text.substr (pos, comma - pos).c_str(), nullptr, 16));
                     pos = comma + 1;
                 }
                 pos = text.find (';', pos) + 1;
@@ -146,15 +316,28 @@ public:
         return true;
     }
 
+    static int trackIndex (const std::string& id)
+    {
+        for (int t = 0; t < kTracks; ++t) if (id == trackId (t)) return t;
+        return -1;
+    }
+
     std::atomic<uint32_t> revision { 0 };
 
 private:
+    void writeLock (int p, int t, int s, int k, const Lock& l)
+    {
+        locks[idx (p)][tr (t)][st (s)][clampv (k, 0, kMaxLocks - 1)].store (l.pack(), std::memory_order_relaxed);
+        ++revision;
+    }
     static int idx (int p) { return clampv (p, 0, kPatterns - 1); }
     static int tr (int t) { return clampv (t, 0, kTracks - 1); }
     static int st (int s) { return clampv (s, 0, kSteps - 1); }
 
-    std::atomic<uint32_t> steps[kPatterns][kTracks][kSteps];
+    std::atomic<uint64_t> steps[kPatterns][kTracks][kSteps];
+    std::atomic<uint32_t> locks[kPatterns][kTracks][kSteps][kMaxLocks];
     std::atomic<int> length[kPatterns][kTracks];
+    std::atomic<int> patLength[kPatterns];
     std::atomic<float> lanes[kLanes][kLanePoints];
 };
 
@@ -164,6 +347,8 @@ struct Transport
     bool playing = false;
     double ppq = 0.0;   // posición en negras al inicio del bloque
     double bpm = 120.0;
+    bool looping = false;
+    double loopStart = 0.0, loopEnd = 0.0;
 };
 
 struct TriggerEvent
@@ -171,6 +356,12 @@ struct TriggerEvent
     int sample = 0;
     int track = 0;
     Hit hit;
+    double gateBeats = 0.0; // largo de la nota en negras (0 = sin gate)
+    int64_t absStep = 0;    // semicorchea absoluta desde el inicio del tema
+    int sub = 0;            // subgolpe del ratchet
+    int stepIndex = 0;      // paso dentro de la pista
+    int pattern = 0;
+    bool release = false;   // fin de nota (MIDI note-off)
 };
 
 // Calcula los disparos que caen dentro de un bloque
@@ -178,70 +369,65 @@ class StepClock
 {
 public:
     void prepare (double sampleRate) { fs = sampleRate; reset(); }
-    void reset() { lastEnd = -1.0; curPattern = -1; for (auto& s : lastStep) s = -1; }
+    void reset()
+    {
+        lastEnd = -1.0; curPattern = -1;
+        for (auto& s : lastStep) s = -1;
+        for (auto& d : decisionStep) d = INT64_MIN;
+    }
 
     void setSwing (float s) { swing = clampv (s, 0.5f, 0.75f); }
     void requestPattern (int p) { wantedPattern = clampv (p, 0, kPatterns - 1); }
+    // Azar: fijo = cada decisión sale de (semilla, pista, paso); vivo = generador con estado (como la 1.0)
+    void setRandom (bool fixed, uint32_t s) { fixedRandom = fixed; seed = s; }
     int pattern() const { return curPattern < 0 ? wantedPattern : curPattern; }
+    // true si en el último bloque el transporte arrancó o saltó (no en los saltos del loop)
+    bool relocated() const { return jumped; }
     int stepOf (int track) const { return lastStep[clampv (track, 0, kTracks - 1)]; }
 
     // Llena "events" (ordenados) y devuelve cuántos hay
     int process (const Transport& tr, int numSamples, const PatternBank& bank, uint32_t& rngState,
                  TriggerEvent* events, int maxEvents)
     {
+        jumped = false;
         if (! tr.playing || tr.bpm <= 0.0)
         {
             lastEnd = -1.0;
             return 0;
         }
+        jumped = lastEnd < 0.0;
         const double ppqPerSample = tr.bpm / 60.0 / fs;
-        double start = tr.ppq;
-        if (lastEnd >= 0.0 && std::fabs (start - lastEnd) < ppqPerSample * 2.0) start = lastEnd; // continuidad exacta
-        const double end = start + ppqPerSample * numSamples;
-        lastEnd = end;
+        const double hostStart = tr.ppq;
+        double start = hostStart, end = hostStart + ppqPerSample * numSamples;
+        // Continuidad: seguimos desde donde terminó el bloque anterior para no saltear ni
+        // repetir pasos. Con tempo fijo se encadena igual que la 1.0; si el tempo cambia y la
+        // posición del host se corre más de 2 muestras, el final del bloque se ancla al host.
+        if (lastEnd >= 0.0)
+        {
+            const double drift = std::fabs (hostStart - lastEnd);
+            if (drift < ppqPerSample * 2.0) { start = lastEnd; end = start + ppqPerSample * numSamples; }
+            else if (drift < 0.02) start = lastEnd;
+            else jumped = true;
+        }
         if (curPattern < 0) curPattern = wantedPattern;
 
         int count = 0;
-        const double stepLen = 0.25; // semicorchea
-        // Recorremos semicorcheas que podrían caer en el bloque (el swing las corre hasta media semicorchea)
-        const int64_t first = (int64_t) std::floor (start / stepLen) - 1;
-        const int64_t last = (int64_t) std::floor (end / stepLen);
-        for (int64_t k = first; k <= last; ++k)
+        // Loop de Ableton: si el fin del loop cae adentro del bloque, partimos la ventana
+        if (tr.looping && tr.loopEnd > tr.loopStart + 1e-6 && start < tr.loopEnd && end > tr.loopEnd + ppqPerSample * 0.5)
         {
-            if (k < 0) continue;
-            const bool odd = (k & 1) != 0;
-            const double swingOffset = odd ? (swing - 0.5) * 2.0 * stepLen : 0.0;
-            const double t0 = (double) k * stepLen + swingOffset;
-            // Cambio de patrón en el inicio de compás
-            if (k % 16 == 0 && t0 >= start && t0 < end && wantedPattern != curPattern) curPattern = wantedPattern;
-
-            for (int t = 0; t < kTracks; ++t)
-            {
-                const int len = bank.getLength (curPattern, t);
-                const int s = (int) (k % len);
-                const Step st = bank.get (curPattern, t, s);
-                const double dur = odd ? stepLen * (1.0 - (swing - 0.5) * 2.0) : stepLen * (1.0 + (swing - 0.5) * 2.0);
-                if (t0 >= start && t0 < end) lastStep[t] = s;
-                if (! st.on) continue;
-                for (int r = 0; r < st.ratchet; ++r)
-                {
-                    const double tr0 = t0 + dur * (double) r / (double) st.ratchet;
-                    if (tr0 < start || tr0 >= end) continue;
-                    if (r == 0 && st.prob < 100)
-                    {
-                        rngState ^= rngState << 13; rngState ^= rngState >> 17; rngState ^= rngState << 5;
-                        if ((int) (rngState % 100u) >= st.prob) break;
-                    }
-                    if (count >= maxEvents) break;
-                    TriggerEvent& e = events[count++];
-                    e.sample = clampv ((int) ((tr0 - start) / ppqPerSample), 0, numSamples - 1);
-                    e.track = t;
-                    e.hit.vel = (float) st.vel / 127.0f * (r > 0 ? 0.82f : 1.0f);
-                    e.hit.note = (float) st.note;
-                    e.hit.slide = st.slide && r == 0;
-                    e.hit.accent = st.vel >= 118;
-                }
-            }
+            const double cut = tr.loopEnd;
+            count = window (start, cut, start, ppqPerSample, numSamples, 0, bank, rngState, events, maxEvents, count);
+            const int cutSample = clampv ((int) std::ceil ((cut - start) / ppqPerSample), 0, numSamples - 1);
+            const double restart = tr.loopStart;
+            const double restartEnd = restart + (end - cut);
+            count = window (restart, restartEnd, restart - (double) cutSample * ppqPerSample, ppqPerSample, numSamples, cutSample,
+                            bank, rngState, events, maxEvents, count);
+            lastEnd = restartEnd;
+        }
+        else
+        {
+            count = window (start, end, start, ppqPerSample, numSamples, 0, bank, rngState, events, maxEvents, count);
+            lastEnd = end;
         }
         // Orden por muestra (inserción: pocos eventos)
         for (int i = 1; i < count; ++i)
@@ -255,10 +441,92 @@ public:
     }
 
 private:
+    // Recorre las semicorcheas de [start, end). "origin" es la posición que corresponde a la muestra 0.
+    int window (double start, double end, double origin, double ppqPerSample, int numSamples, int minSample,
+                const PatternBank& bank, uint32_t& rngState, TriggerEvent* events, int maxEvents, int count)
+    {
+        if (end <= start) return count;
+        const double stepLen = 0.25;
+        // El swing corre los pasos hasta media semicorchea y el nudge ±media: miramos uno antes y uno después
+        const int64_t first = (int64_t) std::floor (start / stepLen) - 1;
+        const int64_t last = (int64_t) std::floor (end / stepLen) + 1;
+        for (int64_t k = first; k <= last; ++k)
+        {
+            if (k < 0) continue;
+            const bool odd = (k & 1) != 0;
+            const double swingOffset = odd ? (swing - 0.5) * 2.0 * stepLen : 0.0;
+            const double t0base = (double) k * stepLen + swingOffset;
+            // Cambio de patrón en el inicio de compás
+            if (k % 16 == 0 && t0base >= start && t0base < end && wantedPattern != curPattern) curPattern = wantedPattern;
+
+            for (int t = 0; t < kTracks; ++t)
+            {
+                const int len = bank.getLength (curPattern, t);
+                const int s = (int) (k % len);
+                const Step st = bank.get (curPattern, t, s);
+                const double dur = odd ? stepLen * (1.0 - (swing - 0.5) * 2.0) : stepLen * (1.0 + (swing - 0.5) * 2.0);
+                const double t0 = t0base + (double) st.nudge / 100.0 * stepLen;
+                if (t0base >= start && t0base < end) lastStep[t] = s;
+                if (! st.on) continue;
+                for (int r = 0; r < st.ratchet; ++r)
+                {
+                    const double tr0 = t0 + dur * (double) r / (double) st.ratchet;
+                    if (tr0 < start || tr0 >= end) continue;
+                    if (st.prob < 100 && ! passes (t, k, st.prob, rngState)) break;
+                    if (count >= maxEvents) break;
+                    TriggerEvent& e = events[count++];
+                    e = TriggerEvent();
+                    e.sample = clampv ((int) ((tr0 - origin) / ppqPerSample), minSample, numSamples - 1);
+                    e.track = t;
+                    e.hit.vel = (float) st.vel / 127.0f * (r > 0 ? 0.82f : 1.0f);
+                    e.hit.note = (float) st.note;
+                    e.hit.slide = st.slide && r == 0;
+                    e.hit.accent = st.vel >= 118;
+                    e.absStep = k;
+                    e.sub = r;
+                    e.stepIndex = s;
+                    e.pattern = curPattern;
+                    if (fixedRandom) { e.hit.fixedSeed = true; e.hit.seed = hash32 (seed, (uint32_t) t, (uint32_t) k, (uint32_t) r + 77u); }
+                    // Gate: largo del paso (o el que se eligió) y, si el paso siguiente está ligado, hasta él
+                    const double subDur = dur / (double) st.ratchet;
+                    double gate = st.gate > 0 ? stepLen * (double) st.gate / 8.0 : subDur;
+                    if (r == st.ratchet - 1)
+                    {
+                        const Step next = bank.get (curPattern, t, (int) ((k + 1) % len));
+                        if (next.on && next.slide) gate = std::max (gate, dur - (tr0 - t0) + 0.02);
+                    }
+                    e.gateBeats = gate;
+                }
+            }
+        }
+        return count;
+    }
+
+    // Una sola decisión por cada vez que pasa el paso: vale para todos sus subgolpes
+    bool passes (int t, int64_t k, int prob, uint32_t& rngState)
+    {
+        if (decisionStep[t] == k) return decisionPass[t];
+        bool pass;
+        if (fixedRandom) pass = (int) (hash32 (seed, (uint32_t) t, (uint32_t) k, 0x50524F42u) % 100u) < prob;
+        else
+        {
+            rngState ^= rngState << 13; rngState ^= rngState >> 17; rngState ^= rngState << 5;
+            pass = (int) (rngState % 100u) < prob;
+        }
+        decisionStep[t] = k;
+        decisionPass[t] = pass;
+        return pass;
+    }
+
     double fs = 44100.0, lastEnd = -1.0;
+    bool jumped = false;
     float swing = 0.5f;
+    bool fixedRandom = true;
+    uint32_t seed = 1;
     int wantedPattern = 0, curPattern = -1;
     int lastStep[kTracks] { -1, -1, -1, -1, -1, -1, -1, -1 };
+    int64_t decisionStep[kTracks] {};
+    bool decisionPass[kTracks] {};
 };
 
 } // namespace ogro2

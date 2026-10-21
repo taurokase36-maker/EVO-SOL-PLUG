@@ -26,7 +26,7 @@ juce::String upperName (int t, int p) { return juce::String::fromUTF8 (soundPara
 void cardTitle (juce::Graphics& g, juce::Rectangle<int> r, const juce::String& s)
 {
     g.setColour (col::violetText);
-    drawSpaced (g, s.toUpperCase(), r.toFloat().withHeight (18.0f).translated (12.0f, 8.0f), labelFont (13.0f), 0.08f,
+    drawSpaced (g, upper (s), r.toFloat().withHeight (18.0f).translated (12.0f, 8.0f), labelFont (13.0f), 0.08f,
                 juce::Justification::centredLeft);
 }
 
@@ -43,20 +43,29 @@ public:
           dly (p, P::track (0, P::Delay), "DELAY"),
           rev (p, P::track (0, P::Reverb), "REVERB"),
           pump (p, P::track (0, P::Pump), "PUMP"),
-          ring (p, P::track (0, P::Ring), "MANDAR AL RING", col::violetRing)
+          ring (p, P::track (0, P::Ring), "RING"),
+          envA (p, P::track (Bass, P::EnvA), "ATAQUE"),
+          envS (p, P::track (Bass, P::EnvS), "SUSTAIN"),
+          envR (p, P::track (Bass, P::EnvR), "RELEASE"),
+          chordType (p, P::sound (Chord, 0), "TIPO")
     {
         for (int i = 0; i < kSoundParams; ++i)
             addAndMakeVisible (sound.add (new Knob (p, P::sound (0, i), upperName (0, i))));
         for (auto* c : std::initializer_list<juce::Component*> { &level, &pan, &dly, &rev, &pump, &ring, &audition })
             addAndMakeVisible (c);
+        addChildComponent (envA);
+        addChildComponent (envS);
+        addChildComponent (envR);
+        addChildComponent (chordType);
         level.setTravel (420);
         for (auto* k : { &dly, &rev, &pump }) k->setRing (juce::Colour (0xfff2a466));
+        ring.slider.setTooltip (T ("Cuánto pasa esta pista por el ring mod (la portadora se ajusta en el panel RING)"));
+        envS.slider.setTooltip (T ("Con SUSTAIN en 0 la nota cae sola (como en la 1.0). Con sustain, dura lo que el paso o la nota MIDI y después suelta en RELEASE."));
         audition.setButtonText ("PROBAR");
         styleKey (audition, col::orange);
         audition.onClick = [this] { proc.engine.audition (track); };
         audition.setTooltip (T ("Dispara el sonido para escucharlo (también con el transporte parado)"));
         pump.slider.setTooltip (T ("Cuánto se agacha esta pista con cada kick (sidechain fantasma, aunque el kick esté muteado)"));
-        ring.button.setTooltip (T ("Manda esta pista por el ring mod (el ring se ajusta en el panel RING)"));
         trackChanged (0);
     }
     juce::String title() const override { return trackName (track); }
@@ -70,7 +79,21 @@ public:
         dly.bind (P::track (t, P::Delay), "DELAY");
         rev.bind (P::track (t, P::Reverb), "REVERB");
         pump.bind (P::track (t, P::Pump), "PUMP");
-        ring.bind (P::track (t, P::Ring));
+        ring.bind (P::track (t, P::Ring), "RING");
+        hasEnv = t == Bass || t == Chord;
+        envA.setVisible (t == Bass);
+        envS.setVisible (hasEnv);
+        envR.setVisible (hasEnv);
+        if (hasEnv)
+        {
+            if (t == Bass) envA.bind (P::track (t, P::EnvA), "ATAQUE");
+            envS.bind (P::track (t, P::EnvS), "SUSTAIN");
+            envR.bind (P::track (t, P::EnvR), "RELEASE");
+        }
+        // El tipo de acorde es una lista: se elige en pantalla, no con perilla
+        sound[0]->setVisible (t != Chord);
+        chordType.setVisible (t == Chord);
+        resized();
         repaint();
     }
 
@@ -91,41 +114,74 @@ public:
         // Tarjetas de abajo
         paint::violetCard (g, mixBox.toFloat(), T ("Mezcla"));
         paint::violetCard (g, sendBox.toFloat(), T ("Envíos"));
-        paint::violetCard (g, ringBox.toFloat(), T ("Ring mod"));
+        if (hasEnv) paint::violetCard (g, envBox.toFloat(), T ("Envolvente"));
+        paint::violetCard (g, ringBox.toFloat(), T ("Ring"));
         // Traza de cobre: camino de la señal hacia los efectos
         const float ty = (float) dly.getBounds().getCentreY() - 4.0f;
         paint::copperTrace (g, { (float) dly.getBounds().getCentreX(), ty }, { (float) pump.getBounds().getCentreX(), ty }, 4.0f);
-        g.setColour (col::violetValue);
-        g.setFont (textFont (13.0f));
-        g.drawFittedText (T ("La pista pasa por el ring modulator. La frecuencia y la forma se ajustan en el panel RING."),
-                          ringBox.reduced (12).withTrimmedTop (76), juce::Justification::topLeft, 5);
+        if (! hasEnv)
+        {
+            g.setColour (col::violetValue);
+            g.setFont (textFont (13.0f));
+            g.drawFittedText (T ("Cuánto pasa por el ring modulator. La portadora se ajusta en el panel RING."),
+                              ringBox.reduced (12).withTrimmedTop (34).withTrimmedLeft (84), juce::Justification::topLeft, 6);
+        }
     }
     void resized() override
     {
         audition.setBounds (getWidth() - 120, 0, 120, 32);
         const int w = getWidth() / kSoundParams;
         for (int i = 0; i < kSoundParams; ++i) sound[i]->setBounds (i * w, 44, w, 104);
+        chordType.setBounds (4, 62, w - 8, 52);
         const int y = 162, h = getHeight() - y;
-        mixBox = { 0, y, 196, h };
-        sendBox = { 208, y, 236, h };
-        ringBox = { 456, y, getWidth() - 456, h };
         const int ky = y + 40, kh = 112;
-        level.setBounds (mixBox.getX() + 8, ky, 86, kh);
-        pan.setBounds (mixBox.getX() + 100, ky, 86, kh);
-        dly.setBounds (sendBox.getX() + 6, ky, 74, kh);
-        rev.setBounds (sendBox.getX() + 81, ky, 74, kh);
-        pump.setBounds (sendBox.getX() + 156, ky, 74, kh);
-        ring.setBounds (ringBox.getX() + 12, y + 36, ringBox.getWidth() - 24, 32);
+        if (hasEnv)
+        {
+            mixBox = { 0, y, 150, h };
+            sendBox = { 158, y, 210, h };
+            envBox = { 376, y, 152, h };
+            ringBox = { 536, y, getWidth() - 536, h };
+            level.setBounds (mixBox.getX() + 4, ky, 70, kh);
+            pan.setBounds (mixBox.getX() + 76, ky, 70, kh);
+            dly.setBounds (sendBox.getX() + 4, ky, 67, kh);
+            rev.setBounds (sendBox.getX() + 71, ky, 67, kh);
+            pump.setBounds (sendBox.getX() + 138, ky, 67, kh);
+            if (track == Bass)
+            {
+                envA.setBounds (envBox.getX() + 2, ky, 50, kh);
+                envS.setBounds (envBox.getX() + 51, ky, 50, kh);
+                envR.setBounds (envBox.getX() + 100, ky, 50, kh);
+            }
+            else
+            {
+                envS.setBounds (envBox.getX() + 6, ky, 70, kh);
+                envR.setBounds (envBox.getX() + 76, ky, 70, kh);
+            }
+            ring.setBounds (ringBox.getX() + 4, ky, ringBox.getWidth() - 8, kh);
+        }
+        else
+        {
+            mixBox = { 0, y, 196, h };
+            sendBox = { 208, y, 236, h };
+            ringBox = { 456, y, getWidth() - 456, h };
+            level.setBounds (mixBox.getX() + 8, ky, 86, kh);
+            pan.setBounds (mixBox.getX() + 100, ky, 86, kh);
+            dly.setBounds (sendBox.getX() + 6, ky, 74, kh);
+            rev.setBounds (sendBox.getX() + 81, ky, 74, kh);
+            pump.setBounds (sendBox.getX() + 156, ky, 74, kh);
+            ring.setBounds (ringBox.getX() + 6, ky, 74, kh);
+        }
     }
 
 private:
     Ogro2Processor& proc;
     int track = 0;
     juce::OwnedArray<Knob> sound;
-    Knob level, pan, dly, rev, pump;
-    Toggle ring;
+    Knob level, pan, dly, rev, pump, ring, envA, envS, envR;
+    Choice chordType;
     juce::TextButton audition;
-    juce::Rectangle<int> mixBox, sendBox, ringBox;
+    bool hasEnv = false;
+    juce::Rectangle<int> mixBox, sendBox, envBox, ringBox;
 };
 
 // ---------------------------------------------------------------------------
@@ -202,8 +258,8 @@ public:
         }
         for (int s = 0; s < P::kSlots; ++s)
         {
-            addAndMakeVisible (srcs.add (new Choice (p, P::mod (s, P::ModSrc), "")));
-            addAndMakeVisible (dsts.add (new Choice (p, P::mod (s, P::ModDst), "", true)));
+            addAndMakeVisible (srcs.add (new RouteChoice (p, RouteChoice::Kind::ModSource, s)));
+            addAndMakeVisible (dsts.add (new RouteChoice (p, RouteChoice::Kind::ModDest, s)));
             auto* amt = amts.add (new juce::Slider (juce::Slider::LinearHorizontal, juce::Slider::NoTextBox));
             amt->getProperties().set ("bipolar", true);
             amt->setColour (juce::Slider::trackColourId, col::violetRing);
@@ -213,8 +269,13 @@ public:
             amt->setTooltip (T ("Cantidad (doble clic = 0)"));
         }
     }
-    juce::String title() const override { return T ("Modulación"); }
-    void tick() override { for (auto* s : scopes) s->repaint(); }
+    juce::String title() const override { return T ("MODULACIÓN"); }
+    void tick() override
+    {
+        for (auto* s : scopes) s->repaint();
+        for (auto* c : srcs) c->refresh();
+        for (auto* c : dsts) c->refresh();
+    }
 
     void paint (juce::Graphics& g) override
     {
@@ -222,44 +283,45 @@ public:
         paint::violetCard (g, matBox.toFloat(), T ("Matriz · fuente → destino → cantidad"));
         g.setColour (col::violetRing);
         for (int l = 0; l < P::kLfos; ++l)
-            drawSpaced (g, juce::String (l + 1), { (float) lfoBox.getX() + 10.0f, (float) rowY (l), 18.0f, 30.0f }, titleFont (15.0f), 0.0f,
+            drawSpaced (g, juce::String (l + 1), { (float) lfoBox.getX() + 8.0f, (float) rowY (l), 16.0f, 54.0f }, titleFont (14.0f), 0.0f,
                         juce::Justification::centred);
         g.setColour (col::violetValue);
         g.setFont (labelFont (12.0f));
         for (int s = 0; s < P::kSlots; ++s)
-            g.drawText (juce::String (s + 1), juce::Rectangle<int> (matBox.getX() + 8, slotY (s), 18, 22), juce::Justification::centred);
-        g.setFont (textFont (12.5f));
-        g.drawText (T ("MOVIMIENTO escala los LFOs y los carriles. Las macros como fuente no se escalan."),
-                    matBox.reduced (12, 6).withTrimmedTop (matBox.getHeight() - 26), juce::Justification::centredLeft);
+            g.drawText (juce::String (s + 1), juce::Rectangle<int> (matBox.getX() + 6, slotY (s), 18, 21), juce::Justification::centred);
+        g.setFont (textFont (12.0f));
+        g.drawText (T ("MOVIMIENTO escala LFOs y carriles (las macros como fuente no)."),
+                    juce::Rectangle<int> (matBox.getX() + 12, matBox.getBottom() - 22, matBox.getWidth() - 24, 18), juce::Justification::centredLeft);
     }
     void resized() override
     {
-        lfoBox = { 0, 0, 236, getHeight() };
-        matBox = { 248, 0, getWidth() - 248, getHeight() };
+        lfoBox = { 0, 0, 204, getHeight() };
+        matBox = { 214, 0, getWidth() - 214, getHeight() };
         for (int l = 0; l < P::kLfos; ++l)
         {
             const int y = rowY (l);
-            shapes[l]->setBounds (lfoBox.getX() + 32, y, 120, 30);
-            rates[l]->setBounds (lfoBox.getX() + 32, y + 36, 120, 30);
-            scopes[l]->setBounds (lfoBox.getX() + 160, y + 6, 64, 54);
+            shapes[l]->setBounds (lfoBox.getX() + 28, y, 104, 26);
+            rates[l]->setBounds (lfoBox.getX() + 28, y + 30, 104, 26);
+            scopes[l]->setBounds (lfoBox.getX() + 138, y + 4, 58, 48);
         }
         for (int s = 0; s < P::kSlots; ++s)
         {
             const int y = slotY (s);
-            auto r = juce::Rectangle<int> (matBox.getX() + 30, y, matBox.getWidth() - 42, 24);
-            srcs[s]->setBounds (r.removeFromLeft (108));
-            r.removeFromLeft (6);
-            dsts[s]->setBounds (r.removeFromLeft (136));
+            auto r = juce::Rectangle<int> (matBox.getX() + 26, y, matBox.getWidth() - 36, 21);
+            srcs[s]->setBounds (r.removeFromLeft (100));
+            r.removeFromLeft (4);
+            dsts[s]->setBounds (r.removeFromLeft (150));
             r.removeFromLeft (8);
             amts[s]->setBounds (r);
         }
     }
 
 private:
-    int rowY (int l) const { return 34 + l * 82; }
-    int slotY (int s) const { return 34 + s * 26; }
+    int rowY (int l) const { return 32 + l * 72; }
+    int slotY (int s) const { return 32 + s * 23; }
     Ogro2Processor& proc;
-    juce::OwnedArray<Choice> shapes, rates, srcs, dsts;
+    juce::OwnedArray<Choice> shapes, rates;
+    juce::OwnedArray<RouteChoice> srcs, dsts;
     juce::OwnedArray<LfoScope> scopes;
     juce::OwnedArray<juce::Slider> amts;
     juce::OwnedArray<APVTS::SliderAttachment> amtAtt;
@@ -277,7 +339,7 @@ public:
         static const char* shapeNames[] = { "RAMPA", "SENO", "TRI", "AZAR", "PLANO" };
         for (int l = 0; l < kLanes; ++l)
         {
-            addAndMakeVisible (dests.add (new Choice (p, P::lane (l, P::LaneDst), "", true)));
+            addAndMakeVisible (dests.add (new RouteChoice (p, RouteChoice::Kind::LaneDest, l)));
             addAndMakeVisible (bars.add (new Choice (p, P::lane (l, P::LaneBars), "")));
             auto* d = depths.add (new Knob (p, P::lane (l, P::LaneDepth), ""));
             d->setShowValue (false);
@@ -294,7 +356,11 @@ public:
         }
     }
     juce::String title() const override { return "MOTION"; }
-    void tick() override { for (auto* c : canvases) c->repaint(); }
+    void tick() override
+    {
+        for (auto* c : canvases) c->repaint();
+        for (auto* d : dests) d->refresh();
+    }
     void paint (juce::Graphics& g) override
     {
         for (int l = 0; l < kLanes; ++l)
@@ -337,7 +403,8 @@ private:
         canvases[l]->repaint();
     }
     Ogro2Processor& proc;
-    juce::OwnedArray<Choice> dests, bars;
+    juce::OwnedArray<RouteChoice> dests;
+    juce::OwnedArray<Choice> bars;
     juce::OwnedArray<Knob> depths;
     juce::OwnedArray<MotionCanvas> canvases;
     juce::OwnedArray<juce::TextButton> shapeButtons;
@@ -361,7 +428,9 @@ public:
         freq.setTitleSize (14.0f);
         for (int t = 0; t < kTracks; ++t)
         {
-            auto* r = routes.add (new Toggle (p, P::track (t, P::Ring), trackName (t), col::track (t)));
+            auto* r = routes.add (new Knob (p, P::track (t, P::Ring), trackName (t)));
+            r->setRing (col::track (t));
+            r->setTitleSize (12.0f);
             addAndMakeVisible (r);
         }
     }
@@ -370,7 +439,7 @@ public:
     void paint (juce::Graphics& g) override
     {
         paint::violetCard (g, ctlBox.toFloat(), T ("Portadora"));
-        paint::violetCard (g, routeBox.toFloat(), T ("Qué pistas pasan por el ring"));
+        paint::violetCard (g, routeBox.toFloat(), T ("Cuánto pasa cada pista por el ring"));
         paint::lcd (g, scopeRect.toFloat());
         const int w = (int) proc.value (P::RingWave);
         const float f = proc.value (P::RingFreq);
@@ -392,7 +461,7 @@ public:
         g.setFont (textFont (13.0f));
         g.drawFittedText (T ("El ring multiplica cada pista ruteada por la portadora: frecuencias bajas dan trémolo y movimiento, "
                              "altas dan campanas, metal y texturas inarmónicas. Ideal para percs y acordes minimal."),
-                          routeBox.reduced (12).withTrimmedTop (150), juce::Justification::topLeft, 6);
+                          routeBox.reduced (12).withTrimmedTop (262), juce::Justification::topLeft, 4);
     }
     void resized() override
     {
@@ -404,9 +473,9 @@ public:
         mix.setBounds (146, 146, 72, 96);
         spread.setBounds (220, 146, 72, 96);
         scopeRect = { 12, 250, 276, getHeight() - 262 };
-        const int bw = (routeBox.getWidth() - 24 - 10) / 2;
+        const int bw = (routeBox.getWidth() - 24) / 4;
         for (int t = 0; t < kTracks; ++t)
-            routes[t]->setBounds (routeBox.getX() + 12 + (t % 2) * (bw + 10), 34 + (t / 2) * 28, bw, 26);
+            routes[t]->setBounds (routeBox.getX() + 12 + (t % 4) * bw, 34 + (t / 4) * 112, bw, 108);
     }
 
 private:
@@ -415,7 +484,7 @@ private:
     Knob freq;
     Choice wave;
     Knob mix, spread;
-    juce::OwnedArray<Toggle> routes;
+    juce::OwnedArray<Knob> routes;
     juce::Rectangle<int> ctlBox, routeBox, scopeRect;
 };
 
@@ -522,7 +591,7 @@ Content::Content (Ogro2Processor& p) : proc (p), ctx { p }, lane (ctx), keys (ct
     }
     playOrb.onClick = [this] { proc.engine.setInternalPlay (playOrb.getToggleState()); };
     playOrb.setTooltip (T ("Toca sin el transporte de Ableton (para probar). Con Ableton en play, OGRO sigue a Ableton."));
-    rootChoice = std::make_unique<Choice> (p, P::Root, "TONALIDAD", false, Theme::Cream);
+    rootChoice = std::make_unique<Choice> (p, P::Root, "TONALIDAD", Theme::Cream);
     addAndMakeVisible (*rootChoice);
 
     // ---- Pistas ----
@@ -575,6 +644,10 @@ Content::Content (Ogro2Processor& p) : proc (p), ctx { p }, lane (ctx), keys (ct
         b->onClick = [this, i] { showPage (currentPage == i + 1 ? (int) PageTrack : i + 1); };
         addAndMakeVisible (b);
     }
+    depthButton.setTooltip (T ("Recorrido de las macros: x2 (el doble que la 1.0) o x1 (como la 1.0, lo usan los presets importados)"));
+    styleKey (depthButton, col::keyCream);
+    depthButton.onClick = [this] { proc.setValue (P::MacroDepth, proc.value (P::MacroDepth) > 0.5f ? 0.0f : 1.0f); };
+    addAndMakeVisible (depthButton);
     addAndMakeVisible (disc);
     ceiling = std::make_unique<Knob> (p, P::MCeiling, "TECHO", Theme::Cream);
     volume = std::make_unique<Knob> (p, P::MVol, "VOLUMEN", Theme::Cream);
@@ -584,6 +657,13 @@ Content::Content (Ogro2Processor& p) : proc (p), ctx { p }, lane (ctx), keys (ct
     // ---- Groove ----
     swing = std::make_unique<Knob> (p, P::Swing, "SWING", Theme::Cream);
     addAndMakeVisible (*swing);
+    randomButton.setClickingTogglesState (false);
+    styleKey (randomButton, col::violet, juce::Colours::white);
+    randomButton.onClick = [this] { proc.setValue (P::RandomMode, proc.value (P::RandomMode) < 0.5f ? 1.0f : 0.0f); };
+    randomButton.setTooltip (T ("FIJO: el azar (probabilidades, S&H, VARIA, ruido) sale de la semilla y cada render sale igual. "
+                               "VIVO: cambia cada vez, como en la 1.0."));
+    addAndMakeVisible (randomButton);
+    addAndMakeVisible (seedBox);
     styleKey (lenMinus, col::keyCream);
     styleKey (lenPlus, col::keyCream);
     lenMinus.onClick = [this] { auto& b = proc.engine.bank; b.setLength (ctx.pattern(), ctx.track(), b.getLength (ctx.pattern(), ctx.track()) - 1); };
@@ -642,8 +722,9 @@ Content::~Content() { stopTimer(); }
 void Content::refreshPreset()
 {
     const auto& presets = factoryPresets();
-    if (proc.userPresetName.isNotEmpty())
-        presetDisplay.setText (proc.userPresetName, T ("preset propio"));
+    const auto user = proc.getUserPresetName();
+    if (user.isNotEmpty())
+        presetDisplay.setText (user, T ("preset propio"));
     else
     {
         const auto& pr = presets[(size_t) juce::jlimit (0, (int) presets.size() - 1, proc.getPresetIndex())];
@@ -658,7 +739,7 @@ void Content::showPresetMenu()
     const auto& presets = factoryPresets();
     for (int i = 0; i < (int) presets.size(); ++i)
         m.addItem (i + 1, juce::String::fromUTF8 (presets[(size_t) i].name.c_str()) + "  ·  " + juce::String::fromUTF8 (presets[(size_t) i].mood.c_str()),
-                   true, proc.userPresetName.isEmpty() && i == proc.getPresetIndex());
+                   true, proc.getUserPresetName().isEmpty() && i == proc.getPresetIndex());
     m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (presetDisplay), [this] (int r) {
         if (r <= 0) return;
         proc.loadPreset (r - 1);
@@ -669,35 +750,43 @@ void Content::showPresetMenu()
 
 void Content::showFileMenu()
 {
-    auto presetDir = [] {
-        auto d = juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("OGRO 2 Presets");
-        d.createDirectory();
-        return d;
-    };
     juce::PopupMenu m;
     m.addItem (1, T ("Guardar preset propio..."));
     m.addItem (2, T ("Abrir preset propio..."));
-    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (fileButton), [this, presetDir] (int r) {
+    m.addSeparator();
+    m.addItem (3, T ("Importar preset de OGRO 1.0..."));
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (fileButton), [this] (int r) {
         if (r == 1)
         {
-            chooser = std::make_unique<juce::FileChooser> ("Guardar preset de OGRO 2", presetDir().getChildFile ("Mi preset.ogro"), "*.ogro");
+            chooser = std::make_unique<juce::FileChooser> ("Guardar preset de OGRO 2", Ogro2Processor::presetFolder().getChildFile ("Mi preset.ogro2"), "*.ogro2");
             chooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles
                                       | juce::FileBrowserComponent::warnAboutOverwriting,
                                   [this] (const juce::FileChooser& fc) {
                                       auto f = fc.getResult();
                                       if (f == juce::File()) return;
-                                      if (! f.hasFileExtension ("ogro")) f = f.withFileExtension ("ogro");
+                                      if (! f.hasFileExtension ("ogro2")) f = f.withFileExtension ("ogro2");
                                       proc.saveUserPreset (f);
                                       refreshPreset();
                                   });
         }
         else if (r == 2)
         {
-            chooser = std::make_unique<juce::FileChooser> ("Abrir preset de OGRO 2", presetDir(), "*.ogro");
+            chooser = std::make_unique<juce::FileChooser> ("Abrir preset de OGRO 2", Ogro2Processor::presetFolder(), "*.ogro2");
             chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
                                   [this] (const juce::FileChooser& fc) {
                                       const auto f = fc.getResult();
                                       if (f.existsAsFile() && proc.loadUserPreset (f)) { refreshPreset(); selectTrack (proc.selectedTrack); }
+                                  });
+        }
+        else if (r == 3)
+        {
+            const auto v1Dir = juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("OGRO Presets");
+            chooser = std::make_unique<juce::FileChooser> (T ("Importar preset de OGRO 1.0 (suena igual: el azar queda en VIVO)"),
+                                                           v1Dir.isDirectory() ? v1Dir : Ogro2Processor::presetFolder(), "*.ogro");
+            chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                                  [this] (const juce::FileChooser& fc) {
+                                      const auto f = fc.getResult();
+                                      if (f.existsAsFile() && proc.importV1Preset (f)) { refreshPreset(); selectTrack (proc.selectedTrack); }
                                   });
         }
     });
@@ -757,6 +846,7 @@ void Content::resized()
     // Columna derecha
     for (int m = 0; m < 4; ++m)
         macros[m]->setBounds (macroCard.getX() + 10 + (m % 2) * 148, macroCard.getY() + 40 + (m / 2) * 86, 146, 80);
+    depthButton.setBounds (macroCard.getRight() - 52, macroCard.getY() + 8, 42, 24);
     const int bw = macroCard.getWidth() / 5;
     for (int i = 0; i < 5; ++i) panelButtons[i]->setBounds (macroCard.getX() + i * bw, 360, bw - 4, 32);
     disc.setBounds (masterCard.getX() + 6, masterCard.getY() + 4, 128, 128);
@@ -765,8 +855,10 @@ void Content::resized()
 
     // Groove
     swing->setBounds (grooveCard.getX() + 10, grooveCard.getY() + 36, 84, 104);
-    lenMinus.setBounds (grooveCard.getX() + 108, grooveCard.getY() + 92, 32, 34);
-    lenPlus.setBounds (grooveCard.getX() + 188, grooveCard.getY() + 92, 32, 34);
+    lenMinus.setBounds (grooveCard.getX() + 108, grooveCard.getY() + 56, 32, 32);
+    lenPlus.setBounds (grooveCard.getX() + 188, grooveCard.getY() + 56, 32, 32);
+    randomButton.setBounds (grooveCard.getX() + 108, grooveCard.getY() + 108, 54, 30);
+    seedBox.setBounds (grooveCard.getX() + 166, grooveCard.getY() + 108, 54, 28);
     inventButton.setBounds (grooveCard.getX() + 12, grooveCard.getY() + 150, grooveCard.getWidth() - 24, 40);
     const int third = (grooveCard.getWidth() - 24 - 8) / 3;
     clearButton.setBounds (grooveCard.getX() + 12, grooveCard.getY() + 198, third, 32);
@@ -865,14 +957,14 @@ void Content::paint (juce::Graphics& g)
                 juce::Justification::centredLeft);
     g.setColour (col::caption);
     g.setFont (textFont (12.0f));
-    g.drawText (T ("al medio = sin cambio"), juce::Rectangle<int> (macroCard.getRight() - 160, macroCard.getY() + 10, 146, 18),
-                juce::Justification::centredRight);
+    g.drawText (T ("al medio = sin cambio"), juce::Rectangle<int> (macroCard.getX() + 110, macroCard.getY() + 10, 140, 18),
+                juce::Justification::centredLeft);
 
     // Título de la página en la ventana violeta (paneles)
     if (currentPage != PageTrack && currentPage < pages.size())
     {
         g.setColour (col::violetText);
-        drawSpaced (g, pages[currentPage]->title().toUpperCase(), { (float) window.getX() + 18.0f, (float) window.getY() + 14.0f, 400.0f, 32.0f },
+        drawSpaced (g, upper (pages[currentPage]->title()), { (float) window.getX() + 18.0f, (float) window.getY() + 14.0f, 400.0f, 32.0f },
                     titleFont (19.0f), 0.1f, juce::Justification::centredLeft);
     }
 
@@ -884,9 +976,11 @@ void Content::paint (juce::Graphics& g)
     drawSpaced (g, "GROOVE", { (float) grooveCard.getX() + 26.0f, (float) grooveCard.getY() + 10.0f, 200.0f, 20.0f }, titleFont (12.0f), 0.16f,
                 juce::Justification::centredLeft);
     g.setColour (col::label);
-    drawSpaced (g, "LARGO", { (float) grooveCard.getX() + 108.0f, (float) grooveCard.getY() + 62.0f, 110.0f, 20.0f }, labelFont (12.0f), 0.08f,
+    drawSpaced (g, "LARGO", { (float) grooveCard.getX() + 108.0f, (float) grooveCard.getY() + 36.0f, 110.0f, 18.0f }, labelFont (12.0f), 0.08f,
                 juce::Justification::centredLeft);
-    auto lenR = juce::Rectangle<float> ((float) grooveCard.getX() + 144.0f, (float) grooveCard.getY() + 92.0f, 40.0f, 32.0f);
+    drawSpaced (g, "AZAR", { (float) grooveCard.getX() + 108.0f, (float) grooveCard.getY() + 90.0f, 110.0f, 18.0f }, labelFont (12.0f), 0.08f,
+                juce::Justification::centredLeft);
+    auto lenR = juce::Rectangle<float> ((float) grooveCard.getX() + 144.0f, (float) grooveCard.getY() + 56.0f, 40.0f, 32.0f);
     paint::lcd (g, lenR, 6.0f);
     paint::glowText (g, juce::String (proc.engine.bank.getLength (ctx.pattern(), t)), lenR, lcdFont (28.0f), juce::Justification::centred);
 
@@ -922,7 +1016,18 @@ void Content::timerCallback()
         playOrb.setToggleState (proc.engine.isInternalPlaying(), juce::dontSendNotification);
     keys.repaint();
     const auto rev = proc.engine.bank.revision.load();
-    if (rev != lastRevision) { lastRevision = rev; lane.repaint(); repaint (grooveCard); }
+    if (rev != lastRevision)
+    {
+        lastRevision = rev;
+        lane.repaint();
+        repaint (grooveCard);
+        stateDirty = true;
+    }
+    // Patrones editados: avisamos al host (como mucho dos veces por segundo)
+    if (stateDirty && blink % 15 == 0) { proc.notifyStateChanged(); stateDirty = false; }
+    randomButton.setButtonText (proc.value (P::RandomMode) < 0.5f ? "FIJO" : "VIVO");
+    depthButton.setButtonText (proc.value (P::MacroDepth) > 0.5f ? "x2" : "x1");
+    seedBox.repaint();
     if (auto* pg = pages[currentPage]) pg->tick();
     disc.set (juce::jmax (m.outL.load(), m.outR.load()), m.limGr.load());
     repaint (juce::Rectangle<int> (636, 36, 270, 14));
