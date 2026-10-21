@@ -23,6 +23,7 @@ std::vector<float> defaults()
     for (size_t i = 0; i < d.size(); ++i) v[i] = d[i].def;
     v[P::Swing] = 0.5f;
     v[P::Tempo] = 120.0f;
+    v[P::Tonal] = 0.0f;   // estos tests usan semitonos
     v[P::MComp] = 0; v[P::MWarmth] = 0; v[P::BusComp] = 0; v[P::BusCrudo] = 0; v[P::MTexture] = 0;
     v[P::DlyRet] = 0; v[P::RevRet] = 0;
     for (int m = 0; m < 4; ++m) v[(size_t) (P::Macro1 + m)] = 0.5f;

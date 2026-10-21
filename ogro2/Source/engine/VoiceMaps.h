@@ -1,4 +1,4 @@
-// OGRO 2 — definición de las 8 pistas: nombres, controles y cómo se traduce
+// OGRO 2 — definición de las 10 pistas: nombres, controles y cómo se traduce
 // cada perilla (0..1) a valores físicos. Lo usan el motor y la interfaz.
 #pragma once
 
@@ -11,18 +11,23 @@ namespace ogro2
 {
 using namespace evo2;
 
-constexpr int kTracks = 8;
+constexpr int kTracks = 10;
 constexpr int kSoundParams = 8;
 
-enum Track : int { Kick = 0, Clap, Rim, HatC, HatO, Perc, Bass, Chord };
+// Las 8 de la 1.0 (MIDI C1-G1) y las nuevas a continuación (MELODÍA G#1, TEXTURAS A1)
+enum Track : int { Kick = 0, Clap, Rim, HatC, HatO, Perc, Bass, Chord, Melody, Texture };
 
 inline const char* trackName (int t)
 {
-    static const char* names[] = { "KICK", "CLAP", "RIM", "HAT C", "HAT A", "PERC", "BAJO", "ACORDES" };
+    static const char* names[] = { "KICK", "CLAP", "RIM", "HAT C", "HAT A", "PERC", "BAJO", "ACORDES", "MELODIA", "TEXTURAS" };
     return names[clampv (t, 0, kTracks - 1)];
 }
 
 inline bool isDrum (int t) { return t <= Perc; }
+// Pistas con salida estéreo propia (las demás son mono)
+inline bool isStereoTrack (int t) { return t == Chord || t == Melody || t == Texture; }
+// Pistas cuya NOTA es una altura (con MODO TONAL, un grado de la escala)
+inline bool isPitched (int t) { return t == Perc || t == Bass || t == Chord || t == Melody || t == Texture; }
 
 // Parámetros de disparo de un paso
 struct Hit
@@ -34,6 +39,8 @@ struct Hit
     double gateSamples = 0; // largo de la nota (0 = sin gate: la envolvente cae sola)
     bool fixedSeed = false; // azar FIJO: el ruido y la VARIA salen de "seed"
     uint32_t seed = 0;
+    int octave = 0;         // octava del paso (-3..+3)
+    int chordType = -1;     // tipo de acorde del paso (-1 = el de la pista)
 };
 
 // Hash de 32 bits (azar reproducible: mismo paso + misma semilla = mismo resultado)
@@ -57,9 +64,13 @@ inline int stepMap (float n, int count) { return clampv ((int) std::floor (clamp
 inline float stepCentre (int idx, int count) { return ((float) idx + 0.5f) / (float) count; }
 
 // Tipos de acorde (la lista solo crece al final: el parámetro tiene 32 lugares)
+constexpr int kChordTypes = 23;
+constexpr int kMaxChordNotes = 6;
 inline const std::vector<std::string>& chordTypeNames()
 {
-    static const std::vector<std::string> n { "m7", "m9", "m11", "maj7", "maj9", "9", "sus7", "5ta+8va" };
+    static const std::vector<std::string> n { "m7", "m9", "m11", "maj7", "maj9", "9", "sus7", "5ta+8va",
+                                              "m", "M", "m6", "add9", "m add9", "sus2", "sus4", "Cuartas",
+                                              "m9 Detroit", "m11 Detroit", "6/9", "7", "dim", "m7b5", "maj7#11" };
     return n;
 }
 inline const char* chordTypeName (int i)
@@ -68,22 +79,94 @@ inline const char* chordTypeName (int i)
     return n[(size_t) clampv (i, 0, (int) n.size() - 1)].c_str();
 }
 
+// Intervalos en semitonos (modo PARALELO: el acorde se transpone entero)
 inline const float* chordIntervals (int i, int& count)
 {
-    static const float tab[8][5] = {
-        { 0, 3, 7, 10, 0 },   // m7
-        { 0, 3, 7, 10, 14 },  // m9
-        { 0, 3, 10, 14, 17 }, // m11 (voicing abierto)
-        { 0, 4, 7, 11, 0 },   // maj7
-        { 0, 4, 7, 11, 14 },  // maj9
-        { 0, 4, 10, 14, 0 },  // 9 (dominante, sin 5ta)
-        { 0, 5, 7, 10, 0 },   // sus4 con 7ma
-        { 0, 7, 12, 19, 0 },  // quintas apiladas
+    static const float tab[kChordTypes][kMaxChordNotes] = {
+        { 0, 3, 7, 10 },        // m7
+        { 0, 3, 7, 10, 14 },    // m9
+        { 0, 3, 10, 14, 17 },   // m11 (voicing abierto)
+        { 0, 4, 7, 11 },        // maj7
+        { 0, 4, 7, 11, 14 },    // maj9
+        { 0, 4, 10, 14 },       // 9 (dominante, sin 5ta)
+        { 0, 5, 7, 10 },        // sus4 con 7ma
+        { 0, 7, 12, 19 },       // quintas apiladas
+        { 0, 3, 7 },            // m
+        { 0, 4, 7 },            // M
+        { 0, 3, 7, 9 },         // m6
+        { 0, 4, 7, 14 },        // add9
+        { 0, 3, 7, 14 },        // m add9
+        { 0, 2, 7 },            // sus2
+        { 0, 5, 7 },            // sus4
+        { 0, 5, 10, 15 },       // cuartas apiladas
+        { 0, 7, 10, 14, 15 },   // m9 Detroit (5ta, 7ma y 9na abajo, 3ra arriba)
+        { 0, 7, 10, 14, 17 },   // m11 Detroit
+        { 0, 4, 9, 14 },        // 6/9
+        { 0, 4, 7, 10 },        // 7
+        { 0, 3, 6 },            // dim
+        { 0, 3, 6, 10 },        // m7b5
+        { 0, 4, 7, 11, 18 },    // maj7#11
     };
-    static const int counts[8] = { 4, 5, 5, 4, 5, 4, 4, 4 };
-    const int k = clampv (i, 0, 7);
+    static const int counts[kChordTypes] = { 4, 5, 5, 4, 5, 4, 4, 4, 3, 3, 4, 4, 4, 3, 3, 4, 5, 5, 4, 4, 3, 4, 5 };
+    const int k = clampv (i, 0, kChordTypes - 1);
     count = counts[k];
     return tab[k];
+}
+
+// Grados de la escala desde la raíz del acorde (modo DIATÓNICO: todo queda en tono y la
+// calidad del acorde la decide la escala; el tipo elige la forma)
+inline const int* chordDegrees (int i, int& count)
+{
+    static const int tab[kChordTypes][kMaxChordNotes] = {
+        { 0, 2, 4, 6 }, { 0, 2, 4, 6, 8 }, { 0, 2, 6, 8, 10 }, { 0, 2, 4, 6 }, { 0, 2, 4, 6, 8 }, { 0, 2, 6, 8 },
+        { 0, 3, 4, 6 }, { 0, 4, 7, 11 }, { 0, 2, 4 }, { 0, 2, 4 }, { 0, 2, 4, 5 }, { 0, 2, 4, 8 }, { 0, 2, 4, 8 },
+        { 0, 1, 4 }, { 0, 3, 4 }, { 0, 3, 6, 9 }, { 0, 4, 6, 8, 9 }, { 0, 4, 6, 8, 10 }, { 0, 2, 5, 8 }, { 0, 2, 4, 6 },
+        { 0, 2, 4 }, { 0, 2, 4, 6 }, { 0, 2, 4, 6, 10 },
+    };
+    static const int counts[kChordTypes] = { 4, 5, 5, 4, 5, 4, 4, 4, 3, 3, 4, 4, 4, 3, 3, 4, 5, 5, 4, 4, 3, 4, 5 };
+    const int k = clampv (i, 0, kChordTypes - 1);
+    count = counts[k];
+    return tab[k];
+}
+
+// Escalas (la lista solo crece al final)
+inline const std::vector<std::string>& scaleNames()
+{
+    static const std::vector<std::string> n { "Menor", "Dorica", "Frigia", "Menor armonica", "Mayor", "Mixolidia", "Pentatonica menor" };
+    return n;
+}
+inline const int* scaleSteps (int i, int& count)
+{
+    static const int tab[7][7] = {
+        { 0, 2, 3, 5, 7, 8, 10 }, { 0, 2, 3, 5, 7, 9, 10 }, { 0, 1, 3, 5, 7, 8, 10 }, { 0, 2, 3, 5, 7, 8, 11 },
+        { 0, 2, 4, 5, 7, 9, 11 }, { 0, 2, 4, 5, 7, 9, 10 }, { 0, 3, 5, 7, 10 },
+    };
+    static const int counts[7] = { 7, 7, 7, 7, 7, 7, 5 };
+    const int k = clampv (i, 0, 6);
+    count = counts[k];
+    return tab[k];
+}
+// Grado de la escala (puede ser negativo o pasar la octava) -> semitonos desde la tónica
+inline int degreeToSemis (int degree, int scale)
+{
+    int n = 0;
+    const int* st = scaleSteps (scale, n);
+    const int oct = (int) std::floor ((double) degree / n);
+    return 12 * oct + st[degree - oct * n];
+}
+// Grado más cercano a una altura en semitonos desde la tónica (empate: el de abajo)
+inline int semisToDegree (int semis, int scale)
+{
+    int n = 0;
+    scaleSteps (scale, n);
+    const int approx = (int) std::floor ((double) semis * n / 12.0);
+    int best = approx, bestD = 1 << 20;
+    for (int d = approx - 2; d <= approx + 2; ++d)
+    {
+        const int dist = std::abs (degreeToSemis (d, scale) - semis);
+        if (dist < bestD) { bestD = dist; best = d; }
+    }
+    return best;
 }
 
 inline const float* percRatios()
@@ -126,6 +209,12 @@ inline ParamInfo soundParamInfo (int t, int p)
         // ACORDES
         { { "TIPO", 0.1875f }, { "DECAY", 0.35f }, { "CORTE", 0.45f }, { "RESO", 0.2f },
           { "ENV", 0.4f }, { "DETUNE", 0.35f }, { "CHORUS", 0.5f }, { "ATAQUE", 0.05f } },
+        // MELODIA
+        { { "MODELO", 0.0f }, { "DECAY", 0.4f }, { "CORTE", 0.55f }, { "RESO", 0.2f },
+          { "ENV", 0.4f }, { "TIMBRE", 0.4f }, { "VIBRATO", 0.15f }, { "GLIDE", 0.2f } },
+        // TEXTURAS (samples)
+        { { "INICIO", 0.0f }, { "LARGO", 1.0f }, { "PITCH", 0.5f }, { "CORTE", 1.0f },
+          { "RESO", 0.1f }, { "ENV", 0.0f }, { "DRIVE", 0.0f }, { "P.ENV", 0.5f } },
     };
     return tab[clampv (t, 0, kTracks - 1)][clampv (p, 0, kSoundParams - 1)];
 }
@@ -185,6 +274,21 @@ namespace maps
     inline float chordEnvOct (float n) { return linMap (n, 0.0f, 5.0f); }
     inline float detuneCents (float n) { return linMap (n, 0.0f, 32.0f); }
     inline float attackMs (float n) { return expMap (n, 1.0f, 600.0f); }
+    // Melodía
+    inline float melCut (float n) { return expMap (n, 200.0f, 16000.0f); }
+    inline float melReso (float n) { return linMap (n, 0.0f, 0.9f); }
+    inline float melEnvOct (float n) { return linMap (n, 0.0f, 5.0f); }
+    inline float vibratoCents (float n) { return linMap (n, 0.0f, 45.0f); }
+    // Texturas
+    inline float texPitch (float n) { return linMap (n, -24.0f, 24.0f); }
+    inline float texPitchEnv (float n) { return linMap (n, -24.0f, 24.0f); }
+}
+
+// Modelos de la voz de melodía (la lista solo crece al final)
+inline const std::vector<std::string>& melodyModelNames()
+{
+    static const std::vector<std::string> n { "Pluck", "Lead", "Campana", "Organo" };
+    return n;
 }
 
 // Texto que muestra cada perilla de sonido
@@ -261,6 +365,24 @@ inline std::string describeSound (int t, int p, float n)
                 case 4: return fmt ("%.1f oct", chordEnvOct (n));
                 case 5: return fmt ("%.0f ct", detuneCents (n));
                 case 7: return fmtMs (attackMs (n));
+                default: return fmtPct (n);
+            }
+        case Melody:
+            switch (p)
+            {
+                case 1: return fmtMs (synthDecay (n));
+                case 2: return fmtHz (melCut (n));
+                case 4: return fmt ("%.1f oct", melEnvOct (n));
+                case 6: return fmt ("%.0f ct", vibratoCents (n));
+                case 7: return fmtMs (glideMs (n));
+                default: return fmtPct (n);
+            }
+        case Texture:
+            switch (p)
+            {
+                case 2: return fmt ("%+.1f st", texPitch (n));
+                case 3: return fmtHz (expMap (n, 60.0f, 20000.0f));
+                case 7: return fmt ("%+.0f st", texPitchEnv (n));
                 default: return fmtPct (n);
             }
         default: return fmtPct (n);

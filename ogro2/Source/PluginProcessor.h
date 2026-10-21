@@ -10,7 +10,8 @@ class Ogro2Processor : public juce::AudioProcessor
 {
 public:
     // Versión del formato del estado guardado (sesiones y presets). Subirla solo con migración.
-    static constexpr int kStateVersion = 1;
+    // 1: fase 1 · 2: fase 3 (tonalidad, melodía, texturas; migración con ParamDef::compat)
+    static constexpr int kStateVersion = 2;
     // Salidas separadas: la principal + una por pista (10) + 2 reservadas para versiones 2.x
     static constexpr int kAuxOutputs = 12;
 

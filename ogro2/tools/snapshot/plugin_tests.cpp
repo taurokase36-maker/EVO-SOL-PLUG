@@ -133,6 +133,18 @@ int main()
         const bool ok = std::abs (a.value (P::sound (Bass, 2)) - 0.9f) < 1e-5f
                         && std::abs (a.value (P::sound (Kick, 0)) - paramDefs()[(size_t) P::sound (Kick, 0)].def) < 1e-5f;
         all &= report ("estado futuro", ok, "toma lo que conoce, ignora lo nuevo y lo que falta queda por defecto");
+        // Migración: un estado de la versión 1 (fases 1 y 2) no tiene MODO TONAL ni modo de acordes:
+        // quedan como sonaba (apagado, paralelo, acento clásico, polirritmos continuos)
+        const bool migrated = a.value (P::Tonal) == 0.0f && a.value (P::ChordMode) == 1.0f && a.value (P::BassAccent) == 0.0f
+                              && a.value (P::PolyMode) == 1.0f && a.value (P::ChordLead) == 0.0f;
+        all &= report ("migracion", migrated, "estado v1: modo tonal apagado, acordes en paralelo, acento clasico, polirritmos continuos");
+        // Un estado nuevo (v2) sin esos parámetros usa los valores por defecto de OGRO 2
+        Ogro2Processor c;
+        xml->setAttribute ("stateVersion", Ogro2Processor::kStateVersion);
+        juce::MemoryBlock mb2;
+        juce::AudioProcessor::copyXmlToBinary (*xml, mb2);
+        c.setStateInformation (mb2.getData(), (int) mb2.getSize());
+        all &= report ("migracion", c.value (P::Tonal) == 1.0f && c.value (P::ChordMode) == 0.0f, "estado v2: valores por defecto de OGRO 2");
     }
 
     // ---- 4) Importar un preset .ogro de OGRO 1.0: suena igual que la 1.0 ----

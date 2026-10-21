@@ -17,12 +17,25 @@ INSTALAR
 Si macOS dice que está dañado, en Terminal:
   xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/VST3/"OGRO 2.vst3" ~/Library/Audio/Plug-Ins/Components/"OGRO 2.component"
 
-ESTADO: VERSIÓN EN DESARROLLO (fase 2 de 7)
+ESTADO: VERSIÓN EN DESARROLLO (fase 3 de 7)
 - Los IDs de los parámetros son definitivos: lo que guardes con OGRO 2 sigue abriendo en
-  las próximas versiones.
+  las próximas versiones (y suena igual).
 - En el logo vas a ver un "2": así sabés cuál es cuál.
 
-QUÉ PROBAR EN ESTA VERSIÓN (fase 2)
+QUÉ PROBAR EN ESTA VERSIÓN (fase 3)
+1. TONALIDAD (arriba a la derecha): clic > Tónica, Escala y "Modo tonal". Con MODO TONAL,
+   en NOTA cada paso es un grado de la escala: probá subir y bajar notas del bajo y de la
+   MELODÍA, nunca desafina. Los presets de la 1.0 lo traen apagado (suenan igual).
+2. ACORDES: MODO "Diatonico", VOICE LEAD. encendido. Poné notas distintas en varios pasos
+   (NOTA 0, 3, 5, 4...): los acordes cambian de calidad solos y se mueven poco entre sí.
+   Probá APERTURA, STRUM e INVERSIÓN. En el secuenciador, modo TIPO = acorde por paso.
+3. BAJO: FORMA (Pulso, Supersierra...), SUB, ACENTO "303" con pasos acentuados (clic
+   derecho en la tecla) y LIGA en algunos pasos. LEGATO + GATE largo.
+4. MELODÍA (pista nueva, MIDI G#1): INVENTAR en esa pista, después MODELO Pluck / Lead /
+   Campana / Organo, VOCES poly o mono, GLIDE y VIBRATO.
+5. Abrí una sesión guardada con la versión anterior de OGRO 2: tiene que sonar igual.
+
+QUÉ PROBAR DE LA FASE 2
 1. ARREGLO > FX de fin de compás: FX CADA "Cada 4 compases", subí la probabilidad de
    Stutter y Barrido de filtro. En el último paso de cada 4 compases tiene que pasar.
    Probá también TIRAR FX con Ableton en play.
@@ -51,4 +64,5 @@ USO RÁPIDO
   los de OGRO 1.0) e importar presets .ogro de la 1.0.
 
 MIDI: las notas C1 a G1 (36-43) disparan las 8 pistas, igual que en OGRO 1.0,
-así tus clips MIDI sirven en los dos.
+así tus clips MIDI sirven en los dos. Las pistas nuevas siguen: G#1 (44) = MELODÍA,
+A1 (45) = TEXTURAS.

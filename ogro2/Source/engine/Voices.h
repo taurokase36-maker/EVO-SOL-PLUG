@@ -594,13 +594,27 @@ public:
         if (releaseMs != envR) { envR = releaseMs; relC = decayCoef (releaseMs, fs); }
     }
     void release() override { if (envS > 0.0f) released = true; }
+    // Fase 3: sub (0..1), forma (0 = la clásica de la 1.0), acento 303 y legato
+    void setExtras (float subLevel, int oscType, bool acid303, bool legatoMode)
+    {
+        sub = clampv (subLevel, 0.0f, 1.0f); osc = oscType; acid = acid303; legato = legatoMode;
+    }
     void trigger (const Hit& h) override
     {
         beginHit (h);
         const int oct = maps::bassOctave (prm[0]);
         const float note = 36.0f + (float) root + 12.0f * (float) oct + h.note;
         targetNote = note;
-        if (! (h.slide && active))
+        // Legato: si la nota anterior sigue apretada, se liga sin volver a disparar
+        const bool tie = (h.slide || (legato && ! released && gateLeft > 0.0)) && active;
+        if (acid)
+        {
+            // Acento 303: más volumen, más filtro y un "barrido" que se acumula con acentos seguidos
+            accentEnv = h.accent ? 1.0f : 0.0f;
+            accentSweep = h.accent ? std::min (2.0f, accentSweep * 0.6f + 1.0f) : accentSweep * 0.5f;
+            slideNow = h.slide && active;
+        }
+        if (! tie)
         {
             declick.start (lastOut);
             curNote = note;
@@ -611,9 +625,9 @@ public:
         }
         gateLeft = h.gateSamples > 0.0 ? h.gateSamples : 1.0e18;
         released = false;
-        gain = velGain (h.vel) * (h.accent ? 1.2f : 1.0f);
+        gain = velGain (h.vel) * (h.accent ? (acid ? 1.45f : 1.2f) : 1.0f);
         accent = h.accent ? 1.0f : 0.0f;
-        if (h.slide && active) fenv = std::max (fenv, 0.6f);
+        if (tie) fenv = std::max (fenv, 0.6f);
         active = true;
     }
     void render (float* out, int n) noexcept override
@@ -621,14 +635,18 @@ public:
         using namespace maps;
         const float dec = synthDecay (prm[1]);
         const float aC = decayCoef (dec, fs), fC = decayCoef (dec * 0.55f, fs);
-        const float glideC = 1.0f - (float) std::exp (-1.0 / (glideMs (prm[7]) * 0.001 * fs));
+        // 303: el slide tarda siempre lo mismo (~60 ms escalado por GLIDE), si no hay slide la nota salta
+        const float glideMsNow = acid ? (slideNow ? 25.0f + 0.4f * glideMs (prm[7]) : 0.3f) : glideMs (prm[7]);
+        const float glideC = 1.0f - (float) std::exp (-1.0 / (glideMsNow * 0.001 * fs));
+        const float accC = decayCoef (200.0f, fs);
         const float sus = envS;
         const float driftFixed = fixedRandom ? positionalDrift (randomSeed, 0xBA55u, songSeconds, 0.3f) : 0.0f;
         const float cut = bassCut (prm[2]);
         const float reso = bassReso (prm[3]);
-        const float envAmt = envOct (prm[4]) * (1.0f + 0.4f * accent);
+        const float envAmt = envOct (prm[4]) * (1.0f + (acid ? 0.0f : 0.4f * accent));
         const float drive = 1.0f + prm[5] * prm[5] * 6.0f;
         const float wave = prm[6];
+        const float fC303 = acid && accent > 0.5f ? decayCoef (200.0f, fs) : fC;   // con acento el filtro cae rápido
         for (int i = 0; i < n; ++i)
         {
             if (! active) { out[i] = declick.apply (0.0f); continue; }
@@ -638,14 +656,22 @@ public:
             const float dt = hz / (float) fs;
             ph += dt; if (ph >= 1.0f) ph -= 1.0f;
             phSub += dt * 0.5f; if (phSub >= 1.0f) phSub -= 1.0f;
-            const float saw = blepSaw (ph, dt), sq = blepSquare (ph, dt), sub = blepSquare (phSub, dt * 0.5f);
-            float osc;
-            if (wave < 0.5f) osc = saw + (sq - saw) * (wave * 2.0f);
-            else osc = sq * (1.0f - (wave - 0.5f)) + sub * (wave - 0.5f) * 1.6f;
+            float o;
+            if (osc == 0)
+            {
+                const float saw = blepSaw (ph, dt), sq = blepSquare (ph, dt), sq2 = blepSquare (phSub, dt * 0.5f);
+                if (wave < 0.5f) o = saw + (sq - saw) * (wave * 2.0f);
+                else o = sq * (1.0f - (wave - 0.5f)) + sq2 * (wave - 0.5f) * 1.6f;
+            }
+            else o = shape (dt);
 
             if ((i & 15) == 0)
-                ladder.set (fs, std::min (cut * std::exp2 (envAmt * fenv), 18000.0f), reso);
-            float y = ladder.process (osc * 0.9f * drive) / std::sqrt (drive);
+            {
+                float fc = cut * std::exp2 (envAmt * fenv);
+                if (acid) fc *= std::exp2 (accentEnv * (1.2f + 0.8f * accentSweep));
+                ladder.set (fs, std::min (fc, 18000.0f), reso);
+            }
+            float y = ladder.process (o * 0.9f * drive) / std::sqrt (drive);
             amp += atkC * (ampTarget - amp);
             if (sus > 0.0f)
             {
@@ -653,7 +679,10 @@ public:
                 ampTarget = released ? ampTarget * relC : sus + (ampTarget - sus) * aC;
             }
             else ampTarget *= aC;
-            fenv *= fC;
+            fenv *= acid ? fC303 : fC;
+            if (acid) { accentEnv *= accC; accentSweep *= 0.99999f; }
+            // Sub: seno una octava abajo, limpio (después del filtro)
+            if (sub > 0.0f) y += sub * 0.7f * sin01 (phSub) / std::sqrt (drive);
             y *= amp * gain;
             y = std::tanh (y * 1.6f) * 0.9f;
             if (ampTarget < 1.0e-4f && amp < 1.0e-4f) active = false;
@@ -667,13 +696,46 @@ public:
     {
         MonoVoice::resetState();
         ph = phSub = amp = ampTarget = fenv = 0.0f;
+        ph2 = 0.33f; ph3 = 0.71f;
         curNote = targetNote = 36.0f;
         gateLeft = 0.0; released = false;
+        accentEnv = accentSweep = 0.0f; slideNow = false;
         ladder.reset();
     }
 
 private:
-    int root = 0;
+    // Formas nuevas (ONDA es el timbre de cada una)
+    float shape (float dt) noexcept
+    {
+        const float w = prm[6];
+        switch (osc)
+        {
+            case 1: // pulso: ONDA = ancho (50 % a 5 %)
+            {
+                const float pw = 0.5f - 0.45f * w;
+                float p2 = ph + (1.0f - pw); if (p2 >= 1.0f) p2 -= 1.0f;
+                return 0.9f * (blepSaw (ph, dt) - blepSaw (p2, dt));
+            }
+            case 2: // supersierra: 3 sierras, ONDA = desafinación
+            {
+                const float d = 1.0f + 0.012f * w;
+                ph2 += dt * d; if (ph2 >= 1.0f) ph2 -= 1.0f;
+                ph3 += dt / d; if (ph3 >= 1.0f) ph3 -= 1.0f;
+                return 0.5f * (blepSaw (ph, dt) + blepSaw (ph2, dt * d) + blepSaw (ph3, dt / d));
+            }
+            case 3: // triángulo, ONDA lo vuelve más brillante (pliega)
+            {
+                const float tri = ph < 0.5f ? 4.0f * ph - 1.0f : 3.0f - 4.0f * ph;
+                return std::tanh (tri * (1.0f + 3.0f * w)) * 1.1f;
+            }
+            case 4: // seno FM (modulación de fase consigo mismo): ONDA = índice
+                return sin01 (ph + (w * 2.5f / (float) kTwoPi) * sin01 (ph));
+            default: return 0.0f;
+        }
+    }
+    int root = 0, osc = 0;
+    float sub = 0.0f, ph2 = 0.33f, ph3 = 0.71f, accentEnv = 0.0f, accentSweep = 0.0f;
+    bool acid = false, legato = false, slideNow = false;
     float ph = 0, phSub = 0, curNote = 36, targetNote = 36, amp = 0, ampTarget = 0, fenv = 0, sustain = 1, gain = 1, accent = 0;
     float envA = -1.0f, envS = 0.0f, envR = -1.0f, atkC = 0.1f, relC = 0.999f;
     double gateLeft = 0.0;
@@ -685,10 +747,25 @@ private:
 // ---------------------------------------------------------------------------
 // ACORDES: polifónico (hasta 5 notas x 2 sierras desafinadas), filtro + chorus
 // ---------------------------------------------------------------------------
-class ChordVoice
+// Voces estéreo (acordes, melodía, texturas)
+class StereoVoice
 {
 public:
-    void prepare (double sampleRate, uint32_t seed)
+    virtual ~StereoVoice() = default;
+    virtual void prepare (double sampleRate, uint32_t seed) = 0;
+    virtual void setParams (const float* p) = 0;
+    virtual void setSongTime (double seconds, bool fixed, uint32_t s) = 0;
+    virtual void trigger (const Hit& h) = 0;
+    virtual void release() = 0;
+    virtual void render (float* outL, float* outR, int n) noexcept = 0;
+    virtual bool isActive() const = 0;
+    virtual void resetState() noexcept = 0;
+};
+
+class ChordVoice : public StereoVoice
+{
+public:
+    void prepare (double sampleRate, uint32_t seed) override
     {
         fs = sampleRate;
         initSeed = seed;
@@ -701,17 +778,25 @@ public:
         setEnv (0.0f, 300.0f);
         for (int i = 0; i < 10; ++i) drift[i].prepare (fs, 0.2f + 0.05f * (float) i, seed + 17u * (uint32_t) i);
     }
-    void setParams (const float* p) { for (int i = 0; i < kSoundParams; ++i) prm[i] = p[i]; }
+    void setParams (const float* p) override { for (int i = 0; i < kSoundParams; ++i) prm[i] = p[i]; }
     void setRoot (int r) { root = r; }
     void setEnv (float sus, float releaseMs)
     {
         envS = clampv (sus, 0.0f, 1.0f);
         if (releaseMs != envR) { envR = releaseMs; userRelC = decayCoef (releaseMs, fs); }
     }
-    void setSongTime (double seconds, bool fixed, uint32_t s) { songSeconds = seconds; fixedRandom = fixed; randomSeed = s; }
-    bool isActive() const { return slots[0].active || slots[1].active; }
-    void release() { if (envS > 0.0f) for (auto& s : slots) s.gateLeft = 0.0; }
-    void resetState() noexcept
+    void setStrum (float ms) { strumSamples = std::max (0.0, (double) ms * 0.001 * fs); }
+    // Notas del próximo acorde (las arma el motor: tonalidad, inversión, voice leading)
+    void setNextNotes (const float* notes, int count)
+    {
+        pendingCount = clampv (count, 1, kMaxChordNotes);
+        for (int k = 0; k < pendingCount; ++k) pending[k] = notes[k];
+    }
+    const float* lastNotes (int& count) const { count = slots[(size_t) cur].count; return slots[(size_t) cur].note; }
+    void setSongTime (double seconds, bool fixed, uint32_t s) override { songSeconds = seconds; fixedRandom = fixed; randomSeed = s; }
+    bool isActive() const override { return slots[0].active || slots[1].active; }
+    void release() override { if (envS > 0.0f) for (auto& s : slots) s.gateLeft = 0.0; }
+    void resetState() noexcept override
     {
         for (auto& s : slots) { s.active = s.attackDone = s.release = false; s.amp = s.fenv = 0.0f; s.gateLeft = 0.0; s.fl.reset(); s.fr.reset(); }
         chorusL.clear(); chorusR.clear();
@@ -719,21 +804,25 @@ public:
         rng.seed (initSeed);
     }
 
-    void trigger (const Hit& h)
+    void trigger (const Hit& h) override
     {
         if (h.fixedSeed) rng.seed (h.seed);
-        const int type = (int) std::lround (prm[0]);
+        if (pendingCount <= 0)
+        {
+            // Sin notas del motor (tests directos): acorde de la pista en paralelo, como la 1.0
+            const float* iv = chordIntervals ((int) std::lround (prm[0]), pendingCount);
+            for (int k = 0; k < pendingCount; ++k) pending[k] = 48.0f + (float) root + h.note + iv[k];
+        }
+        const int count = pendingCount;
+        pendingCount = 0;
         // LIGADO: si el acorde sigue sonando, cambian las notas sin volver a disparar la envolvente
         Slot& prev = slots[(size_t) cur];
         if (h.slide && prev.active && ! prev.release)
         {
-            int count = 0;
-            const float* iv = chordIntervals (type, count);
-            const float rootNote = 48.0f + (float) root + h.note;
             for (int k = 0; k < count; ++k)
             {
-                if (k >= prev.count) { prev.ph[k][0] = rng.uni(); prev.ph[k][1] = rng.uni(); }
-                prev.note[k] = rootNote + iv[k];
+                if (k >= prev.count) { prev.ph[k][0] = rng.uni(); prev.ph[k][1] = rng.uni(); prev.wait[k] = 0.0; prev.fade[k] = 1.0f; }
+                prev.note[k] = pending[k];
             }
             prev.count = count;
             prev.gateLeft = h.gateSamples > 0.0 ? h.gateSamples : 1.0e18;
@@ -741,14 +830,15 @@ public:
         }
         cur = 1 - cur;
         Slot& s = slots[(size_t) cur];
-        int count = 0;
-        const float* iv = chordIntervals (type, count);
         s.count = count;
-        const float rootNote = 48.0f + (float) root + h.note;
+        s.strum = strumSamples > 0.5;
         for (int k = 0; k < count; ++k)
         {
-            s.note[k] = rootNote + iv[k];
+            s.note[k] = pending[k];
             s.ph[k][0] = rng.uni(); s.ph[k][1] = rng.uni();
+            // Strum: cada nota entra un poco después que la anterior (de abajo hacia arriba)
+            s.wait[k] = s.strum ? strumSamples * (double) k : 0.0;
+            s.fade[k] = s.strum && k > 0 ? 0.0f : 1.0f;
         }
         s.gateLeft = h.gateSamples > 0.0 ? h.gateSamples : 1.0e18;
         s.amp = 0.0f;
@@ -762,10 +852,11 @@ public:
         if (o.active) o.release = true;
     }
 
-    void render (float* outL, float* outR, int n) noexcept
+    void render (float* outL, float* outR, int n) noexcept override
     {
         using namespace maps;
         const float dec = synthDecay (prm[1]);
+        const float fadeInc = (float) (1.0 / (0.003 * fs));
         const float aC = decayCoef (dec, fs), fC = decayCoef (dec * 0.6f, fs), relC = decayCoef (90.0f, fs);
         const float atkMs = attackMs (prm[7]);
         const float atkC = 1.0f - (float) std::exp (-1.0 / (atkMs * 0.001 * fs));
@@ -816,6 +907,13 @@ public:
                 float sl = 0.0f, sr = 0.0f;
                 for (int k = 0; k < s.count; ++k)
                 {
+                    float noteGain = 1.0f;
+                    if (s.strum)
+                    {
+                        if (s.wait[k] > 0.0) { s.wait[k] -= 1.0; continue; }
+                        if (s.fade[k] < 1.0f) s.fade[k] = std::min (1.0f, s.fade[k] + fadeInc);
+                        noteGain = s.fade[k];
+                    }
                     for (int o = 0; o < 2; ++o)
                     {
                         const float dr = fixedRandom ? driftFixed[(k * 2 + o) % 10] : drift[(k * 2 + o) % 10].next();
@@ -824,7 +922,7 @@ public:
                             s.inc[k][o] = 440.0f * std::exp2 ((s.note[k] - 69.0f + cents / 100.0f) / 12.0f) / (float) fs;
                         float& p = s.ph[k][o];
                         p += s.inc[k][o]; if (p >= 1.0f) p -= 1.0f;
-                        const float v = blepSaw (p, s.inc[k][o]);
+                        const float v = s.strum ? blepSaw (p, s.inc[k][o]) * noteGain : blepSaw (p, s.inc[k][o]);
                         if (o == 0) sl += v; else sr += v;
                     }
                 }
@@ -849,9 +947,10 @@ public:
 private:
     struct Slot
     {
-        bool active = false, attackDone = false, release = false;
+        bool active = false, attackDone = false, release = false, strum = false;
         int count = 0;
-        float note[5] {}, ph[5][2] {}, inc[5][2] {};
+        float note[kMaxChordNotes] {}, ph[kMaxChordNotes][2] {}, inc[kMaxChordNotes][2] {}, fade[kMaxChordNotes] {};
+        double wait[kMaxChordNotes] {};
         float amp = 0, ampTarget = 0, fenv = 0, gain = 1;
         double gateLeft = 0.0;
         Svf fl, fr;
@@ -861,12 +960,315 @@ private:
     uint32_t randomSeed = 1, initSeed = 1;
     float envS = 0.0f, envR = -1.0f, userRelC = 0.999f;
     float prm[kSoundParams] {};
-    int root = 0, cur = 0;
+    int root = 0, cur = 0, pendingCount = 0;
+    float pending[kMaxChordNotes] {};
+    double strumSamples = 0.0;
     Slot slots[2];
     Noise rng;
     DelayLine chorusL, chorusR;
     float chorusLfo = 0.0f;
     SmoothRandom drift[10];
+};
+
+// ---------------------------------------------------------------------------
+// MELODÍA: 4 voces (o mono / mono legato) con cuatro modelos de síntesis limpia:
+//   PLUCK   cuerda pulsada (Karplus-Strong): TIMBRE = apagado de la cuerda
+//   LEAD    2 sierras desafinadas + sub, filtro con envolvente: TIMBRE = desafinación
+//   CAMPANA FM de 2 operadores: TIMBRE = relación (de 1 a 7), ENV = índice
+//   ORGANO  6 armónicos (drawbars): TIMBRE = brillo, ENV = click de tecla
+// ---------------------------------------------------------------------------
+class MelodyVoice : public StereoVoice
+{
+public:
+    static constexpr int kVoices = 4;
+    static constexpr int kKs = 4096;
+
+    void prepare (double sampleRate, uint32_t seed) override
+    {
+        fs = sampleRate;
+        initSeed = seed;
+        rng.seed (seed);
+        ks.assign ((size_t) (kVoices * kKs), 0.0f);
+        envR = envA = -1.0f;
+        setEnv (2.0f, 0.0f, 300.0f);
+        resetState();
+    }
+    void setParams (const float* p) override { for (int i = 0; i < kSoundParams; ++i) prm[i] = p[i]; }
+    void setSongTime (double seconds, bool fixed, uint32_t s) override { songSeconds = seconds; fixedRandom = fixed; randomSeed = s; }
+    void setEnv (float attackMs, float sus, float releaseMs)
+    {
+        if (attackMs != envA) { envA = attackMs; atkC = 1.0f - (float) std::exp (-1.0 / ((double) attackMs * 0.001 * fs)); }
+        envS = clampv (sus, 0.0f, 1.0f);
+        if (releaseMs != envR) { envR = releaseMs; relC = decayCoef (releaseMs, fs); }
+    }
+    // 0 = poly, 1 = mono, 2 = mono legato; base = nota MIDI de la tónica en la octava elegida
+    void setMode (int voicesMode, float baseNote) { mode = voicesMode; base = baseNote; }
+    bool isActive() const override
+    {
+        for (const auto& v : voice) if (v.active) return true;
+        return false;
+    }
+    void release() override
+    {
+        if (envS <= 0.0f) return;
+        for (auto& v : voice) v.gateLeft = 0.0;
+    }
+    void resetState() noexcept override
+    {
+        for (auto& v : voice) v = Voice();
+        std::fill (ks.begin(), ks.end(), 0.0f);
+        rng.seed (initSeed);
+        age = 0;
+        last = 0;
+    }
+
+    void trigger (const Hit& h) override
+    {
+        if (h.fixedSeed) rng.seed (h.seed);
+        const float note = base + h.note;
+        const int model = clampv ((int) std::lround (prm[0]), 0, 3);
+        // Elegir voz: mono usa siempre la 0; poly, una libre o la más vieja
+        int vi = 0;
+        bool tie = false;
+        if (mode == 0)
+        {
+            if (h.slide && voice[(size_t) last].active && ! voice[(size_t) last].releasing) { vi = last; tie = true; }
+            else
+            {
+                int oldest = 0;
+                vi = -1;
+                for (int k = 0; k < kVoices; ++k)
+                {
+                    if (! voice[(size_t) k].active) { vi = k; break; }
+                    if (voice[(size_t) k].age < voice[(size_t) oldest].age) oldest = k;
+                }
+                if (vi < 0) vi = oldest;
+            }
+        }
+        else
+        {
+            const auto& v0 = voice[0];
+            tie = v0.active && ! v0.releasing && (h.slide || (mode == 2 && v0.gateLeft > 0.0));
+        }
+        Voice& v = voice[(size_t) vi];
+        v.target = note;
+        v.gateLeft = h.gateSamples > 0.0 ? h.gateSamples : 1.0e18;
+        v.releasing = false;
+        if (tie) return;   // ligado: cambia la altura con GLIDE, sin volver a disparar
+        if (! v.active || mode == 0) v.note = note;   // en mono, el GLIDE arranca desde la nota anterior
+        v.active = true;
+        v.attack = true;
+        v.amp = 0.0f;
+        v.fenv = 1.0f;
+        v.fm = 1.0f;
+        v.click = 1.0f;
+        v.time = 0.0f;
+        v.vel = clampv (h.vel, 0.0f, 1.0f);
+        v.gain = velGain (h.vel) * (h.accent ? 1.15f : 1.0f);
+        v.age = ++age;
+        v.pan = mode == 0 ? (vi % 2 == 0 ? -0.22f : 0.22f) * (vi < 2 ? 1.0f : 0.5f) : 0.0f;
+        for (int o = 0; o < 6; ++o) v.ph[o] = model == 3 ? rng.uni() : 0.0f;
+        v.filt.reset();
+        last = vi;
+        if (model == 0) pluck (vi, note);
+    }
+
+    void render (float* outL, float* outR, int n) noexcept override
+    {
+        using namespace maps;
+        const int model = clampv ((int) std::lround (prm[0]), 0, 3);
+        const float dec = synthDecay (prm[1]);
+        const float decC = decayCoef (dec, fs), fC = decayCoef (dec * 0.45f, fs), fmC = decayCoef (dec * 0.3f, fs);
+        const float clickC = decayCoef (4.0f, fs);
+        const float cut = melCut (prm[2]);
+        const float q = 0.7f + melReso (prm[3]) * 5.0f;
+        const float envAmt = melEnvOct (prm[4]);
+        const float timbre = prm[5];
+        const float vib = vibratoCents (prm[6]);
+        const float glideC = 1.0f - (float) std::exp (-1.0 / (glideMs (prm[7]) * 0.001 * fs));
+        const float sus = envS;
+        const float dt = (float) (1.0 / fs);
+        // Cuerda: apagado y largo (el sonido de la cuerda dura lo que DECAY)
+        const float damp = 0.05f + 0.45f * timbre;
+        const float ratio = 1.0f + 6.0f * timbre;
+        float harm[6];
+        {
+            const float t = timbre;
+            harm[0] = 1.0f; harm[1] = 0.2f + 0.8f * t; harm[2] = 0.7f * t; harm[3] = 0.6f * t * t; harm[4] = 0.45f * t * t; harm[5] = 0.35f * t * t * t;
+        }
+        static const float harmMul[6] = { 1.0f, 2.0f, 3.0f, 4.0f, 6.0f, 8.0f };
+        for (int i = 0; i < n; ++i) { outL[i] = 0.0f; outR[i] = 0.0f; }
+
+        for (int vi = 0; vi < kVoices; ++vi)
+        {
+            Voice& v = voice[(size_t) vi];
+            if (! v.active) continue;
+            float* buf = ks.data() + (size_t) vi * kKs;
+            const float gl = std::cos ((v.pan + 1.0f) * 0.25f * (float) kPi) * 1.4142f;
+            const float gr = std::sin ((v.pan + 1.0f) * 0.25f * (float) kPi) * 1.4142f;
+            for (int i = 0; i < n; ++i)
+            {
+                v.note += glideC * (v.target - v.note);
+                v.time += dt;
+                // Vibrato que entra de a poco
+                v.vibPh += 5.2f * dt; if (v.vibPh >= 1.0f) v.vibPh -= 1.0f;
+                if ((i & 7) == 0)
+                {
+                    const float vibAmt = vib * std::min (1.0f, std::max (0.0f, (v.time - 0.15f) * 3.0f));
+                    const float pitch = v.note + vibAmt * 0.01f * sin01 (v.vibPh);
+                    v.hz = 440.0f * std::exp2 ((pitch - 69.0f) / 12.0f);
+                    v.loss = std::pow (0.001f, 1.0f / std::max (0.05f, dec * 0.001f * v.hz));
+                }
+                const float hz = v.hz;
+                const float inc = hz * dt;
+
+                // Envolvente ADSR
+                if (v.attack) { v.amp += atkC * (1.05f - v.amp); if (v.amp >= 1.0f) { v.amp = 1.0f; v.attack = false; } }
+                else if (sus > 0.0f && ! v.releasing)
+                {
+                    if ((v.gateLeft -= 1.0) <= 0.0) v.releasing = true;
+                    v.amp = sus + (v.amp - sus) * decC;
+                }
+                else v.amp *= v.releasing && sus > 0.0f ? relC : decC;
+                v.fenv *= fC;
+                v.fm *= fmC;
+
+                float y = 0.0f;
+                switch (model)
+                {
+                    case 0: // cuerda pulsada
+                    {
+                        const float period = clampv ((float) fs / hz - damp, 2.0f, (float) kKs - 4.0f);
+                        float rp = (float) v.w - period;
+                        if (rp < 0.0f) rp += (float) kKs;
+                        const int i0 = (int) rp;
+                        const float fr = rp - (float) i0;
+                        const float a = buf[i0 % kKs], b = buf[(i0 + 1) % kKs];
+                        const float x = a + (b - a) * fr;
+                        const float filtered = x * (1.0f - damp) + v.ksLast * damp;
+                        v.ksLast = x;
+                        buf[v.w] = filtered * v.loss;
+                        v.w = (v.w + 1) % kKs;
+                        y = filtered;
+                        break;
+                    }
+                    case 1: // lead
+                    {
+                        const float d = 1.0f + 0.015f * timbre;
+                        v.ph[0] += inc * d; if (v.ph[0] >= 1.0f) v.ph[0] -= 1.0f;
+                        v.ph[1] += inc / d; if (v.ph[1] >= 1.0f) v.ph[1] -= 1.0f;
+                        v.ph[2] += inc * 0.5f; if (v.ph[2] >= 1.0f) v.ph[2] -= 1.0f;
+                        y = 0.4f * (blepSaw (v.ph[0], inc * d) + blepSaw (v.ph[1], inc / d)) + 0.3f * sin01 (v.ph[2]);
+                        break;
+                    }
+                    case 2: // campana FM
+                    {
+                        v.ph[0] += inc; if (v.ph[0] >= 1.0f) v.ph[0] -= 1.0f;
+                        v.ph[1] += inc * ratio; if (v.ph[1] >= 1.0f) v.ph[1] -= 1.0f;
+                        v.ph[2] += inc * 2.76f; if (v.ph[2] >= 1.0f) v.ph[2] -= 1.0f;
+                        const float index = (0.3f + 4.0f * prm[4]) * v.fm;
+                        y = sin01 (v.ph[0] + index * sin01 (v.ph[1]) / (float) kTwoPi) + 0.25f * v.fm * sin01 (v.ph[2]);
+                        y *= 0.7f;
+                        break;
+                    }
+                    default: // órgano: armónicos por recurrencia de Chebyshev (2 senos por muestra en vez de 6)
+                    {
+                        v.ph[0] += inc; if (v.ph[0] >= 1.0f) v.ph[0] -= 1.0f;
+                        const float s1 = sin01 (v.ph[0]), c2 = 2.0f * sin01 (v.ph[0] + 0.25f);
+                        float sPrev = 0.0f, sCur = s1;
+                        y = harm[0] * s1;
+                        int h = 1;
+                        for (int n = 2; n <= 8; ++n)
+                        {
+                            const float sNext = c2 * sCur - sPrev;
+                            sPrev = sCur; sCur = sNext;
+                            if (n == (int) harmMul[h])
+                            {
+                                if (hz * (float) n < (float) fs * 0.45f) y += harm[h] * sCur;
+                                ++h;
+                            }
+                        }
+                        y *= 0.32f;
+                        y += v.click * prm[4] * 0.3f * rng.next();
+                        v.click *= clickC;
+                        break;
+                    }
+                }
+                // Filtro con envolvente (la campana pasa casi abierta)
+                if ((i & 15) == 0)
+                {
+                    const float vb = std::exp2 ((v.vel - 0.7f) * 0.8f);
+                    const float fc = std::min (cut * vb * std::exp2 ((model == 2 ? 0.0f : envAmt) * v.fenv), 18000.0f);
+                    v.filt.set (fs, fc, q);
+                }
+                y = v.filt.lp (y) * v.amp * v.gain;
+                outL[i] += y * gl;
+                outR[i] += y * gr;
+                if (! v.attack && v.amp < 1.0e-4f) { v.active = false; v.ksLast = 0.0f; break; }
+            }
+            v.filt.flush();
+        }
+        for (int i = 0; i < n; ++i) { outL[i] = std::tanh (outL[i] * 0.9f); outR[i] = std::tanh (outR[i] * 0.9f); }
+    }
+
+private:
+    struct Voice
+    {
+        bool active = false, attack = false, releasing = false;
+        float note = 60.0f, target = 60.0f, amp = 0.0f, fenv = 0.0f, fm = 0.0f, click = 0.0f, gain = 1.0f, vel = 0.8f, pan = 0.0f;
+        float ph[6] {};
+        float vibPh = 0.0f, time = 0.0f, ksLast = 0.0f, hz = 440.0f, loss = 0.999f;
+        double gateLeft = 0.0;
+        int w = 0;
+        uint32_t age = 0;
+        Svf filt;
+    };
+    // Excita la cuerda: ráfaga de ruido filtrada (CORTE = brillo de la púa)
+    void pluck (int vi, float note)
+    {
+        Voice& v = voice[(size_t) vi];
+        float* buf = ks.data() + (size_t) vi * kKs;
+        const float hz = 440.0f * std::exp2 ((note - 69.0f) / 12.0f);
+        const int period = clampv ((int) ((float) fs / hz) + 2, 4, kKs - 4);
+        const float bright = clampv (prm[2], 0.05f, 1.0f);
+        float lp = 0.0f;
+        for (int k = period; k >= 1; --k)
+        {
+            lp += bright * (rng.next() - lp);
+            const int idx = ((v.w - k) % kKs + kKs) % kKs;
+            buf[idx] += lp * 0.9f;
+        }
+    }
+
+    double fs = 44100.0, songSeconds = 0.0;
+    bool fixedRandom = false;
+    uint32_t randomSeed = 1, initSeed = 1, age = 0;
+    float prm[kSoundParams] {};
+    float envA = -1.0f, envS = 0.0f, envR = -1.0f, atkC = 0.1f, relC = 0.999f, base = 69.0f;
+    int mode = 0, last = 0;
+    Voice voice[kVoices];
+    std::vector<float> ks;
+    Noise rng;
+};
+
+// ---------------------------------------------------------------------------
+// TEXTURAS: samples de Orbhitz (HIT, PAD, SFX). El motor de samples llega en la fase 4;
+// mientras tanto la pista está, pero en silencio.
+// ---------------------------------------------------------------------------
+class TextureVoice : public StereoVoice
+{
+public:
+    void prepare (double, uint32_t) override {}
+    void setParams (const float* p) override { for (int i = 0; i < kSoundParams; ++i) prm[i] = p[i]; }
+    void setSongTime (double, bool, uint32_t) override {}
+    void trigger (const Hit&) override {}
+    void release() override {}
+    void render (float* outL, float* outR, int n) noexcept override { for (int i = 0; i < n; ++i) outL[i] = outR[i] = 0.0f; }
+    bool isActive() const override { return false; }
+    void resetState() noexcept override {}
+
+private:
+    float prm[kSoundParams] {};
 };
 
 } // namespace ogro2

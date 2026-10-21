@@ -2,6 +2,44 @@
 
 Formato: cada fase del desarrollo suma una entrada. La versión publicada será la 2.0.0.
 
+## 2.0.0 (en desarrollo) — Fase 3: tonalidad, bajo, acordes y melodía
+
+### Tonalidad
+- **Tónica + escala** (menor, dórica, frigia, menor armónica, mayor, mixolidia,
+  pentatónica menor) en el display TONALIDAD (clic = menú).
+- **MODO TONAL** (encendido por defecto): la NOTA de cada paso de bajo, acordes, perc,
+  melodía y texturas es un grado de la escala, así todo queda en tono. Al importar un
+  preset de la 1.0 (y en los 12 presets de fábrica de la 1.0) queda apagado: suenan igual.
+
+### Bajo
+- **5 formas**: Clásica (la de la 1.0, con ONDA), Pulso, Supersierra, Triángulo y Seno FM.
+- **SUB** (seno una octava abajo, limpio, con nivel propio).
+- **Acento 303**: más volumen y filtro, el filtro cierra rápido y los acentos seguidos se
+  acumulan; el slide tarda siempre lo mismo. "Clásico (1.0)" sigue disponible.
+- **LEGATO**: las notas que se pisan se ligan sin volver a disparar.
+- GATE por paso (fase 2) + ATAQUE / DECAY / SUSTAIN / RELEASE.
+
+### Acordes
+- **23 tipos** (se suman m, M, m6, add9, m add9, sus2, sus4, cuartas, m9 y m11 Detroit,
+  6/9, 7, dim, m7b5, maj7#11) y **tipo por paso** (modo TIPO del secuenciador).
+- **DIATÓNICO** (nuevo, por defecto): el acorde se arma con las notas de la escala, así el
+  III de La menor sale Do maj7 sin pensar. **PARALELO**: chord memory como la 1.0.
+- **INVERSIÓN**, **APERTURA** (voicings abiertos), **VOICE LEADING** automático (elige la
+  inversión que menos se mueve) y **STRUM** (0 a 80 ms). Octava por paso (fase 2).
+
+### MELODÍA (pista nueva, MIDI G#1)
+- Cuatro modelos de síntesis limpia: Pluck (Karplus-Strong), Lead, Campana (FM) y Órgano.
+  Poly (4 voces), Mono o Mono legato; GLIDE, VIBRATO, octava. Diseño en
+  [design/MELODIA.md](design/MELODIA.md).
+- TEXTURAS (MIDI A1) ya aparece en el secuenciador; los samples llegan en la fase 4.
+
+### Compatibilidad
+- Estado versión 2. Las sesiones guardadas con las fases 1 y 2 abren con MODO TONAL
+  apagado, acordes en paralelo, acento clásico y polirritmos continuos: suenan igual.
+- A/B con la 1.0: los 12 presets importados siguen idénticos muestra a muestra (con 10
+  pistas). Test nuevo `test_tonal` (escalas, modo tonal, acordes, voice leading, strum,
+  bajo, legato, afinación de la melodía, voces, generador en tono, CPU ~12-16 %).
+
 ## 2.0.0 (en desarrollo) — Fase 2: secuenciador, groove y arreglo
 
 ### Secuenciador

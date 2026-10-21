@@ -14,6 +14,7 @@
 #include <atomic>
 #include <cctype>
 #include <functional>
+#include <limits>
 #include <vector>
 
 namespace ogro2
@@ -33,6 +34,10 @@ struct ParamDef
     bool modulatable = false;         // destino de MOD, MOTION y p-locks
     int track = -1;                   // pista dueña (-1 = global)
     bool exists = true;               // los campos de pista que no aplican no se crean
+    // Valor que reproduce cómo sonaba una sesión guardada antes de que existiera este
+    // parámetro (NaN = el valor por defecto). Lo usan la migración del estado y el importador.
+    float compat = std::numeric_limits<float>::quiet_NaN();
+    bool hasCompat() const { return compat == compat; }
 
     float toNorm (float v) const
     {
@@ -62,7 +67,7 @@ namespace P
 {
     enum Global { Swing = 0, Pattern, Root, Tempo, Macro1, Macro2, Macro3, Macro4, Seed, RandomMode, MacroDepth,
                   PatChange, PolyMode, Chain, Groove, GrooveAmt, Humanize, Fill, FillPat, Genre, Mutate,
-                  BfxEvery, BfxLen, BfxAmount, BfxStutterRate, GlobalCount };
+                  BfxEvery, BfxLen, BfxAmount, BfxStutterRate, Scale, Tonal, GlobalCount };
     enum TrackField { S1 = 0, S2, S3, S4, S5, S6, S7, S8, Level, Pan, Delay, Reverb, Pump, Ring, Mute, Solo,
                       EnvA, EnvS, EnvR, SwingOwn, SwingAmt, TrackFieldCount };
     constexpr int TrackBase = GlobalCount;
@@ -94,13 +99,17 @@ namespace P
                 DlyDiv, DlyFb, DlyTone, DlyRet, RevSize, RevDecay, RevRet, PumpRel,
                 BusComp, BusCrudo,
                 MFilter, MReso, MLowCut, MBody, MPres, MAir, MComp, MColor, MWarmth, MParallel, MTexture, MCeiling, MVol,
+                // Fase 3: bajo, acordes y melodía
+                BassSub, BassOsc, BassAccent, BassLegato,
+                ChordMode, ChordInv, ChordSpread, ChordStrum, ChordLead,
+                MelVoices, MelOctave,
                 Count };
 }
 
 // Prefijos de ID de cada pista (no cambian)
 inline const char* trackId (int t)
 {
-    static const char* ids[] = { "kick", "clap", "rim", "hatc", "hato", "perc", "bass", "chord" };
+    static const char* ids[] = { "kick", "clap", "rim", "hatc", "hato", "perc", "bass", "chord", "melody", "texture" };
     return ids[clampv (t, 0, kTracks - 1)];
 }
 
@@ -116,6 +125,8 @@ inline const char* soundId (int t, int p)
         { "tone", "decay", "fm", "ratio", "pitch", "drive", "noise", "varia" },
         { "octave", "decay", "cutoff", "reso", "envamt", "drive", "wave", "glide" },
         { "type", "decay", "cutoff", "reso", "envamt", "detune", "chorus", "attack" },
+        { "model", "decay", "cutoff", "reso", "envamt", "timbre", "vibrato", "glide" },
+        { "start", "length", "pitch", "cutoff", "reso", "envamt", "drive", "pitchenv" },
     };
     return ids[clampv (t, 0, kTracks - 1)][clampv (p, 0, kSoundParams - 1)];
 }
@@ -208,7 +219,7 @@ inline const char* bfxName (int e)
 // Destinos de los efectos de fin de compás
 inline std::vector<std::string> bfxTargetNames()
 {
-    std::vector<std::string> v { "Master", "Bateria", "Bajo y acordes" };
+    std::vector<std::string> v { "Master", "Bateria", "Melodicos" };
     for (int t = 0; t < kTracks; ++t) v.push_back (capitaliseName (trackName (t)));
     return v;
 }
@@ -303,6 +314,11 @@ inline const std::vector<ParamDef>& paramDefs()
         I (P::BfxLen, "bfx.len", "FX de fin de compas largo", 1, 4, 2, [] (float x) { return fmt (x < 1.5f ? "%.0f paso" : "%.0f pasos", x); });
         F (P::BfxAmount, "bfx.amount", "FX de fin de compas cantidad", 0.0f, 1.0f, 0.7f, false, pct, true);
         C (P::BfxStutterRate, "bfx.stutter.rate", "Stutter division", { "1/16", "1/32" }, 0, 4);
+        // Tonalidad (fase 3): con MODO TONAL la NOTA de cada paso es un grado de la escala
+        auto& scl = C (P::Scale, "global.scale", "Escala", scaleNames(), 0, 16);
+        auto& ton = B (P::Tonal, "global.tonal", "Modo tonal", true);
+        scl.version = ton.version = 2;
+        ton.compat = 0.0f;
         for (int e = 0; e < P::kBfx; ++e)
         {
             const std::string pre = std::string ("bfx.") + bfxId (e) + ".";
@@ -324,16 +340,23 @@ inline const std::vector<ParamDef>& paramDefs()
                     p.modulatable = true; p.track = t;
                     continue;
                 }
+                if (t == Melody && s == 0)
+                {
+                    auto& p = C (P::sound (t, s), pre + soundId (t, s), tn + " Modelo", melodyModelNames(), 0, 16);
+                    p.modulatable = true; p.track = t; p.version = 2;
+                    continue;
+                }
                 auto& p = F (P::sound (t, s), pre + soundId (t, s), tn + " " + capitalise (info.name), 0.0f, 1.0f, info.def, false,
                              [t, s] (float x) { return describeSound (t, s, x); }, true);
                 p.track = t;
+                if (t >= Melody) p.version = 2;
             }
             auto& lvl = F (P::track (t, P::Level), pre + "level", tn + " Nivel", 0.0f, 1.0f, 0.889f, false,
                            [] (float x) { return x <= 0.001f ? std::string ("-inf") : fmt ("%+.1f dB", levelDb (x)); }, true);
             auto& pan = F (P::track (t, P::Pan), pre + "pan", tn + " Paneo", 0.0f, 1.0f, 0.5f, false,
                            [] (float x) { const int p = (int) std::lround ((x - 0.5f) * 200.0f); return p == 0 ? std::string ("C") : (p < 0 ? fmt ("%.0f L", -p) : fmt ("%.0f R", p)); }, true);
-            auto& dly = F (P::track (t, P::Delay), pre + "dly", tn + " Delay", 0.0f, 1.0f, 0.0f, false, pct, true);
-            auto& rev = F (P::track (t, P::Reverb), pre + "rev", tn + " Reverb", 0.0f, 1.0f, 0.0f, false, pct, true);
+            auto& dly = F (P::track (t, P::Delay), pre + "dly", tn + " Delay", 0.0f, 1.0f, t == Melody ? 0.22f : 0.0f, false, pct, true);
+            auto& rev = F (P::track (t, P::Reverb), pre + "rev", tn + " Reverb", 0.0f, 1.0f, t == Melody ? 0.18f : 0.0f, false, pct, true);
             auto& pmp = F (P::track (t, P::Pump), pre + "pump", tn + " Pump", 0.0f, 1.0f, t >= Bass ? 0.35f : 0.0f, false, pct, true);
             auto& rng = F (P::track (t, P::Ring), pre + "ring", tn + " Ring mod", 0.0f, 1.0f, 0.0f, false, pct, true);
             auto& mut = B (P::track (t, P::Mute), pre + "mute", tn + " Mute", false);
@@ -342,19 +365,25 @@ inline const std::vector<ParamDef>& paramDefs()
             auto& swo = B (P::track (t, P::SwingOwn), pre + "swingown", tn + " Swing propio", false);
             auto& swa = F (P::track (t, P::SwingAmt), pre + "swing", tn + " Swing", 0.5f, 0.75f, 0.54f, false,
                            [] (float x) { return fmt ("%.0f %%", x * 100.0); });
-            for (auto* p : { &lvl, &pan, &dly, &rev, &pmp, &rng, &mut, &sol, &swo, &swa }) p->track = t;
-            // Envolvente con sustain (bajo y acordes). Con SUSTAIN en 0 suena como en la 1.0.
-            if (t == Bass || t == Chord)
+            for (auto* p : { &lvl, &pan, &dly, &rev, &pmp, &rng, &mut, &sol, &swo, &swa })
             {
-                if (t == Bass)
+                p->track = t;
+                if (t >= Melody) p->version = 2;
+            }
+            // Envolvente con sustain (bajo, acordes, melodía y texturas). Con SUSTAIN en 0 suena como en la 1.0.
+            if (t >= Bass)
+            {
+                if (t != Chord)
                 {
                     auto& a = F (P::track (t, P::EnvA), pre + "attack", tn + " Ataque", 0.5f, 2000.0f, 2.0f, true, [] (float x) { return fmtMs (x); }, true);
                     a.track = t;
+                    if (t >= Melody) a.version = 2;
                 }
-                auto& s = F (P::track (t, P::EnvS), pre + "sustain", tn + " Sustain", 0.0f, 1.0f, 0.0f, false, pct, true);
+                auto& s = F (P::track (t, P::EnvS), pre + "sustain", tn + " Sustain", 0.0f, 1.0f, t == Texture ? 1.0f : 0.0f, false, pct, true);
                 auto& r = F (P::track (t, P::EnvR), pre + "release", tn + " Release", 5.0f, 4000.0f, t == Bass ? 120.0f : 300.0f, true,
                              [] (float x) { return fmtMs (x); }, true);
                 s.track = r.track = t;
+                if (t >= Melody) s.version = r.version = 2;
             }
         }
 
@@ -416,6 +445,37 @@ inline const std::vector<ParamDef>& paramDefs()
         F (P::MTexture, "master.texture", "Textura", 0.0f, 1.0f, 0.0f, false, pct, true);
         F (P::MCeiling, "master.ceiling", "Techo", -6.0f, 0.0f, -0.3f, false, db);
         F (P::MVol, "master.vol", "Volumen", -24.0f, 6.0f, 0.0f, false, db);
+
+        // Bajo (fase 3)
+        {
+            auto& sub = F (P::BassSub, "bass.sub", "Bajo Sub", 0.0f, 1.0f, 0.0f, false, pct, true);
+            auto& osc = C (P::BassOsc, "bass.osc", "Bajo Forma", { "Clasica (ONDA)", "Pulso", "Supersierra", "Triangulo", "Seno FM" }, 0, 16);
+            auto& acc = C (P::BassAccent, "bass.accent", "Bajo Acento", { "Clasico (1.0)", "303" }, 1, 4);
+            auto& leg = B (P::BassLegato, "bass.legato", "Bajo Legato", false);
+            acc.compat = 0.0f;
+            for (auto* p : { &sub, &osc, &acc, &leg }) { p->track = Bass; p->version = 2; }
+            osc.modulatable = true;
+        }
+        // Acordes (fase 3)
+        {
+            auto& mode = C (P::ChordMode, "chord.mode", "Acordes Modo", { "Diatonico", "Paralelo" }, 0, 4);
+            auto& inv = C (P::ChordInv, "chord.inv", "Acordes Inversion", { "Fundamental", "1a inversion", "2a inversion", "3a inversion" }, 0, 8);
+            auto& spr = F (P::ChordSpread, "chord.spread", "Acordes Apertura", 0.0f, 1.0f, 0.0f, false, pct, true);
+            auto& str = F (P::ChordStrum, "chord.strum", "Acordes Strum", 0.0f, 80.0f, 0.0f, false, [] (float x) { return fmtMs (x); }, true);
+            auto& vl = B (P::ChordLead, "chord.voicelead", "Acordes Voice leading", true);
+            mode.compat = 1.0f;
+            vl.compat = 0.0f;
+            inv.modulatable = true;
+            for (auto* p : { &mode, &inv, &spr, &str, &vl }) { p->track = Chord; p->version = 2; }
+        }
+        // Melodía (fase 3)
+        {
+            auto& vo = C (P::MelVoices, "melody.voices", "Melodia Voces", { "Poly (4)", "Mono", "Mono legato" }, 0, 4);
+            auto& oc = C (P::MelOctave, "melody.octave", "Melodia Octava", { "-2", "-1", "0", "+1", "+2" }, 2, 8);
+            for (auto* p : { &vo, &oc }) { p->track = Melody; p->version = 2; }
+        }
+        // Las sesiones de antes de la fase 2 tocaban los polirritmos continuos
+        v[P::PolyMode].compat = 1.0f;
 
         for (auto& p : v)
             if (p.exists && ! p.text)

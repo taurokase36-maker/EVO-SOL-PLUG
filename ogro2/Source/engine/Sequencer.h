@@ -679,7 +679,9 @@ private:
                     e.track = t;
                     e.hit.vel = (float) st.vel / 127.0f * (r > 0 ? 0.82f : 1.0f);
                     if (gVel != 1.0f) e.hit.vel *= gVel;
-                    e.hit.note = (float) (st.note + st.octave * 12);
+                    e.hit.note = (float) st.note;   // semitonos o grado (lo convierte el motor)
+                    e.hit.octave = st.octave;
+                    e.hit.chordType = st.chordType - 1;
                     e.hit.slide = st.slide && r == 0;
                     e.hit.accent = st.vel >= 118;
                     e.absStep = k;
@@ -754,7 +756,7 @@ private:
     bool jumped = false, lastFill = false;
     float swing = 0.5f;
     bool trackSwingOwn[kTracks] {};
-    float trackSwing[kTracks] { 0.54f, 0.54f, 0.54f, 0.54f, 0.54f, 0.54f, 0.54f, 0.54f };
+    float trackSwing[kTracks] { 0.54f, 0.54f, 0.54f, 0.54f, 0.54f, 0.54f, 0.54f, 0.54f, 0.54f, 0.54f };
     int groove = 0;
     float grooveAmt = 1.0f, humanize = 0.0f;
     int patChange = ChangeAtBar;
@@ -764,7 +766,7 @@ private:
     uint32_t seed = 1;
     int wantedPattern = 0, curPattern = -1, playing = -1;
     int64_t patternStartK = 0;
-    int lastStep[kTracks] { -1, -1, -1, -1, -1, -1, -1, -1 };
+    int lastStep[kTracks] { -1, -1, -1, -1, -1, -1, -1, -1, -1, -1 };
     int64_t decisionStep[kTracks] {};
     bool decisionPass[kTracks] {};
     bool lastCond[kTracks] {};

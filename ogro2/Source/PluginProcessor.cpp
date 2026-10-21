@@ -335,7 +335,9 @@ void Ogro2Processor::restoreFromXml (const juce::XmlElement& xml)
         return;
     }
     if (! xml.hasTagName ("OGRO2")) return;
-    // Versiones futuras: acá van las migraciones (stateVersion > 1)
+    // Migraciones: un estado guardado con una versión anterior no tiene los parámetros nuevos;
+    // esos toman el valor que reproduce cómo sonaba (MODO TONAL apagado, acordes en paralelo...)
+    const int savedVersion = xml.getIntAttribute ("stateVersion", 1);
     currentPreset = xml.getIntAttribute ("preset", 0);
     setUserPresetName (xml.getStringAttribute ("userPreset"));
 
@@ -344,7 +346,8 @@ void Ogro2Processor::restoreFromXml (const juce::XmlElement& xml)
         // Los parámetros que no estén en el estado (agregados en una versión más nueva) quedan en su valor por defecto
         const auto& defs = paramDefs();
         std::vector<float> v (defs.size());
-        for (size_t i = 0; i < defs.size(); ++i) v[i] = defs[i].def;
+        for (size_t i = 0; i < defs.size(); ++i)
+            v[i] = savedVersion < kStateVersion && defs[i].hasCompat() ? defs[i].compat : defs[i].def;
         for (auto* child : p->getChildIterator())
         {
             const int idx = paramIndex (child->getStringAttribute ("id").toStdString());

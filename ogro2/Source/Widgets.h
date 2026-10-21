@@ -297,6 +297,101 @@ inline void styleKey (juce::TextButton& b, juce::Colour c, juce::Colour text = c
     b.setColour (juce::TextButton::textColourOffId, text);
 }
 
+// Deslizador horizontal con título y valor (para la fila de controles extra del inspector)
+class HSlider : public juce::Component
+{
+public:
+    HSlider (Ogro2Processor& p, int paramIndex, const juce::String& t) : title (t)
+    {
+        slider.setSliderStyle (juce::Slider::LinearHorizontal);
+        slider.setTextBoxStyle (juce::Slider::NoTextBox, true, 0, 0);
+        slider.setColour (juce::Slider::trackColourId, col::violetRing);
+        slider.onValueChange = [this] { repaint(); };
+        addAndMakeVisible (slider);
+        const auto& d = paramDefs()[(size_t) paramIndex];
+        att = std::make_unique<APVTS::SliderAttachment> (p.state, juce::String (d.id), slider);
+        slider.setDoubleClickReturnValue (true, d.def);
+        slider.setTooltip (juce::String::fromUTF8 (d.name.c_str()) + T (" · doble clic: valor inicial"));
+    }
+    void paint (juce::Graphics& g) override
+    {
+        auto r = getLocalBounds().toFloat();
+        auto top = r.removeFromTop (16.0f);
+        g.setColour (col::violetText);
+        drawSpaced (g, upper (title), top, labelFont (12.0f), 0.06f, juce::Justification::centredLeft);
+        g.setColour (col::violetValue);
+        g.setFont (textFont (12.0f));
+        g.drawText (slider.getTextFromValue (slider.getValue()), top, juce::Justification::centredRight);
+    }
+    void resized() override { slider.setBounds (getLocalBounds().withTrimmedTop (18).reduced (0, 2)); }
+    juce::Slider slider;
+
+private:
+    juce::String title;
+    std::unique_ptr<APVTS::SliderAttachment> att;
+};
+
+// Tonalidad: tónica + escala + MODO TONAL en un solo display (clic = menú)
+inline juce::String scaleShortName (int s)
+{
+    static const char* n[] = { "menor", "dórica", "frigia", "m. armónica", "mayor", "mixolidia", "penta m" };
+    return T (n[juce::jlimit (0, 6, s)]);
+}
+class KeyDisplay : public juce::Component, public juce::SettableTooltipClient
+{
+public:
+    explicit KeyDisplay (Ogro2Processor& p) : proc (p)
+    {
+        setTooltip (T ("Tonalidad y escala del tema. Con MODO TONAL encendido, la NOTA de cada paso de bajo, acordes, perc y "
+                       "melodía es un grado de la escala: todo queda en tono. Clic para cambiar."));
+    }
+    void paint (juce::Graphics& g) override
+    {
+        auto r = getLocalBounds().toFloat();
+        auto top = r.removeFromTop (16.0f);
+        g.setColour (col::label);
+        drawSpaced (g, "TONALIDAD", top, labelFont (12.0f), 0.08f, juce::Justification::centredLeft);
+        const bool tonal = proc.value (P::Tonal) > 0.5f;
+        paint::led (g, { top.getRight() - 12.0f, top.getCentreY() - 3.5f, 12.0f, 7.0f }, col::ledGreen, tonal);
+        g.setColour (tonal ? col::ink : col::dim);
+        g.setFont (labelFont (10.0f));
+        g.drawText ("TONAL", top.withTrimmedRight (16.0f), juce::Justification::centredRight);
+        auto box = r.withTrimmedTop (2.0f);
+        paint::lcd (g, box, 8.0f);
+        static const char* roots[] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
+        const juce::String txt = juce::String (roots[juce::jlimit (0, 11, (int) proc.value (P::Root))]) + " " + scaleShortName ((int) proc.value (P::Scale));
+        paint::glowText (g, txt, box.reduced (6.0f, 0.0f), lcdFont (txt.length() > 9 ? 19.0f : 23.0f), juce::Justification::centred);
+    }
+    void mouseDown (const juce::MouseEvent&) override
+    {
+        static const char* roots[] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
+        juce::PopupMenu m, rootMenu, scaleMenu;
+        const int root = (int) proc.value (P::Root), scale = (int) proc.value (P::Scale);
+        for (int i = 0; i < 12; ++i) rootMenu.addItem (1 + i, roots[i], true, i == root);
+        static const char* scales[] = { "Menor (eólica)", "Dórica", "Frigia", "Menor armónica", "Mayor", "Mixolidia", "Pentatónica menor" };
+        for (int i = 0; i < 7; ++i) scaleMenu.addItem (100 + i, T (scales[i]), true, i == scale);
+        m.addSubMenu (T ("Tónica"), rootMenu);
+        m.addSubMenu (T ("Escala"), scaleMenu);
+        m.addSeparator();
+        m.addItem (200, T ("Modo tonal (la NOTA de cada paso es un grado de la escala)"), true, proc.value (P::Tonal) > 0.5f);
+        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this), [this] (int r) {
+            if (r >= 1 && r <= 12) proc.setValue (P::Root, (float) (r - 1));
+            else if (r >= 100 && r < 107) proc.setValue (P::Scale, (float) (r - 100));
+            else if (r == 200) proc.setValue (P::Tonal, proc.value (P::Tonal) > 0.5f ? 0.0f : 1.0f);
+            repaint();
+        });
+    }
+    void refresh()
+    {
+        const int key = (int) proc.value (P::Root) * 100 + (int) proc.value (P::Scale) * 2 + (proc.value (P::Tonal) > 0.5f ? 1 : 0);
+        if (key != shown) { shown = key; repaint(); }
+    }
+
+private:
+    Ogro2Processor& proc;
+    int shown = -1;
+};
+
 // Tecla con flecha curva (deshacer / rehacer)
 class ArrowButton : public juce::TextButton
 {
@@ -488,17 +583,18 @@ public:
         g.setColour (col::track (track));
         g.fillRoundedRectangle (r.getX() + 25.0f, r.getCentreY() - 8.0f, 4.0f, 16.0f, 2.0f);
         g.setColour (selected ? col::violetText : col::ink);
-        drawSpaced (g, trackName (track), { r.getX() + 36.0f, r.getY(), 96.0f, r.getHeight() }, labelFont (14.0f), 0.04f,
-                    juce::Justification::centredLeft);
+        drawSpaced (g, T (track == Melody ? "MELODÍA" : trackName (track)), { r.getX() + 36.0f, r.getY(), 96.0f, r.getHeight() },
+                    labelFont (14.0f), 0.04f, juce::Justification::centredLeft);
     }
     void resized() override
     {
-        auto r = getLocalBounds().reduced (6, 5);
-        solo.setBounds (r.removeFromRight (24).withSizeKeepingCentre (24, 24));
+        auto r = getLocalBounds().reduced (6, 3);
+        const int k = juce::jmin (34, getHeight() - 4), b = juce::jmin (24, getHeight() - 10);
+        solo.setBounds (r.removeFromRight (24).withSizeKeepingCentre (24, b));
         r.removeFromRight (4);
-        mute.setBounds (r.removeFromRight (24).withSizeKeepingCentre (24, 24));
+        mute.setBounds (r.removeFromRight (24).withSizeKeepingCentre (24, b));
         r.removeFromRight (6);
-        level.setBounds (r.removeFromRight (34).withSizeKeepingCentre (34, 34));
+        level.setBounds (r.removeFromRight (k).withSizeKeepingCentre (k, k));
     }
     void mouseDown (const juce::MouseEvent&) override { if (onSelect) onSelect (track); }
 
@@ -648,7 +744,7 @@ private:
 // ---------------------------------------------------------------------------
 // Edición de pasos
 // ---------------------------------------------------------------------------
-enum class LaneMode { Vel = 0, Note, Prob, Ratchet, Slide, Octave, Nudge, Gate, Cond, Lock, Motion };
+enum class LaneMode { Vel = 0, Note, Prob, Ratchet, Slide, Octave, Nudge, Gate, Cond, Lock, Motion, ChordType };
 constexpr int kViewSteps = 16;
 
 struct SeqContext
@@ -677,6 +773,31 @@ inline const std::vector<int>& lockGlobals()
     return v;
 }
 
+// Altura de un paso (MIDI) para mostrarla: pistas con nota; -1 si la pista no tiene altura propia
+inline int stepMidi (Ogro2Processor& proc, int t, const Step& st)
+{
+    Tonality k;
+    k.tonal = proc.value (P::Tonal) > 0.5f;
+    k.root = (int) proc.value (P::Root);
+    k.scale = (int) proc.value (P::Scale);
+    const int semis = (int) std::lround (isPitched (t) ? stepSemis (k, (float) st.note, st.octave) : (float) (st.note + 12 * st.octave));
+    switch (t)
+    {
+        case Bass: return 36 + k.root + 12 * maps::bassOctave (proc.value (P::sound (Bass, 0))) + semis;
+        case Chord: return 48 + k.root + semis;
+        case Melody: return 60 + k.root + 12 * ((int) proc.value (P::MelOctave) - 2) + semis;
+        default: return -1;
+    }
+}
+// Texto de la NOTA de un paso: nombre de nota (bajo, acordes, melodía) o grado / semitonos
+inline juce::String stepNoteText (Ogro2Processor& proc, int t, const Step& st)
+{
+    const int midi = stepMidi (proc, t, st);
+    if (midi >= 0) return noteName (midi);
+    const int v = st.note + (proc.value (P::Tonal) > 0.5f && isPitched (t) ? 7 : 12) * st.octave;
+    return (v > 0 ? "+" : "") + juce::String (v);
+}
+
 // Teclas de pasos tipo calculadora con LED arriba y número abajo
 class StepKeys : public juce::Component
 {
@@ -690,7 +811,6 @@ public:
         const bool playing = ctx.proc.engine.meters.playing.load();
         const int cur = ctx.proc.engine.meters.step[t].load();
         const float w = (float) getWidth() / (float) kViewSteps;
-        const int root = (int) ctx.proc.value (P::Root);
         for (int i = 0; i < kViewSteps; ++i)
         {
             const int s = off + i;
@@ -719,7 +839,8 @@ public:
                 g.setColour (col::ink.withAlpha (0.85f));
                 g.setFont (labelFont (12.0f));
                 juce::String txt;
-                if (t >= Bass) txt = noteName ((t == Bass ? 36 : 48) + root + st.note + st.octave * 12);
+                if (t >= Bass && t != Texture) txt = stepNoteText (ctx.proc, t, st);
+                if (t == Chord && st.chordType > 0) txt += " " + juce::String (chordTypeName (st.chordType - 1));
                 if (st.ratchet > 1) txt = txt.isEmpty() ? "x" + juce::String (st.ratchet) : txt + " x" + juce::String (st.ratchet);
                 if (txt.isEmpty() && st.prob < 100) txt = juce::String (st.prob) + "%";
                 g.drawText (txt, face.reduced (2.0f, 0.0f).withTrimmedBottom (6.0f), juce::Justification::centred, false);
@@ -802,9 +923,16 @@ public:
         const int len = ctx.bank().getLength (p, t);
         const auto in = r.reduced (10.0f, 8.0f);
         const float w = in.getWidth() / (float) kViewSteps;
-        const int root = (int) ctx.proc.value (P::Root);
-        const int base = t == Bass ? 36 + root : (t == Chord ? 48 + root : 60);
+        const bool tonal = ctx.proc.value (P::Tonal) > 0.5f && isPitched (t);
+        const float noteRange = tonal ? 14.0f : 24.0f;
         const bool bipolar = mode == LaneMode::Note || mode == LaneMode::Octave || mode == LaneMode::Nudge;
+        if (mode == LaneMode::ChordType && t != Chord)
+        {
+            g.setColour (col::phosphorDim);
+            g.setFont (lcdFont (20.0f));
+            g.drawText (T ("TIPO: acorde propio de cada paso (solo en ACORDES)"), in, juce::Justification::centred);
+            return;
+        }
         // Guías
         g.setColour (col::phosphorOff);
         for (int i = 4; i < kViewSteps; i += 4) g.fillRect (in.getX() + w * (float) i - 0.5f, in.getY(), 1.0f, in.getHeight());
@@ -831,9 +959,12 @@ public:
                 case LaneMode::Vel: bar = cr.withTop (cr.getBottom() - cr.getHeight() * (float) st.vel / 127.0f); label = juce::String (st.vel); break;
                 case LaneMode::Prob: bar = cr.withTop (cr.getBottom() - cr.getHeight() * (float) st.prob / 100.0f); label = juce::String (st.prob) + "%"; break;
                 case LaneMode::Note:
-                    bar = bipolarBar ((float) st.note / 24.0f);
-                    label = signedText (st.note);
-                    if (t >= Bass) label = juce::String (noteName (base + st.note));
+                    bar = bipolarBar ((float) st.note / noteRange);
+                    label = stepNoteText (ctx.proc, t, st);
+                    break;
+                case LaneMode::ChordType:
+                    bar = st.chordType > 0 ? cr.withSizeKeepingCentre (cr.getWidth(), 22.0f) : juce::Rectangle<float>();
+                    label = st.chordType > 0 ? juce::String (chordTypeName (st.chordType - 1)) : juce::String ("-");
                     break;
                 case LaneMode::Octave: bar = bipolarBar ((float) st.octave / 3.0f); label = st.octave == 0 ? juce::String ("0") : signedText (st.octave); break;
                 case LaneMode::Nudge: bar = bipolarBar ((float) st.nudge / 50.0f); label = st.nudge == 0 ? juce::String ("0") : signedText (st.nudge); break;
@@ -896,9 +1027,10 @@ public:
         lastS = -1; slideSet = -1;
         ctx.edit();
         if (mode == LaneMode::Cond) { condMenu (e); return; }
+        if (mode == LaneMode::ChordType) { typeMenu (e); return; }
         apply (e);
     }
-    void mouseDrag (const juce::MouseEvent& e) override { if (mode != LaneMode::Cond) apply (e); }
+    void mouseDrag (const juce::MouseEvent& e) override { if (mode != LaneMode::Cond && mode != LaneMode::ChordType) apply (e); }
 
 private:
     int stepAt (const juce::MouseEvent& e) const
@@ -926,6 +1058,24 @@ private:
             repaint();
         });
     }
+    void typeMenu (const juce::MouseEvent& e)
+    {
+        const int t = ctx.track(), p = ctx.pattern();
+        if (t != Chord) return;
+        const int s = stepAt (e);
+        const int cur = ctx.bank().get (p, t, s).chordType;
+        juce::PopupMenu m;
+        m.addItem (1, T ("El de la pista (TIPO)"), true, cur == 0);
+        m.addSeparator();
+        for (int k = 0; k < kChordTypes; ++k) m.addItem (2 + k, chordTypeName (k), true, cur == k + 1);
+        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition(), [this, s, t, p] (int r) {
+            if (r <= 0) return;
+            Step st = ctx.bank().get (p, t, s);
+            st.chordType = r - 1;
+            ctx.bank().set (p, t, s, st);
+            repaint();
+        });
+    }
     void apply (const juce::MouseEvent& e)
     {
         const auto r = getLocalBounds().toFloat().reduced (10.0f, 8.0f).withTrimmedTop (14.0f);
@@ -937,7 +1087,13 @@ private:
         {
             case LaneMode::Vel: st.vel = juce::jmax (1, juce::roundToInt (f * 127.0f)); break;
             case LaneMode::Prob: st.prob = juce::roundToInt (f * 20.0f) * 5; break;
-            case LaneMode::Note: st.note = juce::jlimit (-24, 24, juce::roundToInt ((f - 0.5f) * 48.0f)); break;
+            case LaneMode::Note:
+            {
+                const bool tonal = ctx.proc.value (P::Tonal) > 0.5f && isPitched (t);
+                const float range = tonal ? 14.0f : 24.0f;
+                st.note = juce::jlimit (-24, 24, juce::roundToInt ((f - 0.5f) * 2.0f * range));
+                break;
+            }
             case LaneMode::Octave: st.octave = juce::jlimit (-3, 3, juce::roundToInt ((f - 0.5f) * 6.0f)); break;
             case LaneMode::Nudge: st.nudge = juce::jlimit (-50, 50, juce::roundToInt ((f - 0.5f) * 50.0f) * 2); break;
             case LaneMode::Ratchet: st.ratchet = juce::jlimit (1, kMaxRatchet, 1 + (int) (f * (float) kMaxRatchet)); break;
@@ -957,6 +1113,7 @@ private:
                 return;
             }
             case LaneMode::Cond:
+            case LaneMode::ChordType:
             case LaneMode::Motion: return;
         }
         lastS = s;
@@ -994,13 +1151,23 @@ public:
         static const std::pair<int, const char*> mix[] = { { P::Level, "NIVEL" }, { P::Pan, "PANEO" }, { P::Delay, "DELAY" },
                                                            { P::Reverb, "REVERB" }, { P::Pump, "PUMP" }, { P::Ring, "RING" } };
         for (const auto& m : mix) box.addItem (m.second, m.first + 1);
-        if (t == Bass) box.addItem ("ATAQUE", P::EnvA + 1);
-        if (t == Bass || t == Chord) { box.addItem ("SUSTAIN", P::EnvS + 1); box.addItem ("RELEASE", P::EnvR + 1); }
+        if (t >= Bass && t != Chord) box.addItem ("ATAQUE", P::EnvA + 1);
+        if (t >= Bass) { box.addItem ("SUSTAIN", P::EnvS + 1); box.addItem ("RELEASE", P::EnvR + 1); }
+        // Perillas propias de la pista (bajo: sub; acordes: apertura, strum, inversión)
+        for (int i = 0; i < (int) paramDefs().size(); ++i)
+        {
+            const auto& d = paramDefs()[(size_t) i];
+            if (d.exists && d.modulatable && d.track == t && i >= P::RingOn)
+                box.addItem (upper (juce::String::fromUTF8 (d.name.c_str()).fromFirstOccurrenceOf (" ", false, false)), 1000 + i);
+        }
         juce::PopupMenu glob;
         for (int g : lockGlobals()) glob.addItem (1000 + g, juce::String::fromUTF8 (paramDefs()[(size_t) g].name.c_str()));
         box.getRootMenu()->addSubMenu ("GLOBAL", glob);
-        const bool validField = lane.lockTarget.field < P::EnvA || (t == Bass) || (t == Chord && lane.lockTarget.field != P::EnvA);
+        const bool validField = lane.lockTarget.field < P::EnvA || (t >= Bass && (t != Chord || lane.lockTarget.field != P::EnvA));
         if (lane.lockTarget.global < 0 && ! validField) lane.lockTarget.field = P::S3;
+        if (lane.lockTarget.global >= 0 && paramDefs()[(size_t) lane.lockTarget.global].track >= 0
+            && paramDefs()[(size_t) lane.lockTarget.global].track != t)
+        { lane.lockTarget.global = -1; lane.lockTarget.field = P::S3; }
         box.setSelectedId (lane.lockTarget.global >= 0 ? 1000 + lane.lockTarget.global : lane.lockTarget.field + 1, juce::dontSendNotification);
     }
     void resized() override { box.setBounds (getLocalBounds()); }

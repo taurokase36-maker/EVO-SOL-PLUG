@@ -4,7 +4,7 @@ Instrumento para Ableton Live 12 (VST3 / AU, Mac Intel y Apple Silicon). Es un p
 aparte de OGRO 1.0 (carpeta `../ogro`): los dos conviven en el mismo Ableton y las
 sesiones viejas siguen usando la 1.0.
 
-> **Estado:** en desarrollo (fase 2 de 7). Ver [CHANGELOG.md](CHANGELOG.md).
+> **Estado:** en desarrollo (fase 3 de 7). Ver [CHANGELOG.md](CHANGELOG.md).
 
 ## Compatibilidad hacia adelante (2.x)
 
@@ -33,7 +33,8 @@ Fabricante: EVO THE SUN (`Evts`) en los dos, así aparecen juntos en Ableton.
 ## Código
 
 - `Source/engine/` — motor de audio en C++ puro (voces, secuenciador, modulación, presets,
-  efectos de fin de compás `BarFx.h`, generador `Generator.h`), namespace `ogro2`.
+  efectos de fin de compás `BarFx.h`, generador `Generator.h`, armonía `Harmony.h`),
+  namespace `ogro2`.
 - `Source/dsp/` — DSP propio (copia del de EVO SOL, namespace `evo2`). OGRO 2 no depende de
   `../Source/dsp`, así un cambio en EVO SOL nunca cambia su sonido.
 - `Source/Plugin*.cpp`, `Widgets.h`, `Ogro2LookAndFeel.h` — plugin JUCE e interfaz.
@@ -72,6 +73,13 @@ clang++ -std=c++17 -O2 test_secuencia.cpp -o bin/test_secuencia && ./bin/test_se
 
 Secuenciador de la fase 2: condiciones, fills, cadena, cambio de patrón, polirritmos,
 nudge, groove, humanizar, swing por pista, p-locks, FX de fin de compás y generador.
+
+```bash
+clang++ -std=c++17 -O2 test_tonal.cpp -o bin/test_tonal && ./bin/test_tonal
+```
+
+Fase 3: escalas y MODO TONAL, acordes (diatónico, inversión, apertura, voice leading,
+strum), bajo (sub, formas, 303, legato), afinación de la melodía y generador en tono.
 
 ```bash
 bash ../tools/snapshot/build.sh tests

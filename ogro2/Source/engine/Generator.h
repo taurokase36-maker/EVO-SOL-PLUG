@@ -20,11 +20,14 @@ struct Rng
     template <size_t N> int pick (const int (&v)[N]) { return v[next() % N]; }
 };
 
-// Pentatónica menor + 9na: suena bien sobre cualquier acorde menor de deep / minimal
-inline int scaleNote (Rng& r, int maxDegree = 8)
+// Pentatónica menor + 9na: suena bien sobre cualquier acorde menor de deep / minimal.
+// Con MODO TONAL devuelve grados de la escala (tónica, 3ra, 4ta, 5ta, 7ma, 8va, 9na, 10ma).
+inline int scaleNote (Rng& r, int maxDegree = 8, bool tonal = false)
 {
     static const int scale[] = { 0, 3, 5, 7, 10, 12, 14, 15 };
-    return scale[r.next() % (uint32_t) clampv (maxDegree, 1, 8)];
+    static const int degrees[] = { 0, 2, 3, 4, 6, 7, 8, 9 };
+    const uint32_t i = r.next() % (uint32_t) clampv (maxDegree, 1, 8);
+    return tonal ? degrees[i] : scale[i];
 }
 
 inline Step make (bool on, int vel, int prob = 100)
@@ -36,9 +39,10 @@ inline Step make (bool on, int vel, int prob = 100)
 } // namespace gen
 
 // Un patrón para una pista. Respeta el largo de la pista (salvo PERC, que puede ir en polirritmo).
-inline void inventPattern (PatternBank& bank, int pattern, int track, uint32_t seed, int genre = GenreMinimal)
+inline void inventPattern (PatternBank& bank, int pattern, int track, uint32_t seed, int genre = GenreMinimal, bool tonal = false)
 {
     using namespace gen;
+    const int oct = tonal ? 7 : 12;   // una octava en grados o en semitonos
     Rng r (seed * 2654435761u + (uint32_t) track * 97u + (uint32_t) genre * 7919u);
     int len = bank.getLength (pattern, track);
     if (len < 4) len = 16;
@@ -112,7 +116,7 @@ inline void inventPattern (PatternBank& bank, int pattern, int track, uint32_t s
             {
                 const int pct = q % 3 == 0 ? 48 : 20;
                 st = make (r.chance (deep ? pct - 8 : pct), r.range (60, 118));
-                st.note = scaleNote (r) - (r.chance (30) ? 12 : 0);
+                st.note = scaleNote (r, 8, tonal) - (r.chance (30) ? oct : 0);
                 if (micro && st.on && r.chance (20)) st.cond = r.chance (50) ? CondRatioBase + 6 : CondRatioBase + 0;
                 if (st.on && r.chance (15)) st.prob = 70;
                 break;
@@ -139,7 +143,7 @@ inline void inventPattern (PatternBank& bank, int pattern, int track, uint32_t s
                     st = make ((! beat && r.chance (micro ? 50 : 55)) || (q == 0 && r.chance (30)), r.chance (25) ? 122 : 96);
                     if (micro && st.on) { st.gate = r.range (3, 6); if (r.chance (20)) st.octave = 1; }
                 }
-                st.note = r.chance (55) ? 0 : (r.chance (50) ? scaleNote (r, 5) : (r.chance (50) ? 12 : -2));
+                st.note = r.chance (55) ? 0 : (r.chance (50) ? scaleNote (r, 5, tonal) : (r.chance (50) ? oct : (tonal ? -1 : -2)));
                 st.slide = st.on && r.chance (deep ? 25 : 15);
                 break;
             }
@@ -157,9 +161,34 @@ inline void inventPattern (PatternBank& bank, int pattern, int track, uint32_t s
                     st = make ((q == 2 || q == 6 || q == 10 || q == 13) ? r.chance (micro ? 35 : 50) : r.chance (6), r.range (92, 120));
                     if (st.on && r.chance (micro ? 35 : 15)) st.cond = r.chance (50) ? CondRatioBase + 0 : CondRatioBase + 5;
                 }
-                st.note = r.chance (70) ? 0 : (r.chance (50) ? -2 : (r.chance (50) ? 5 : 3));
+                // Con MODO TONAL: i, VI, iv, III (los acordes salen en tono con el modo DIATÓNICO)
+                st.note = r.chance (70) ? 0 : (tonal ? (r.chance (50) ? -2 : (r.chance (50) ? 3 : 2)) : (r.chance (50) ? -2 : (r.chance (50) ? 5 : 3)));
                 break;
             }
+            case Melody:
+            {
+                // Motivo corto que se repite en la segunda mitad con una variación
+                const int half = len >= 8 ? len / 2 : len;
+                const int q2 = s % half;
+                const bool rhythm = (q2 == 0 && r.chance (70)) || (q2 == 3 && r.chance (55)) || (q2 == 6 && r.chance (45))
+                                    || (q2 % 2 == 1 && r.chance (deep ? 12 : 18));
+                st = make (rhythm, r.range (80, 115));
+                if (deep) st.gate = st.on ? r.range (8, 24) : 0;
+                st.note = scaleNote (r, 6, tonal);
+                if (s >= half && s - half < kSteps)
+                {
+                    // segunda mitad: misma figura, a veces otra nota
+                    const Step first = bank.get (pattern, track, s - half);
+                    if (first.on && r.chance (75)) { st = first; if (r.chance (35)) st.note = scaleNote (r, 6, tonal); }
+                }
+                st.slide = st.on && r.chance (10);
+                break;
+            }
+            case Texture:
+                st = make ((q == 0 && r.chance (deep ? 60 : 35)) || (q == 8 && r.chance (20)), r.range (70, 105));
+                st.prob = st.on && r.chance (40) ? 60 : 100;
+                if (st.on && r.chance (30)) st.cond = CondRatioBase + 6;   // 2:4
+                break;
             default: break;
         }
         if (s >= len) st = Step();
@@ -169,23 +198,24 @@ inline void inventPattern (PatternBank& bank, int pattern, int track, uint32_t s
     // Lo esencial siempre aparece: bombo, bajo y acordes arrancan con algo
     bool any = false;
     for (int s = 0; s < len; ++s) any |= bank.get (pattern, track, s).on;
-    if (! any && (track == Kick || track == Bass || track == Chord || track == HatC))
+    if (! any && (track == Kick || track == Bass || track == Chord || track == HatC || track == Melody))
         bank.set (pattern, track, track == Bass ? 2 : 0, make (true, 100));
 }
 
-inline void inventAll (PatternBank& bank, int pattern, uint32_t seed, int genre)
+inline void inventAll (PatternBank& bank, int pattern, uint32_t seed, int genre, bool tonal = false)
 {
-    for (int t = 0; t < kTracks; ++t) inventPattern (bank, pattern, t, seed + (uint32_t) t * 131u, genre);
+    for (int t = 0; t < kTracks; ++t) inventPattern (bank, pattern, t, seed + (uint32_t) t * 131u, genre, tonal);
 }
 
 // MUTAR: cambia más o menos cosas según "amount" (0..1). Los tiempos del bombo no se tocan.
-inline void mutatePattern (PatternBank& bank, int pattern, int track, float amount, uint32_t seed)
+inline void mutatePattern (PatternBank& bank, int pattern, int track, float amount, uint32_t seed, bool tonal = false)
 {
     gen::Rng r (seed * 40503u + (uint32_t) track * 31u + 17u);
     const int a = (int) std::lround (clampv (amount, 0.0f, 1.0f) * 100.0f);
     if (a <= 0) return;
     const int len = bank.getLength (pattern, track);
-    const bool melodic = track == Bass || track == Chord || track == Perc;
+    const bool melodic = track == Bass || track == Chord || track == Perc || track == Melody;
+    const int oct = tonal ? 7 : 12;
     for (int s = 0; s < len; ++s)
     {
         Step st = bank.get (pattern, track, s);
@@ -196,7 +226,8 @@ inline void mutatePattern (PatternBank& bank, int pattern, int track, float amou
             if (st.on && st.vel < 30) st.vel = 90;
         }
         if (st.on && r.chance (a * 45 / 100)) st.vel = clampv (st.vel + r.range (-22, 22), 30, 127);
-        if (st.on && melodic && r.chance (a * 30 / 100)) st.note = track == Chord ? (r.chance (60) ? 0 : (r.chance (50) ? -2 : 5)) : gen::scaleNote (r) - (r.chance (25) ? 12 : 0);
+        if (st.on && melodic && r.chance (a * 30 / 100))
+            st.note = track == Chord ? (r.chance (60) ? 0 : (r.chance (50) ? -2 : (tonal ? 3 : 5))) : gen::scaleNote (r, 8, tonal) - (r.chance (25) ? oct : 0);
         if (st.on && r.chance (a * 10 / 100)) st.ratchet = st.ratchet > 1 ? 1 : 2;
         if (st.on && ! anchor && r.chance (a * 12 / 100)) st.prob = st.prob < 100 ? 100 : 70;
         if (st.on && melodic && track != Perc && r.chance (a * 12 / 100)) st.slide = ! st.slide;

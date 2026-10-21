@@ -6,6 +6,7 @@
 #include "../dsp/Effects.h"
 #include "../dsp/Saturation.h"
 #include "BarFx.h"
+#include "Harmony.h"
 #include "ParamDefs.h"
 #include "Sequencer.h"
 #include "Voices.h"
@@ -86,7 +87,7 @@ private:
 };
 
 // Textura analógica: crackle de vinilo + hiss de cinta
-class Texture
+class VinylTexture
 {
 public:
     void prepare (double sampleRate)
@@ -181,6 +182,7 @@ public:
         for (size_t i = 0; i < d.size(); ++i) base[i] = eff[i] = d[i].def;
         voices[Kick] = &kick; voices[Clap] = &clap; voices[Rim] = &rim; voices[HatC] = &hatC;
         voices[HatO] = &hatO; voices[Perc] = &perc; voices[Bass] = &bass;
+        stereo[Chord] = &chord; stereo[Melody] = &melody; stereo[Texture] = &textureVoice;
     }
 
     void prepare (double sampleRate, int maxBlock)
@@ -190,6 +192,9 @@ public:
         for (int t = 0; t < kTracks; ++t)
             if (voices[t]) voices[t]->prepare (fs, 0x1234567u * (uint32_t) (t + 3));
         chord.prepare (fs, 0xBEEFu);
+        melody.prepare (fs, 0x3E10D1u);
+        textureVoice.prepare (fs, 0x7E47u);
+        lastChordCount = 0;
         clock.prepare (fs);
         delay.prepare (fs);
         reverb.prepare (fs);
@@ -396,8 +401,14 @@ private:
         lastEq[0] = lastEq[1] = lastEq[2] = lastEq[3] = -999.0f;
         updateControl (ppq, true);
         controlCounter = kControl;
-        for (int t = 0; t < kTracks; ++t) { if (voices[t]) voices[t]->resetState(); quiet[t] = 0; mixState[t] = target[t]; }
-        chord.resetState();
+        for (int t = 0; t < kTracks; ++t)
+        {
+            if (voices[t]) voices[t]->resetState();
+            else if (stereo[t]) stereo[t]->resetState();
+            quiet[t] = 0;
+            mixState[t] = target[t];
+        }
+        lastChordCount = 0;
         delay.clear(); reverb.clear();
         drumComp.resetState(); masterComp.resetState();
         drumSatL.resetState(); drumSatR.resetState(); warmL.resetState(); warmR.resetState();
@@ -426,7 +437,7 @@ private:
         quiet[t] = 0;
         if (ev.release)
         {
-            if (t == Chord) chord.release();
+            if (stereo[t]) stereo[t]->release();
             else if (voices[t]) voices[t]->release();
             return;
         }
@@ -447,7 +458,26 @@ private:
         }
         TriggerEvent e = ev;
         if (e.gateBeats > 0.0) e.hit.gateSamples = e.gateBeats * 60.0 / curBpm * fs;
-        if (t == Chord) chord.trigger (e.hit);
+        // Altura: con MODO TONAL la NOTA de las pistas melódicas es un grado de la escala
+        const Tonality ton = tonality();
+        const float rawNote = e.hit.note;
+        e.hit.note = isPitched (t) ? stepSemis (ton, rawNote, e.hit.octave) : rawNote + (float) (e.hit.octave * 12);
+        if (t == Chord)
+        {
+            ChordShape sh;
+            sh.type = e.hit.chordType >= 0 ? e.hit.chordType : (int) std::lround (eff[(size_t) P::sound (Chord, 0)]);
+            sh.diatonic = eff[P::ChordMode] < 0.5f;
+            sh.inversion = (int) eff[P::ChordInv];
+            sh.spread = eff[P::ChordSpread];
+            sh.voiceLeading = eff[P::ChordLead] > 0.5f;
+            const float base = 48.0f + (float) ton.root + e.hit.note;
+            float notes[kMaxChordNotes];
+            const int count = buildChord (sh, ton, base, rawNote, e.hit.octave, lastChord, lastChordCount, notes);
+            chord.setNextNotes (notes, count);
+            std::copy (notes, notes + count, lastChord);
+            lastChordCount = count;
+        }
+        if (stereo[t]) stereo[t]->trigger (e.hit);
         else if (voices[t])
         {
             voices[t]->trigger (e.hit);
@@ -456,6 +486,15 @@ private:
         }
         meters.triggers[t].fetch_add (1, std::memory_order_relaxed);
         triggerLog.push (sampleClock + e.sample, t);
+    }
+
+    Tonality tonality() const noexcept
+    {
+        Tonality k;
+        k.tonal = eff[P::Tonal] > 0.5f;
+        k.root = (int) eff[P::Root];
+        k.scale = (int) eff[P::Scale];
+        return k;
     }
 
     void startBarFx (int bar, double beats) noexcept
@@ -630,10 +669,14 @@ private:
         chord.setRoot (root);
         bass.setEnv (eff[(size_t) P::track (Bass, P::EnvA)], eff[(size_t) P::track (Bass, P::EnvS)], eff[(size_t) P::track (Bass, P::EnvR)]);
         chord.setEnv (eff[(size_t) P::track (Chord, P::EnvS)], eff[(size_t) P::track (Chord, P::EnvR)]);
+        bass.setExtras (eff[P::BassSub], (int) eff[P::BassOsc], eff[P::BassAccent] > 0.5f, eff[P::BassLegato] > 0.5f);
+        chord.setStrum (eff[P::ChordStrum]);
+        melody.setEnv (eff[(size_t) P::track (Melody, P::EnvA)], eff[(size_t) P::track (Melody, P::EnvS)], eff[(size_t) P::track (Melody, P::EnvR)]);
+        melody.setMode ((int) eff[P::MelVoices], 60.0f + (float) root + 12.0f * (float) ((int) eff[P::MelOctave] - 2));
         const double songSeconds = ppq * 60.0 / std::max (1.0, curBpm);
         for (int t = 0; t < kTracks; ++t)
         {
-            if (t == Chord) { chord.setParams (&eff[(size_t) P::sound (t, 0)]); chord.setSongTime (songSeconds, fixedRandom, randomSeed); }
+            if (stereo[t]) { stereo[t]->setParams (&eff[(size_t) P::sound (t, 0)]); stereo[t]->setSongTime (songSeconds, fixedRandom, randomSeed); }
             else { voices[t]->setParams (&eff[(size_t) P::sound (t, 0)]); voices[t]->setSongTime (songSeconds, fixedRandom, randomSeed); }
         }
         // Azar FIJO: la textura de vinilo arranca cada compás desde su semilla
@@ -722,7 +765,7 @@ private:
         int numActive = 0;
         for (int t = 0; t < kTracks; ++t)
         {
-            const bool sounding = t == Chord ? chord.isActive() : voices[t]->isActive();
+            const bool sounding = stereo[t] ? stereo[t]->isActive() : voices[t]->isActive();
             if (! exactLegacy && ! sounding && quiet[t] > kQuietSkip)
             {
                 mixState[t] = target[t];
@@ -730,10 +773,10 @@ private:
             }
             activeList[numActive++] = t;
             float peak = 0.0f;
-            if (t == Chord)
+            if (stereo[t])
             {
-                chord.render (chordL, chordR, len);
-                for (int i = 0; i < len; ++i) peak = std::max ({ peak, std::fabs (chordL[i]), std::fabs (chordR[i]) });
+                stereo[t]->render (stL[t], stR[t], len);
+                for (int i = 0; i < len; ++i) peak = std::max ({ peak, std::fabs (stL[t][i]), std::fabs (stR[t][i]) });
             }
             else
             {
@@ -783,7 +826,7 @@ private:
                 auto& m = mixState[t];
                 m.gL += stepMix[t].gL; m.gR += stepMix[t].gR; m.dly += stepMix[t].dly; m.rev += stepMix[t].rev;
                 float xl, xr;
-                if (t == Chord) { xl = chordL[i]; xr = chordR[i]; }
+                if (stereo[t]) { xl = stL[t][i]; xr = stR[t][i]; }
                 else xl = xr = trackBuf[t][i];
                 const float pg = 1.0f - pumpAmt[t] * pumpEnv * 0.92f;
                 xl *= m.gL * pg; xr *= m.gR * pg;
@@ -883,7 +926,12 @@ private:
 
     KickVoice kick; ClapVoice clap; RimVoice rim; HatVoice hatC { false }, hatO { true }; PercVoice perc; BassVoice bass;
     ChordVoice chord;
+    MelodyVoice melody;
+    TextureVoice textureVoice;
     MonoVoice* voices[kTracks] {};
+    StereoVoice* stereo[kTracks] {};
+    float lastChord[kMaxChordNotes] {};
+    int lastChordCount = 0;
 
     StepClock clock;
     TriggerEvent events[kMaxEvents];
@@ -900,7 +948,7 @@ private:
     int64_t sampleClock = 0; // muestras procesadas desde prepare()
 
     float trackBuf[kTracks][kControl] {};
-    float chordL[kControl] {}, chordR[kControl] {};
+    float stL[kTracks][kControl] {}, stR[kTracks][kControl] {};
     MixState mixState[kTracks], target[kTracks];
     float pumpAmt[kTracks] {};
     float ringAmt[kTracks] {};
@@ -931,7 +979,7 @@ private:
     AnalogSaturator drumSatL, drumSatR, warmL, warmR;
     OversampledClipper clipL, clipR;
     LookaheadLimiter limiter;
-    Texture texture;
+    VinylTexture texture;
     DelayLine synthAlignL, synthAlignR, dryL, dryR;
     Svf djL, djR;
     int djMode = 0;

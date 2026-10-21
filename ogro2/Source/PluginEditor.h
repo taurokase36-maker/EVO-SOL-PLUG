@@ -51,7 +51,7 @@ private:
     juce::OwnedArray<juce::TextButton> patternButtons;
     PlayOrb playOrb;
     Lcd bpmLcd;
-    std::unique_ptr<Choice> rootChoice;
+    KeyDisplay keyDisplay { proc };
     std::unique_ptr<juce::FileChooser> chooser;
 
     // Pistas

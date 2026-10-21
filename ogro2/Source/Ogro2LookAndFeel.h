@@ -442,7 +442,11 @@ public:
         g.setColour (box.findColour (juce::ComboBox::arrowColourId));
         g.fillPath (p);
     }
-    juce::Font getComboBoxFont (juce::ComboBox& b) override { return lcdFont (juce::jlimit (16.0f, 26.0f, (float) b.getHeight() * 0.8f)); }
+    juce::Font getComboBoxFont (juce::ComboBox& b) override
+    {
+        const float maxF = (float) (double) b.getProperties().getWithDefault ("maxFont", 26.0);
+        return lcdFont (juce::jlimit (16.0f, maxF, (float) b.getHeight() * 0.8f));
+    }
     juce::Font getPopupMenuFont() override { return textFont (15.0f); }
     void positionComboBoxText (juce::ComboBox& box, juce::Label& label) override
     {
