@@ -52,7 +52,9 @@ static juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
 
 juce::AudioProcessor::BusesProperties Ogro2Processor::createBuses()
 {
-    auto buses = BusesProperties().withOutput ("Principal", juce::AudioChannelSet::stereo(), true);
+    auto buses = BusesProperties().withOutput ("Principal", juce::AudioChannelSet::stereo(), true)
+                     // Sidechain para el PUMP: el kick real de otra pista de Ableton (apagado por defecto)
+                     .withInput ("Sidechain", juce::AudioChannelSet::stereo(), false);
     static const char* names[] = { "KICK", "CLAP", "RIM", "HAT C", "HAT A", "PERC", "BAJO", "ACORDES", "MELODIA", "TEXTURAS", "EXTRA 1", "EXTRA 2" };
     for (int i = 0; i < Ogro2Processor::kAuxOutputs; ++i)
         buses = buses.withOutput (names[i], juce::AudioChannelSet::stereo(), false);
@@ -91,6 +93,9 @@ Ogro2Processor::Ogro2Processor()
     opt.folderName = "OGRO 2";
     opt.osxLibrarySubFolder = "Application Support";
     settings = std::make_unique<juce::PropertiesFile> (opt);
+    // Mapa MIDI por defecto (el último que aprendiste, para todas las instancias nuevas)
+    for (auto& ch : ccMap) for (auto& c : ch) c.store (-1);
+    setMidiMapText (settings->getValue ("mapaMidi"));
     const auto folder = getSampleFolder();
     if (SamplePool::get().currentFolder() != folder.getFullPathName().toStdString())
         SamplePool::get().scan (folder.getFullPathName().toStdString());
@@ -227,14 +232,67 @@ void Ogro2Processor::refreshSamples()
     lastCat = cat;
 }
 
+void Ogro2Processor::forgetMidi (int param)
+{
+    for (auto& row : ccMap) for (auto& c : row) if (c.load() == param) c.store (-1);
+    midiMapChanged = true;
+}
+
+void Ogro2Processor::forgetAllMidi()
+{
+    for (auto& row : ccMap) for (auto& c : row) c.store (-1);
+    midiMapChanged = true;
+}
+
+juce::String Ogro2Processor::midiLabel (int param) const
+{
+    for (int ch = 0; ch < 16; ++ch)
+        for (int cc = 0; cc < 128; ++cc)
+            if (ccMap[ch][cc].load() == param) return "CC " + juce::String (cc) + juce::String::fromUTF8 (" · canal ") + juce::String (ch + 1);
+    return {};
+}
+
+// "canal:cc:id;..." (por ID: sobrevive a versiones nuevas)
+juce::String Ogro2Processor::midiMapText() const
+{
+    juce::String t;
+    for (int ch = 0; ch < 16; ++ch)
+        for (int cc = 0; cc < 128; ++cc)
+        {
+            const int p = ccMap[ch][cc].load();
+            if (p >= 0 && p < (int) paramDefs().size()) t << ch << ":" << cc << ":" << juce::String (paramDefs()[(size_t) p].id) << ";";
+        }
+    return t;
+}
+
+void Ogro2Processor::setMidiMapText (const juce::String& text)
+{
+    for (auto& row : ccMap) for (auto& c : row) c.store (-1);
+    for (const auto& item : juce::StringArray::fromTokens (text, ";", ""))
+    {
+        const auto parts = juce::StringArray::fromTokens (item, ":", "");
+        if (parts.size() != 3) continue;
+        const int ch = parts[0].getIntValue(), cc = parts[1].getIntValue(), p = paramIndex (parts[2].toStdString());
+        if (ch >= 0 && ch < 16 && cc >= 0 && cc < 128 && p >= 0) ccMap[ch][cc].store (p);
+    }
+}
+
 void Ogro2Processor::timerCallback()
 {
+    // MIDI learn: el mapa nuevo queda como predeterminado para las instancias nuevas
+    if (midiMapChanged.exchange (false))
+    {
+        if (settings != nullptr) { settings->setValue ("mapaMidi", midiMapText()); settings->saveIfNeeded(); }
+        notifyStateChanged();
+    }
     if (SamplePool::get().size() != lastPoolSize || (int) value (P::TexCat) - 1 != lastCat) refreshSamples();
 }
 
 bool Ogro2Processor::isBusesLayoutSupported (const BusesLayout& layouts) const
 {
-    if (! layouts.inputBuses.isEmpty()) return false;
+    for (const auto& in : layouts.inputBuses)
+        if (! in.isDisabled() && in != juce::AudioChannelSet::stereo() && in != juce::AudioChannelSet::mono()) return false;
+    if (layouts.inputBuses.size() > 1) return false;
     const auto main = layouts.getMainOutputChannelSet();
     if (main != juce::AudioChannelSet::stereo() && main != juce::AudioChannelSet::mono()) return false;
     for (int b = 1; b < layouts.outputBuses.size(); ++b)
@@ -286,6 +344,22 @@ void Ogro2Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiB
     for (const auto meta : midi)
     {
         const auto m = meta.getMessage();
+        // MIDI learn y perillas mapeadas (en VST3, JUCE convierte los CC de Ableton en estos mensajes)
+        if (m.isController())
+        {
+            const int ch = juce::jlimit (0, 15, m.getChannel() - 1), cc = juce::jlimit (0, 127, m.getControllerNumber());
+            const int learn = learnParam.exchange (-1);
+            if (learn >= 0)
+            {
+                for (auto& row : ccMap) for (auto& c : row) if (c.load() == learn) c.store (-1);
+                ccMap[ch][cc].store (learn);
+                midiMapChanged = true;
+            }
+            const int p = ccMap[ch][cc].load();
+            if (p >= 0 && p < (int) params.size() && params[(size_t) p] != nullptr)
+                params[(size_t) p]->setValueNotifyingHost ((float) m.getControllerValue() / 127.0f);
+            continue;
+        }
         const int note = m.getNoteNumber();
         if (note < 36 || note >= 36 + kTracks) continue;
         if (m.isNoteOn()) midiTriggers.push_back ({ meta.samplePosition, note - 36, m.getFloatVelocity(), false });
@@ -293,18 +367,36 @@ void Ogro2Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiB
     }
     midi.clear();
 
-    // Salidas separadas: por ahora en silencio (llegan en la fase 7)
+    // Salidas separadas: cada pista en su propia salida (si Ableton la usa), alineada con la
+    // principal. La principal sigue con la mezcla completa. EXTRA 1 y 2 quedan en silencio.
+    Engine::Io io;
     for (int b = 1; b < getBusCount (false); ++b)
     {
         auto bus = getBusBuffer (buffer, false, b);
         bus.clear();
+        const int t = b - 1;
+        if (t < kTracks && bus.getNumChannels() > 0 && getBus (false, b)->isEnabled())
+        {
+            io.aux[t][0] = bus.getWritePointer (0);
+            io.aux[t][1] = bus.getNumChannels() > 1 ? bus.getWritePointer (1) : nullptr;
+        }
+    }
+    // Sidechain (comparte memoria con la salida principal: el motor lee cada muestra antes de escribirla)
+    if (getBusCount (true) > 0 && getBus (true, 0)->isEnabled())
+    {
+        auto sc = getBusBuffer (buffer, true, 0);
+        if (sc.getNumChannels() > 0)
+        {
+            io.sc[0] = sc.getReadPointer (0);
+            io.sc[1] = sc.getNumChannels() > 1 ? sc.getReadPointer (1) : nullptr;
+        }
     }
 
     auto mainBus = getBusBuffer (buffer, false, 0);
     auto* l = mainBus.getWritePointer (0);
     auto* r = mainBus.getNumChannels() > 1 ? mainBus.getWritePointer (1) : nullptr;
     if (r != nullptr)
-        engine.process (host, midiTriggers.data(), (int) midiTriggers.size(), l, r, n);
+        engine.process (host, midiTriggers.data(), (int) midiTriggers.size(), l, r, n, &io);
     else
     {
         // Salida mono: renderizamos en estéreo en tramos y sumamos
@@ -500,6 +592,9 @@ void Ogro2Processor::loadPreset (int index)
     applyValues (st.values);
     applyRouting (engine.routing, st);
     list[(size_t) index].build (engine.bank);
+    // Samples por nombre (los presets de la 1.0 no usan samples)
+    setSampleName (0, juce::String::fromUTF8 (list[(size_t) index].texSample.c_str()));
+    setSampleName (1, juce::String::fromUTF8 (list[(size_t) index].chordSample.c_str()));
     currentPreset = index;
     setUserPresetName ({});
     notifyStateChanged();
@@ -549,6 +644,7 @@ std::unique_ptr<juce::XmlElement> Ogro2Processor::createStateXml()
                     e->setAttribute ("v", engine.snapshotValue (w, i));
                 }
         }
+    root->createNewChildElement ("MIDIMAP")->setAttribute ("v", midiMapText());
     {
         juce::String locks;
         for (int t = 0; t < kTracks; ++t) locks << (t ? "," : "") << juce::String ((int) soundLocks[t].load());
@@ -606,6 +702,7 @@ void Ogro2Processor::restoreFromXml (const juce::XmlElement& xml)
         }
         engine.setSnapshot (w, v);
     }
+    if (auto* mm = xml.getChildByName ("MIDIMAP")) setMidiMapText (mm->getStringAttribute ("v"));
     for (auto& l : soundLocks) l.store (0);
     if (auto* lk = xml.getChildByName ("LOCKS"))
     {

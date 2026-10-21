@@ -22,12 +22,26 @@ INSTALAR
 Si macOS dice que está dañado, en Terminal:
   xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/VST3/"OGRO 2.vst3" ~/Library/Audio/Plug-Ins/Components/"OGRO 2.component"
 
-ESTADO: VERSIÓN EN DESARROLLO (fase 5 de 7)
+ESTADO: VERSIÓN 2.0 (todas las fases)
 - Los IDs de los parámetros son definitivos: lo que guardes con OGRO 2 sigue abriendo en
   las próximas versiones (y suena igual).
 - En el logo vas a ver un "2": así sabés cuál es cuál.
 
-QUÉ PROBAR EN ESTA VERSIÓN (fase 5)
+QUÉ PROBAR EN ESTA VERSIÓN (fase 7)
+1. Presets: clic en el nombre del preset > sección "OGRO 2 · MINIMAL 127" (8 nuevos a
+   127 BPM). Los 12 de la 1.0 siguen abajo.
+2. Salidas separadas: en otra pista de Ableton, "Audio From" > OGRO 2 > KICK (o la que
+   quieras). Esa pista recibe solo esa pista de OGRO, alineada con la principal.
+3. PUMP con tu kick: en el dispositivo de OGRO 2 en Ableton abrí "Sidechain" y elegí la
+   pista de tu kick. En OGRO 2: FX > PUMP > FUENTE "Sidechain" y ajustá UMBRAL. Subí PUMP
+   en los acordes o el bajo.
+4. MIDI ⇣ (en la secuencia): arrastralo a una pista MIDI de Ableton y queda el patrón
+   como clip. Menú ≡ > apagá "Secuenciador interno" y dale play al clip: suena igual
+   (bajo, acordes y melodía toman la nota del patrón).
+5. MIDI learn: clic derecho en una perilla > "Aprender MIDI" y mové una perilla del
+   MiniLab. Repetí con las que quieras: queda guardado para las próximas veces.
+
+QUÉ PROBAR DE LA FASE 5
 1. Abajo del logo: la versión y el build (tiene que coincidir con BUILD.txt).
 2. Inspector > pestaña TIRA en el bajo o el clap: DRIVE (CINTA / VÁLVULA / TRANSISTOR /
    DIODO), CUERPO + FREC., TRANSIENTE, BRILLO, COMP (VCA / FET) y RUIDO.
@@ -105,4 +119,4 @@ USO RÁPIDO
 
 MIDI: las notas C1 a G1 (36-43) disparan las 8 pistas, igual que en OGRO 1.0,
 así tus clips MIDI sirven en los dos. Las pistas nuevas siguen: G#1 (44) = MELODÍA,
-A1 (45) = TEXTURAS.
+A1 (45) = TEXTURAS. Las perillas se controlan con MIDI learn (clic derecho).

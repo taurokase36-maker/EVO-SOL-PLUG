@@ -23,6 +23,7 @@ public:
     ~Content() override;
     void paint (juce::Graphics&) override;
     void resized() override;
+    void mouseDown (const juce::MouseEvent&) override;
     void setPage (int i) { showPage (i); } // para capturas y tests
     void setSeqMode (int m) { setLaneMode ((LaneMode) m); }
     void setInspectorTab (int t) { pages[0]->setTab (t); }
@@ -83,6 +84,7 @@ private:
     LockChoice lockChoice { proc, lane };
     juce::TextButton page1 { "1-16" }, page2 { "17-32" }, euclidButton { "EUCLID" };
     ArrowButton undoButton { false }, redoButton { true };
+    MidiDragButton midiButton { proc };
     // MOTION dentro del secuenciador: 4 carriles, se ve uno por vez
     juce::OwnedArray<MotionCanvas> motionCanvas;
     juce::OwnedArray<RouteChoice> motionDest;
@@ -99,6 +101,7 @@ private:
     float flash[kTracks] {};
     uint32_t lastRevision = 0;
     bool lastFill = false;
+    int shownLearn = -1;
     int blink = 0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (Content)

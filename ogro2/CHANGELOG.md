@@ -2,6 +2,46 @@
 
 Formato: cada fase del desarrollo suma una entrada. La versión publicada será la 2.0.0.
 
+## 2.0.0 (en desarrollo) — Fase 7: ruteo, MIDI y presets nuevos
+
+### Salidas separadas
+- Cada pista tiene su salida (KICK ... TEXTURAS) además de la principal, que no cambia
+  (sigue con la mezcla completa). Cada salida es la pista después de nivel, paneo, pump,
+  tira y ring, sin envíos, y llega **alineada** con la principal (mismo retardo): sirve
+  para grabar cada pista en su canal de Ableton al resamplear.
+
+### PUMP con el kick real (sidechain)
+- Entrada de **sidechain** estéreo (apagada por defecto). Con FX > PUMP > FUENTE
+  "Sidechain", el bombeo lo dispara tu kick de otra pista de Ableton cada vez que cruza
+  el UMBRAL (el mismo bombeo de siempre, con el TIEMPO del pump).
+
+### MIDI
+- **Arrastrar el patrón a Ableton**: botón "MIDI ⇣" en la secuencia. Arrastralo a una
+  pista MIDI y el patrón queda como clip (C1 = KICK ... A1 = TEXTURAS, con velocidad,
+  ratchets, nudge, gate y swing). Con Alt, solo la pista elegida. Clic: guardar el .mid.
+- **Notas MIDI del patrón** (por defecto): cuando un clip dispara bajo, acordes, perc,
+  melodía o texturas, toman la nota (y octava, tipo de acorde, ligado) del paso del
+  patrón en ese momento. Así el clip exportado suena igual que el patrón. Los presets de
+  la 1.0 lo traen apagado (tónica, como la 1.0).
+- **Secuenciador interno** apagable (menú ≡): los clips de Ableton disparan y el reloj
+  sigue (fills, FX de fin de compás, MOTION).
+- **MIDI learn**: clic derecho en cualquier perilla (también macros y volúmenes de pista)
+  > "Aprender MIDI" y mové una perilla del MiniLab. Se guarda en la sesión y queda como
+  mapa por defecto para las instancias nuevas. Menú ≡ > olvidar todo.
+
+### Presets nuevos: OGRO 2 · MINIMAL 127
+- Sótano 127, Lomonte, Tiza, Neón, Polvo, Garaje 127, Rayo y Madrugada: 127 BPM, MODO
+  TONAL, acordes diatónicos con voice leading, grooves, FX de fin de compás, cadena y
+  fills, deriva, ring, euclidianos. Sótano 127 y Polvo usan Orbhitz (CHD-Stabbers en
+  capas, PAD-SoGentle en texturas): si el sample no está, suena el sinte igual.
+- Los 12 de la 1.0 siguen iguales (sección "OGRO 1.0" del menú de presets).
+
+### Medidas
+- Test nuevo `test_ruteo`: la principal es idéntica con o sin salidas separadas, las
+  salidas quedan alineadas (0 muestras), el sidechain agacha los acordes (0.24 contra
+  0.91 sin sidechain), el .mid tiene las notas, ratchets y gates correctos, el
+  secuenciador apagado no dispara nada y una nota MIDI toma la nota del patrón (+7 st).
+
 ## 2.0.0 (en desarrollo) — Fase 5: carácter analógico y escenas
 
 ### Instalación

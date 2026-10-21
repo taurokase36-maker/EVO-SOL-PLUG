@@ -4,7 +4,7 @@ Instrumento para Ableton Live 12 (VST3 / AU, Mac Intel y Apple Silicon). Es un p
 aparte de OGRO 1.0 (carpeta `../ogro`): los dos conviven en el mismo Ableton y las
 sesiones viejas siguen usando la 1.0.
 
-> **Estado:** en desarrollo (fase 5 de 7). Ver [CHANGELOG.md](CHANGELOG.md).
+> **Estado:** fases 0 a 7 completas (la 6, interfaz, se fue haciendo en cada fase). Versión 2.0.x. Ver [CHANGELOG.md](CHANGELOG.md).
 
 ## Compatibilidad hacia adelante (2.x)
 
@@ -35,7 +35,7 @@ Fabricante: EVO THE SUN (`Evts`) en los dos, así aparecen juntos en Ableton.
 - `Source/engine/` — motor de audio en C++ puro (voces, secuenciador, modulación, presets,
   efectos de fin de compás `BarFx.h`, generador `Generator.h`, armonía `Harmony.h`,
   samples `Mse.h` / `SampleAnalysis.h` / `SamplePool.h` / `Sampler.h`, tira analógica
-  `Strip.h`), namespace `ogro2`.
+  `Strip.h`, MIDI `MidiExport.h`), namespace `ogro2`.
 - `Source/dsp/` — DSP propio (copia del de EVO SOL, namespace `evo2`). OGRO 2 no depende de
   `../Source/dsp`, así un cambio en EVO SOL nunca cambia su sonido.
 - `Source/Plugin*.cpp`, `Widgets.h`, `Ogro2LookAndFeel.h` — plugin JUCE e interfaz.
@@ -95,6 +95,13 @@ clang++ -std=c++17 -O2 test_analogico.cpp -o bin/test_analogico && ./bin/test_an
 
 Fase 5: CARÁCTER LIMPIO (aliasing, suavizado), tira analógica, escenas A/B con MORPH,
 deriva lenta y suma de consola.
+
+```bash
+clang++ -std=c++17 -O2 test_ruteo.cpp -o bin/test_ruteo && ./bin/test_ruteo
+```
+
+Fase 7: salidas separadas alineadas, PUMP por sidechain, exportar el patrón a MIDI,
+secuenciador interno apagable y notas MIDI tomadas del patrón.
 
 ## Samples de Orbhitz
 

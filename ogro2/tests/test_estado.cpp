@@ -160,6 +160,26 @@ int main()
         all &= report ("importador", ok, "acordes, ring, macros x1, MOTION y azar VIVO");
     }
 
+    // ---- 8) Presets de OGRO 2: todos los IDs existen y los 12 de la 1.0 siguen primero ----
+    {
+        bool ok = true;
+        int v2 = 0;
+        std::string bad;
+        for (size_t i = 0; i < factoryPresets().size(); ++i)
+        {
+            const auto& p = factoryPresets()[i];
+            ok &= p.v2 == (i >= 12);
+            if (! p.v2) continue;
+            ++v2;
+            for (const auto& kv : p.values2) if (paramIndex (kv.first) < 0) { ok = false; bad += kv.first + " "; }
+            for (const auto& m : p.mods) if (modSourceIndex (std::get<0> (m)) < 0 || paramIndex (std::get<1> (m)) < 0) ok = false;
+            for (const auto& l : p.lanes) if (! l.empty() && paramIndex (l) < 0) { ok = false; bad += l + " "; }
+            const auto st = factoryState (p);
+            ok &= st.values[P::Tempo] == 127.0f && st.values[P::Tonal] == 1.0f;
+        }
+        all &= report ("presets 2.0", ok && v2 >= 8, std::to_string (v2) + " presets de OGRO 2 a 127 BPM con IDs validos " + bad);
+    }
+
     std::printf (all ? "ESTADO OK\n" : "ESTADO CON FALLAS\n");
     return all ? 0 : 1;
 }

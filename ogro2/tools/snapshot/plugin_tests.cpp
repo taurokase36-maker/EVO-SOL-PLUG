@@ -233,10 +233,10 @@ int main()
         auto layout = proc.getBusesLayout();
         for (int b = 1; b < layout.outputBuses.size(); ++b) layout.outputBuses.getReference (b) = juce::AudioChannelSet::stereo();
         proc.setBusesLayout (layout);
-        proc.setPlayConfigDetails (0, proc.getTotalNumOutputChannels(), 48000.0, 2048);
+        proc.setRateAndBufferSizeDetails (48000.0, 2048);
         proc.prepareToPlay (48000.0, 2048);
         proc.engine.setInternalPlay (true);
-        bool finite = true;
+        bool finite = true, bassOut = false, extrasSilent = true;
         float peak = 0;
         juce::MidiBuffer midi;
         midi.addEvent (juce::MidiMessage::noteOn (1, 42, 0.9f), 10);
@@ -250,10 +250,61 @@ int main()
                 proc.processBlock (buf, midi);
                 for (int c = 0; c < buf.getNumChannels(); ++c)
                     for (int k = 0; k < n; ++k) { finite &= std::isfinite (buf.getSample (c, k)); if (c < 2) peak = std::max (peak, std::abs (buf.getSample (c, k))); }
-                for (int c = 2; c < buf.getNumChannels(); ++c) finite &= buf.getMagnitude (c, 0, n) == 0.0f;
+                // F#1 (42) = BAJO -> salida separada 7 (canales 14 y 15); EXTRA 1 y 2 en silencio
+                bassOut |= buf.getMagnitude (14, 0, n) > 0.0f;
+                for (int c = 2 + 2 * kTracks; c < buf.getNumChannels(); ++c) extrasSilent &= buf.getMagnitude (c, 0, n) == 0.0f;
             }
         }
-        all &= report ("procesar", finite && peak > 0.001f && peak < 1.0f, "13 salidas, buffers de 1 a 2048, MIDI on/off, pico " + juce::String (peak, 3));
+        all &= report ("procesar", finite && peak > 0.001f && peak < 1.0f && bassOut && extrasSilent,
+                       "13 salidas (el bajo en su salida separada), buffers de 1 a 2048, MIDI on/off, pico " + juce::String (peak, 3));
+    }
+
+    // ---- 8) Sidechain: entrada estéreo opcional (el kick real de otra pista) ----
+    {
+        Ogro2Processor proc;
+        auto layout = proc.getBusesLayout();
+        bool ok = layout.inputBuses.size() == 1 && proc.checkBusesLayoutSupported (layout);
+        layout.inputBuses.getReference (0) = juce::AudioChannelSet::stereo();
+        ok &= proc.checkBusesLayoutSupported (layout) && proc.setBusesLayout (layout);
+        proc.setRateAndBufferSizeDetails (44100.0, 512);
+        proc.prepareToPlay (44100.0, 512);
+        proc.setValue (P::PumpSource, 1.0f);
+        proc.engine.setInternalPlay (true);
+        juce::AudioBuffer<float> buf (juce::jmax (proc.getTotalNumInputChannels(), proc.getTotalNumOutputChannels()), 512);
+        juce::MidiBuffer midi;
+        bool finite = true;
+        for (int i = 0; i < 40; ++i)
+        {
+            for (int c = 0; c < 2; ++c) for (int k = 0; k < 512; ++k) buf.setSample (c, k, (i % 8 == 0 && k < 200) ? 0.8f : 0.0f);
+            proc.processBlock (buf, midi);
+            for (int c = 0; c < 2; ++c) for (int k = 0; k < 512; ++k) finite &= std::isfinite (buf.getSample (c, k));
+        }
+        all &= report ("sidechain", ok && finite, "entrada de sidechain estereo para el PUMP");
+    }
+
+    // ---- 9) MIDI learn: una perilla del controlador mueve el parámetro; se guarda en la sesión ----
+    {
+        Ogro2Processor proc;
+        proc.prepareToPlay (44100.0, 256);
+        const int cut = P::sound (Bass, 2);
+        proc.startMidiLearn (cut);
+        juce::AudioBuffer<float> buf (proc.getTotalNumOutputChannels(), 256);
+        juce::MidiBuffer midi;
+        midi.addEvent (juce::MidiMessage::controllerEvent (1, 74, 100), 0);
+        proc.processBlock (buf, midi);
+        bool ok = std::abs (proc.value (cut) - 100.0f / 127.0f) < 1e-3f && proc.midiLabel (cut).startsWith ("CC 74");
+        juce::MidiBuffer midi2;
+        midi2.addEvent (juce::MidiMessage::controllerEvent (1, 74, 0), 0);
+        proc.processBlock (buf, midi2);
+        ok &= proc.value (cut) < 1e-3f;
+        juce::MemoryBlock mb;
+        proc.getStateInformation (mb);
+        Ogro2Processor b;
+        b.setStateInformation (mb.getData(), (int) mb.getSize());
+        ok &= b.midiLabel (cut).startsWith ("CC 74");
+        b.forgetMidi (cut);
+        ok &= b.midiLabel (cut).isEmpty();
+        all &= report ("midi learn", ok, "CC 74 mueve el corte del bajo, viaja en la sesion y se puede olvidar");
     }
 
     std::printf (all ? "PLUGIN OK\n" : "PLUGIN CON FALLAS\n");

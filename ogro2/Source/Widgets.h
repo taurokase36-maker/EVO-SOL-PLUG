@@ -22,8 +22,10 @@ public:
         setMouseDragSensitivity (coarse);
     }
     void setTravel (int pixels) { coarse = pixels; setMouseDragSensitivity (coarse); }
+    std::function<void()> onRightClick;   // menú (MIDI learn)
     void mouseDown (const juce::MouseEvent& e) override
     {
+        if (e.mods.isPopupMenu() && onRightClick) { onRightClick(); return; }
         setMouseDragSensitivity (e.mods.isShiftDown() || e.mods.isCommandDown() ? coarse * 5 : coarse);
         juce::Slider::mouseDown (e);
     }
@@ -37,6 +39,21 @@ public:
 private:
     int coarse = 260;
 };
+
+// Menú de MIDI learn de una perilla (clic derecho)
+inline void showMidiLearnMenu (Ogro2Processor& proc, int index, juce::Component* target)
+{
+    if (index < 0) return;
+    juce::PopupMenu m;
+    const auto label = proc.midiLabel (index);
+    m.addSectionHeader (juce::String::fromUTF8 (paramDefs()[(size_t) index].name.c_str()));
+    m.addItem (1, T ("Aprender MIDI (mové una perilla de tu controlador)"));
+    if (label.isNotEmpty()) m.addItem (2, T ("Olvidar MIDI (") + label + ")");
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (target), [&proc, index] (int r) {
+        if (r == 1) proc.startMidiLearn (index);
+        else if (r == 2) proc.forgetMidi (index);
+    });
+}
 
 // ---------------------------------------------------------------------------
 // Perilla cromada con título arriba y valor abajo (se puede re-enlazar)
@@ -62,6 +79,7 @@ public:
         attachment.reset();
         title = t;
         index = paramIndex;
+        slider.onRightClick = [this] { showMidiMenu(); };
         const auto& d = paramDefs()[(size_t) paramIndex];
         attachment = std::make_unique<APVTS::SliderAttachment> (proc.state, juce::String (d.id), slider);
         slider.setDoubleClickReturnValue (true, d.def);
@@ -113,6 +131,7 @@ public:
         }
     }
     juce::Rectangle<float> lockArea() const { return { (float) getWidth() - 14.0f, 0.0f, 14.0f, 14.0f }; }
+    void showMidiMenu() { showMidiLearnMenu (proc, index, this); }
     void resized() override
     {
         auto r = getLocalBounds();
@@ -483,6 +502,60 @@ private:
     int builtSize = -1;
 };
 
+// Arrastrar el patrón a Ableton como clip MIDI (Alt: solo la pista elegida)
+class MidiDragButton : public juce::TextButton
+{
+public:
+    explicit MidiDragButton (Ogro2Processor& p) : juce::TextButton (T ("MIDI ⇣")), proc (p)
+    {
+        styleKey (*this, col::keyBlue);
+        setTooltip (T ("Arrastrá este botón a una pista MIDI de Ableton: el patrón queda como clip (C1 = KICK ... A1 = TEXTURAS). "
+                       "Con Alt, solo la pista elegida. Clic: guardar el .mid."));
+    }
+    void mouseDrag (const juce::MouseEvent& e) override
+    {
+        if (dragging || e.getDistanceFromDragStart() < 6) return;
+        dragging = true;
+        const auto f = writeFile (e.mods.isAltDown());
+        if (f.existsAsFile()) juce::DragAndDropContainer::performExternalDragDropOfFiles ({ f.getFullPathName() }, false, this);
+    }
+    void mouseUp (const juce::MouseEvent& e) override
+    {
+        const bool wasDrag = dragging;
+        dragging = false;
+        if (wasDrag || ! getLocalBounds().contains (e.getPosition())) { setState (buttonNormal); return; }
+        // Clic: guardar el archivo
+        const auto f = writeFile (e.mods.isAltDown());
+        chooser = std::make_unique<juce::FileChooser> (T ("Guardar el patrón como MIDI"),
+                                                       juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile (f.getFileName()), "*.mid");
+        chooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles | juce::FileBrowserComponent::warnAboutOverwriting,
+                              [f] (const juce::FileChooser& fc) {
+                                  auto dst = fc.getResult();
+                                  if (dst == juce::File()) return;
+                                  if (! dst.hasFileExtension ("mid")) dst = dst.withFileExtension ("mid");
+                                  f.copyFileTo (dst);
+                              });
+        setState (buttonNormal);
+    }
+
+private:
+    juce::File writeFile (bool onlySelected)
+    {
+        const int pat = (int) proc.value (P::Pattern), t = proc.selectedTrack.load();
+        const auto data = patternToMidi (proc.engine.bank, pat, onlySelected ? t : -1, proc.value (P::Swing));
+        const juce::String name = "OGRO 2 - Patron " + juce::String::charToString ((juce::juce_wchar) ('A' + pat))
+                                  + (onlySelected ? " - " + juce::String (trackName (t)) : juce::String()) + ".mid";
+        const auto dir = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("OGRO 2 MIDI");
+        dir.createDirectory();
+        const auto f = dir.getChildFile (name);
+        f.replaceWithData (data.data(), data.size());
+        return f;
+    }
+    Ogro2Processor& proc;
+    bool dragging = false;
+    std::unique_ptr<juce::FileChooser> chooser;
+};
+
 // Tecla con flecha curva (deshacer / rehacer)
 class ArrowButton : public juce::TextButton
 {
@@ -632,6 +705,7 @@ public:
         level.setDoubleClickReturnValue (true, paramDefs()[(size_t) P::track (t, P::Level)].def);
         level.setTooltip (T ("Volumen de ") + trackName (t) + T (" · doble clic: 0 dB · Shift: ajuste fino"));
         level.onValueChange = [this] { repaint(); };
+        level.onRightClick = [this, &p, t] { showMidiLearnMenu (p, P::track (t, P::Level), this); };
         addAndMakeVisible (level);
         addAndMakeVisible (mute);
         addAndMakeVisible (solo);
@@ -715,6 +789,7 @@ public:
         att = std::make_unique<APVTS::SliderAttachment> (p.state, juce::String (paramDefs()[(size_t) paramIndex].id), slider);
         slider.setDoubleClickReturnValue (true, paramDefs()[(size_t) paramIndex].def);
         slider.onValueChange = [this] { repaint(); };
+        slider.onRightClick = [this, &p, paramIndex] { showMidiLearnMenu (p, paramIndex, this); };
         addAndMakeVisible (slider);
     }
     void paint (juce::Graphics& g) override

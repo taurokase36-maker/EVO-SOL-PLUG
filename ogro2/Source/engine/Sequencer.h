@@ -466,6 +466,17 @@ public:
     void setFill (int everyBars, int fillPattern) { fillEvery = everyBars; fillPat = fillPattern; }
     void setBarFx (int everyBars, int lenSteps) { bfxEvery = everyBars; bfxLen = clampv (lenSteps, 1, 4); }
     void requestPattern (int p) { wantedPattern = clampv (p, 0, kPatterns - 1); }
+    // Secuenciador interno apagado: el reloj sigue (posición, fills, FX de fin de compás) pero
+    // las pistas no se disparan solas (las disparan los clips MIDI de Ableton)
+    void setEnabled (bool e) { enabled = e; }
+    // Paso de la pista en la semicorchea k (para que una nota MIDI tome la nota del patrón)
+    Step stepAt (int64_t k, int t, const PatternBank& bank) const
+    {
+        const Slot sl = slotFor (std::max<int64_t> (0, k), bank);
+        const int len = bank.getLength (sl.pattern, clampv (t, 0, kTracks - 1));
+        const int64_t pos = polyContinuous ? std::max<int64_t> (0, k) : relative (std::max<int64_t> (0, k), sl.startK);
+        return bank.get (sl.pattern, t, (int) (pos % len));
+    }
     // Azar: fijo = cada decisión sale de (semilla, pista, paso); vivo = generador con estado (como la 1.0)
     void setRandom (bool fixed, uint32_t s) { fixedRandom = fixed; seed = s; }
     int pattern() const { return playing >= 0 ? playing : (curPattern < 0 ? wantedPattern : curPattern); }
@@ -666,7 +677,7 @@ private:
                 if (humanize > 0.0f)
                     t0 += (double) hashBipolar (hash32 (seed, (uint32_t) t, (uint32_t) k, 0x48554Du)) * humanize * 0.001 * bpm / 60.0;
                 if (t0base >= start && t0base < end) lastStep[t] = s;
-                if (! st.on) continue;
+                if (! st.on || ! enabled) continue;
                 for (int r = 0; r < st.ratchet; ++r)
                 {
                     const double tr0 = t0 + dur * (double) r / (double) st.ratchet;
@@ -762,7 +773,7 @@ private:
     int patChange = ChangeAtBar;
     bool polyContinuous = false, chain = false;
     int fillEvery = 0, fillPat = 0, bfxEvery = 0, bfxLen = 2;
-    bool fixedRandom = true;
+    bool fixedRandom = true, enabled = true;
     uint32_t seed = 1;
     int wantedPattern = 0, curPattern = -1, playing = -1;
     int64_t patternStartK = 0;

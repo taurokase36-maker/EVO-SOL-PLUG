@@ -4,7 +4,9 @@
 // así suenan igual que en OGRO 1.0.
 #pragma once
 
+#include "Generator.h"
 #include "Legacy.h"
+#include <tuple>
 
 namespace ogro2
 {
@@ -13,6 +15,12 @@ struct Preset
     std::string name, mood;
     std::vector<std::pair<std::string, float>> values; // IDs de la 1.0
     std::function<void (PatternBank&)> build;
+    // Presets de OGRO 2 (fase 7): valores por ID de la 2.0, samples por nombre y ruteo por ID
+    bool v2 = false;
+    std::vector<std::pair<std::string, float>> values2;
+    std::string texSample, chordSample;
+    std::vector<std::tuple<std::string, std::string, float>> mods;   // fuente, destino, cantidad
+    std::vector<std::string> lanes;                                   // destino de M1..M4 ("" = nada)
 };
 
 namespace pb
@@ -99,6 +107,17 @@ namespace pb
             return 0.2f + 0.6f * (float) (s % 1000u) / 1000.0f;
         };
     }
+
+    // Ajuste fino de un paso (condición, gate, octava, tipo de acorde...)
+    inline void tweak (PatternBank& b, int p, int t, int s, const std::function<void (Step&)>& f)
+    {
+        Step st = b.get (p, t, s);
+        f (st);
+        b.set (p, t, s, st);
+    }
+    inline void cond (PatternBank& b, int p, int t, int s, int c) { tweak (b, p, t, s, [c] (Step& st) { st.cond = c; }); }
+    inline void gate (PatternBank& b, int p, int t, int s, int g) { tweak (b, p, t, s, [g] (Step& st) { st.gate = g; }); }
+    inline constexpr int c12 = CondRatioBase + 0, c22 = CondRatioBase + 1, c14 = CondRatioBase + 5, c34 = CondRatioBase + 7, c44 = CondRatioBase + 8;
 
     inline float dst (int v1Dest) { return (float) v1Dest; }
     inline std::string sid (int t, int p) { return "t" + std::to_string (t + 1) + "_p" + std::to_string (p + 1); }
@@ -409,6 +428,207 @@ inline const std::vector<Preset>& factoryPresets()
                 lane (b, 0, steps (99, 16));
             } });
 
+        // ════════════════════════════════════════════════════════════════
+        // OGRO 2 · MINIMAL 127 (fase 7): tonalidad, acordes en tono, groove,
+        // FX de fin de compás y capas de Orbhitz (si falta el sample, suena el sinte)
+        // ════════════════════════════════════════════════════════════════
+        auto v2preset = [&v] (std::string name, std::string mood, std::vector<std::pair<std::string, float>> vals,
+                              std::function<void (PatternBank&)> build, std::string tex = {}, std::string chd = {},
+                              std::vector<std::tuple<std::string, std::string, float>> mods = {}, std::vector<std::string> lanes = {}) {
+            // Base común: 127 BPM, modo tonal, acordes diatónicos con voice leading, azar fijo
+            std::vector<std::pair<std::string, float>> all { { "global.tempo", 127 }, { "global.tonal", 1 }, { "chord.mode", 0 },
+                                                             { "chord.voicelead", 1 }, { "global.random", 0 }, { "global.polymode", 0 } };
+            all.insert (all.end(), vals.begin(), vals.end());
+            Preset p;
+            p.name = std::move (name); p.mood = std::move (mood); p.build = std::move (build);
+            p.v2 = true; p.values2 = std::move (all); p.texSample = std::move (tex); p.chordSample = std::move (chd);
+            p.mods = std::move (mods); p.lanes = std::move (lanes);
+            v.push_back (std::move (p));
+        };
+
+        // 13 ─ SÓTANO 127 ────────────────────────────────────────────────
+        v2preset ("Sótano 127", "Minimal de madrugada: rim sincopado, groove suelto y stab de Orbhitz",
+            { { "global.root", 9 }, { "global.scale", 0 }, { "global.swing", 0.56f }, { "global.groove", 3 }, { "global.grooveamt", 0.6f },
+              { "kick.tune", 0.36f }, { "kick.decay", 0.42f }, { "kick.click", 0.25f }, { "clap.level", 0.7f }, { "clap.rev", 0.25f },
+              { "rim.tone", 0.55f }, { "rim.decay", 0.18f }, { "rim.rev", 0.15f }, { "rim.pan", 0.62f },
+              { "hatc.decay", 0.2f }, { "hatc.air", 0.5f }, { "hato.level", 0.72f }, { "perc.tone", 0.42f }, { "perc.fm", 0.35f }, { "perc.pan", 0.35f },
+              { "bass.cutoff", 0.32f }, { "bass.reso", 0.45f }, { "bass.envamt", 0.4f }, { "bass.decay", 0.3f }, { "bass.sub", 0.35f },
+              { "chord.type", 16 }, { "chord.decay", 0.4f }, { "chord.cutoff", 0.5f }, { "chord.dly", 0.28f }, { "chord.rev", 0.3f }, { "chord.level", 0.78f },
+              { "chord.source", 2 }, { "chord.samplelevel", 0.55f },
+              { "dly.div", 3 }, { "dly.fb", 0.45f }, { "rev.decay", 2.4f },
+              { "bfx.every", 4 }, { "bfx.len", 2 }, { "bfx.stutter.prob", 0.6f }, { "bfx.stutter.target", 1 }, { "bfx.filter.prob", 0.3f } },
+            [] (PatternBank& b) {
+                b.clearAll();
+                row (b, 0, Kick, "x---x---x---x---");
+                row (b, 0, Clap, "----o-------o---");
+                row (b, 0, Rim,  "---x--x---x--x-.");
+                cond (b, 0, Rim, 13, c12);
+                row (b, 0, HatC, ".-x-.-x-.-x-.-xr");
+                row (b, 0, HatO, "--x---x---x---x-");
+                row (b, 0, Perc, "x--x-", { 0, 0, 0, 4, 0 }, 5);
+                row (b, 0, Bass, "--x--x-s--x---x-", { 0, 0, 0, 0, 0, 2, 0, 3, 0, 0, -1, 0, 0, 0, 4, 0 });
+                row (b, 0, Chord, "---X------x-----", { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -2, 0, 0, 0, 0, 0 });
+                cond (b, 0, Chord, 10, c12);
+                gate (b, 0, Chord, 3, 10);
+                derive (b, 13);
+            }, {}, "CHD-Stabbers");
+
+        // 14 ─ LOMONTE ───────────────────────────────────────────────────
+        v2preset ("Lomonte", "Micro-house rebotado: bajo 303, pluck y ghost notes",
+            { { "global.root", 5 }, { "global.scale", 0 }, { "global.swing", 0.58f }, { "global.groove", 1 }, { "global.humanize", 3.0f },
+              { "kick.decay", 0.38f }, { "kick.punch", 0.42f }, { "clap.decay", 0.3f }, { "clap.room", 0.4f },
+              { "rim.decay", 0.12f }, { "rim.bright", 0.62f }, { "hatc.decay", 0.15f }, { "hatc.metal", 0.7f },
+              { "perc.tone", 0.5f }, { "perc.fm", 0.5f }, { "perc.ratio", 0.55f }, { "perc.ring", 0.4f },
+              { "bass.accent", 1 }, { "bass.cutoff", 0.22f }, { "bass.reso", 0.68f }, { "bass.envamt", 0.62f }, { "bass.decay", 0.25f }, { "bass.glide", 0.3f },
+              { "melody.model", 0 }, { "melody.decay", 0.35f }, { "melody.cutoff", 0.6f }, { "melody.timbre", 0.3f }, { "melody.dly", 0.3f }, { "melody.level", 0.74f },
+              { "ring.freq", 330 }, { "ring.mix", 0.5f },
+              { "bfx.every", 3 }, { "bfx.len", 1 }, { "bfx.crush.prob", 0.25f }, { "bfx.crush.target", 1 }, { "bfx.tapestop.prob", 0.15f } },
+            [] (PatternBank& b) {
+                b.clearAll();
+                row (b, 0, Kick, "x---x---x---x-o-");
+                cond (b, 0, Kick, 14, c12);
+                row (b, 0, Clap, "----x--------x--");
+                row (b, 0, Rim,  "x-.x-x..-x.x--x.");
+                row (b, 0, HatC, "x.xxx.xxx.xxx.xR");
+                row (b, 0, HatO, "--x-------x-----");
+                row (b, 0, Perc, "x-x--x-", { 0, 2, 0, 0, 4, 0, 0 }, 7);
+                row (b, 0, Bass, "X-xs-x--X-xs-x--", { 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 4, 3, 0, 0, 0, 0 });
+                tweak (b, 0, Bass, 8, [] (Step& st) { st.octave = 1; });
+                row (b, 0, Melody, "x--x--x-----x---", { 0, 0, 0, 2, 0, 0, 4, 0, 0, 0, 0, 0, 3, 0, 0, 0 });
+                cond (b, 0, Melody, 12, c12);
+                derive (b, 14);
+            });
+
+        // 15 ─ TIZA ──────────────────────────────────────────────────────
+        v2preset ("Tiza", "Dub minimal: acordes que se van en delay y reverb al final de cada 4",
+            { { "global.root", 2 }, { "global.scale", 1 }, { "global.swing", 0.55f },
+              { "kick.tune", 0.33f }, { "kick.decay", 0.5f }, { "rim.rev", 0.3f },
+              { "hatc.decay", 0.22f }, { "hatc.level", 0.7f }, { "hato.decay", 0.3f },
+              { "bass.cutoff", 0.25f }, { "bass.sub", 0.6f }, { "bass.decay", 0.5f }, { "bass.sustain", 0.6f }, { "bass.release", 200 },
+              { "chord.type", 1 }, { "chord.decay", 0.6f }, { "chord.cutoff", 0.4f }, { "chord.envamt", 0.3f }, { "chord.chorus", 0.7f },
+              { "chord.sustain", 0.5f }, { "chord.release", 700 }, { "chord.strum", 14 }, { "chord.spread", 0.5f },
+              { "chord.dly", 0.45f }, { "chord.rev", 0.4f }, { "chord.pump", 0.5f },
+              { "dly.div", 1 }, { "dly.fb", 0.55f }, { "dly.tone", 0.35f }, { "rev.size", 0.75f }, { "rev.decay", 4.0f },
+              { "bfx.every", 3 }, { "bfx.len", 3 }, { "bfx.delay.prob", 0.6f }, { "bfx.delay.target", 2 }, { "bfx.reverb.prob", 0.4f }, { "bfx.reverb.target", 2 } },
+            [] (PatternBank& b) {
+                b.clearAll();
+                row (b, 0, Kick, "x---x---x---x---");
+                row (b, 0, Rim,  "----x-------x---");
+                row (b, 0, HatC, "--x---x---x---x-");
+                row (b, 0, HatO, "--------------x-");
+                row (b, 0, Bass, "x--x------x-----", { 0, 0, 0, -2, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0 });
+                row (b, 0, Chord, "--x-------x-----", { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -2, 0, 0, 0, 0, 0 });
+                gate (b, 0, Chord, 2, 24); gate (b, 0, Chord, 10, 16);
+                derive (b, 15);
+            });
+
+        // 16 ─ NEÓN ──────────────────────────────────────────────────────
+        v2preset ("Neón", "Detroit: stabs en tono, bajo de octavas y campana",
+            { { "global.root", 0 }, { "global.scale", 0 }, { "global.swing", 0.54f },
+              { "kick.punch", 0.55f }, { "clap.level", 0.82f }, { "hatc.decay", 0.18f }, { "hatc.air", 0.55f }, { "hato.level", 0.7f },
+              { "bass.osc", 2 }, { "bass.wave", 0.4f }, { "bass.cutoff", 0.38f }, { "bass.envamt", 0.5f }, { "bass.decay", 0.28f },
+              { "chord.type", 0 }, { "chord.decay", 0.32f }, { "chord.cutoff", 0.55f }, { "chord.envamt", 0.55f }, { "chord.strum", 8 },
+              { "chord.dly", 0.25f }, { "chord.rev", 0.2f },
+              { "melody.model", 2 }, { "melody.decay", 0.55f }, { "melody.timbre", 0.42f }, { "melody.envamt", 0.5f }, { "melody.rev", 0.35f }, { "melody.level", 0.7f },
+              { "bfx.every", 3 }, { "bfx.len", 2 }, { "bfx.filter.prob", 0.5f }, { "bfx.riser.prob", 0.3f } },
+            [] (PatternBank& b) {
+                b.clearAll();
+                row (b, 0, Kick, "x---x---x---x---");
+                row (b, 0, Clap, "----x-------x---");
+                row (b, 0, HatC, "xxXxxxXxxxXxxxXx");
+                row (b, 0, HatO, "--x---x---x---x-");
+                row (b, 0, Bass, "x-xx-x-xx-x-x-xx", { 0, 0, 7, 0, 0, 0, 0, 7, 0, 0, 3, 0, 4, 0, 7, 0 });
+                row (b, 0, Chord, "---x--x----x--x-", { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -2, 0, 0, 3, 0 });
+                row (b, 0, Melody, "x-----x---x-----", { 7, 0, 0, 0, 0, 0, 4, 0, 0, 0, 2, 0, 0, 0, 0, 0 });
+                derive (b, 16);
+            });
+
+        // 17 ─ POLVO ─────────────────────────────────────────────────────
+        v2preset ("Polvo", "Deep lento: pad de Orbhitz, sub largo y todo que se mueve despacio",
+            { { "global.root", 7 }, { "global.scale", 0 }, { "global.swing", 0.57f }, { "global.drift", 0.35f }, { "global.driftbars", 1 },
+              { "kick.decay", 0.48f }, { "clap.rev", 0.4f }, { "hatc.decay", 0.28f }, { "hatc.level", 0.68f },
+              { "bass.sub", 0.7f }, { "bass.cutoff", 0.2f }, { "bass.sustain", 0.7f }, { "bass.release", 300 }, { "bass.decay", 0.6f },
+              { "chord.type", 2 }, { "chord.level", 0.7f }, { "chord.sustain", 0.6f }, { "chord.release", 1200 }, { "chord.rev", 0.45f }, { "chord.attack", 0.4f },
+              { "texture.level", 0.66f }, { "texture.sustain", 1.0f }, { "texture.release", 1500 }, { "texture.rev", 0.4f }, { "texture.follow", 1 },
+              { "rev.size", 0.8f }, { "rev.decay", 5.0f }, { "master.texture", 0.25f },
+              { "bfx.every", 4 }, { "bfx.len", 4 }, { "bfx.reverb.prob", 0.5f } },
+            [] (PatternBank& b) {
+                b.clearAll();
+                row (b, 0, Kick, "x---x---x---x---");
+                row (b, 0, Clap, "----x-------x---");
+                row (b, 0, HatC, "--x---x---x---x.");
+                row (b, 0, Bass, "x-------x-x-----", { 0, 0, 0, 0, 0, 0, 0, 0, -2, 0, 0, 0, 0, 0, 0, 0 });
+                gate (b, 0, Bass, 0, 40);
+                row (b, 0, Chord, "x---------------", { 0 });
+                gate (b, 0, Chord, 0, 63);
+                row (b, 0, Texture, "x---------------", { 0 });
+                gate (b, 0, Texture, 0, 63);
+                cond (b, 0, Texture, 0, c12);
+                derive (b, 17);
+            }, "PAD-SoGentle");
+
+        // 18 ─ GARAJE 127 ────────────────────────────────────────────────
+        v2preset ("Garaje 127", "2-step: bombo partido, shuffle 909 y órgano",
+            { { "global.root", 4 }, { "global.scale", 1 }, { "global.swing", 0.62f }, { "global.groove", 2 },
+              { "kick.punch", 0.5f }, { "clap.bursts", 0.6f }, { "clap.level", 0.82f }, { "hatc.decay", 0.16f },
+              { "bass.sub", 0.6f }, { "bass.cutoff", 0.3f }, { "bass.osc", 4 }, { "bass.wave", 0.3f },
+              { "melody.model", 3 }, { "melody.timbre", 0.55f }, { "melody.voices", 0 }, { "melody.decay", 0.4f }, { "melody.level", 0.7f }, { "melody.rev", 0.2f },
+              { "bfx.every", 3 }, { "bfx.len", 1 }, { "bfx.stutter.prob", 0.4f }, { "bfx.stutter.rate", 1 } },
+            [] (PatternBank& b) {
+                b.clearAll();
+                row (b, 0, Kick, "x---------x-----");
+                row (b, 0, Clap, "----x-------x---");
+                row (b, 0, HatC, "x-xxx-xrx-xxx-xr");
+                row (b, 0, Rim,  "---x-----x----x-");
+                row (b, 0, Bass, "x--x---x--x--x--", { 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 4, 0, 0, 2, 0, 0 });
+                row (b, 0, Melody, "--x---x---x---x-", { 0, 0, 2, 0, 0, 0, 4, 0, 0, 0, 2, 0, 0, 0, 0, 0 });
+                derive (b, 18);
+            });
+
+        // 19 ─ RAYO ──────────────────────────────────────────────────────
+        v2preset ("Rayo", "Tool percusivo: euclidianos, ring y tape stop cada 8",
+            { { "global.root", 9 }, { "global.scale", 2 }, { "global.swing", 0.53f },
+              { "rim.tone", 0.6f }, { "rim.ring", 0.3f }, { "perc.tone", 0.55f }, { "perc.fm", 0.6f }, { "perc.ring", 0.7f }, { "perc.dly", 0.3f },
+              { "ring.freq", 520 }, { "ring.mix", 0.6f }, { "ring.wave", 1 },
+              { "bass.cutoff", 0.28f }, { "bass.envamt", 0.55f }, { "bass.accent", 1 },
+              { "bfx.every", 4 }, { "bfx.len", 2 }, { "bfx.tapestop.prob", 0.5f }, { "bfx.riser.prob", 0.4f } },
+            [] (PatternBank& b) {
+                b.clearAll();
+                row (b, 0, Kick, "x---x---x---x---");
+                euclidPattern (b, 0, Rim, 5, 16, 2);
+                euclidPattern (b, 0, Perc, 3, 8, 1);
+                row (b, 0, HatC, "--x---x---x---x-");
+                row (b, 0, Bass, "--x---x--x--x-x-", { 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 4, 0 });
+                derive (b, 19);
+            });
+
+        // 20 ─ MADRUGADA ─────────────────────────────────────────────────
+        v2preset ("Madrugada", "Hipnótico: cadena A A A B, fill cada 8 y el filtro de los acordes respirando",
+            { { "global.root", 11 }, { "global.scale", 0 }, { "global.swing", 0.55f }, { "global.chain", 1 },
+              { "global.fill", 3 }, { "global.fillpat", 4 },
+              { "hatc.decay", 0.22f }, { "rim.decay", 0.15f },
+              { "bass.cutoff", 0.3f }, { "bass.reso", 0.5f },
+              { "chord.type", 17 }, { "chord.cutoff", 0.35f }, { "chord.envamt", 0.3f }, { "chord.dly", 0.3f }, { "chord.rev", 0.25f },
+              { "melody.model", 1 }, { "melody.cutoff", 0.4f }, { "melody.vibrato", 0.3f }, { "melody.glide", 0.45f }, { "melody.voices", 2 },
+              { "melody.level", 0.68f }, { "melody.dly", 0.35f },
+              { "motion1.bars", 4 }, { "motion1.depth", 0.7f },
+              { "bfx.every", 4 }, { "bfx.len", 2 }, { "bfx.filter.prob", 0.6f } },
+            [] (PatternBank& b) {
+                b.clearAll();
+                row (b, 0, Kick, "x---x---x---x---");
+                row (b, 0, Rim,  "--x---x-.-x---x-");
+                row (b, 0, HatC, "x-x-x-x-x-x-x-x.");
+                row (b, 0, HatO, "--x---x---x---x-");
+                row (b, 0, Bass, "--x--x----x--x--", { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0 });
+                row (b, 0, Chord, "x-------x-------", { 0, 0, 0, 0, 0, 0, 0, 0, -2, 0, 0, 0, 0, 0, 0, 0 });
+                gate (b, 0, Chord, 0, 24); gate (b, 0, Chord, 8, 24);
+                row (b, 0, Melody, "x---------s-----", { 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0 });
+                gate (b, 0, Melody, 0, 40);
+                derive (b, 20);
+                b.setChain ({ { 0, 3 }, { 1, 1 } });
+                lane (b, 0, sine);
+            }, {}, {}, {}, { "chord.cutoff" });
+
         return v;
     }();
     return list;
@@ -420,6 +640,26 @@ inline const std::vector<Preset>& factoryPresets()
 // (valores convertidos: la diferencia de redondeo es inaudible).
 inline v1::State factoryState (const Preset& p, bool fixedRandom = true)
 {
+    if (p.v2)
+    {
+        // Presets de la 2.0: valores por defecto de OGRO 2 + los del preset, por ID
+        const auto& defs = paramDefs();
+        v1::State st;
+        st.values.resize (defs.size());
+        for (size_t i = 0; i < defs.size(); ++i) st.values[i] = defs[i].def;
+        for (auto& d : st.dst) d = -1;
+        for (auto& d : st.laneDst) d = -1;
+        for (const auto& [id, v] : p.values2)
+            if (const int i = paramIndex (id); i >= 0) st.values[(size_t) i] = v;
+        for (size_t k = 0; k < p.mods.size() && k < (size_t) P::kSlots; ++k)
+        {
+            st.src[k] = modSourceIndex (std::get<0> (p.mods[k]));
+            st.dst[k] = paramIndex (std::get<1> (p.mods[k]));
+            st.values[(size_t) P::mod ((int) k, P::ModAmt)] = std::get<2> (p.mods[k]);
+        }
+        for (size_t l = 0; l < p.lanes.size() && l < (size_t) P::kMotion; ++l) st.laneDst[l] = p.lanes[l].empty() ? -1 : paramIndex (p.lanes[l]);
+        return st;
+    }
     auto st = v1::convert (p.values);
     if (fixedRandom)
     {

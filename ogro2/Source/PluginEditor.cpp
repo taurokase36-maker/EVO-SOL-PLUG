@@ -427,8 +427,15 @@ public:
           busComp (p, P::BusComp, T ("COMPRESIÓN")), busCrudo (p, P::BusCrudo, "CRUDO"),
           gr (T ("GR"), true, 18.0f),
           ringOn (p, P::RingOn, "RING", col::ledGreen), ringFreq (p, P::RingFreq, "FREC."), ringWave (p, P::RingWave, ""),
-          ringMix (p, P::RingMix, "MEZCLA"), ringSpread (p, P::RingSpread, T ("ESTÉREO"))
+          ringMix (p, P::RingMix, "MEZCLA"), ringSpread (p, P::RingSpread, T ("ESTÉREO")),
+          pumpSource (p, P::PumpSource, "FUENTE"), pumpThresh (p, P::PumpScThresh, "UMBRAL")
     {
+        addAndMakeVisible (pumpSource);
+        addAndMakeVisible (pumpThresh);
+        pumpSource.box.getProperties().set ("maxFont", 16.0);
+        pumpSource.box.setTooltip (T ("Kick interno: bombea con el kick de OGRO (aunque esté muteado). Sidechain: con tu kick de otra pista "
+                                      "(en Ableton, abrí Sidechain en el dispositivo de OGRO 2 y elegí esa pista)."));
+        pumpThresh.slider.setTooltip (T ("Nivel del sidechain que dispara el bombeo"));
         for (auto* c : std::initializer_list<juce::Component*> { &dlyDiv, &dlyFb, &dlyTone, &dlyRet, &revSize, &revDecay, &revRet,
                                                                  &pumpRel, &busComp, &busCrudo, &gr, &ringOn, &ringFreq, &ringWave, &ringMix, &ringSpread })
             addAndMakeVisible (c);
@@ -449,22 +456,24 @@ public:
     {
         const int w = (getWidth() - 12) / 2, h = (getHeight() - 12) / 2;
         b1 = { 0, 0, w, h }; b2 = { w + 12, 0, w, h };
-        b3 = { 0, h + 12, 104, h }; b4 = { 116, h + 12, 210, h }; b5 = { 338, h + 12, getWidth() - 338, h };
+        b3 = { 0, h + 12, 168, h }; b4 = { 180, h + 12, 186, h }; b5 = { 378, h + 12, getWidth() - 378, h };
         dlyDiv.setBounds (b1.getX() + 12, b1.getY() + 36, 86, 50);
         int x = b1.getX() + 104;
         for (auto* k : { &dlyFb, &dlyTone, &dlyRet }) { k->setBounds (x, b1.getY() + 30, 64, h - 40); x += 64; }
         x = b2.getX() + 18;
         for (auto* k : { &revSize, &revDecay, &revRet }) { k->setBounds (x, b2.getY() + 30, 88, h - 40); x += 92; }
-        pumpRel.setBounds (b3.getX() + 8, b3.getY() + 30, 88, h - 40);
-        busComp.setBounds (b4.getX() + 4, b4.getY() + 30, 80, h - 40);
-        busCrudo.setBounds (b4.getX() + 86, b4.getY() + 30, 80, h - 40);
+        pumpRel.setBounds (b3.getX() + 2, b3.getY() + 30, 72, h - 40);
+        pumpSource.setBounds (b3.getX() + 76, b3.getY() + 30, 86, 48);
+        pumpThresh.setBounds (b3.getX() + 76, b3.getY() + 86, 86, 40);
+        busComp.setBounds (b4.getX() + 2, b4.getY() + 30, 72, h - 40);
+        busCrudo.setBounds (b4.getX() + 76, b4.getY() + 30, 72, h - 40);
         gr.setBounds (b4.getRight() - 32, b4.getY() + 34, 22, h - 44);
-        ringOn.setBounds (b5.getX() + 10, b5.getY() + 34, 82, 28);
-        ringWave.setBounds (b5.getX() + 10, b5.getY() + 70, 82, 30);
-        const int kx = b5.getX() + 96, kw = (b5.getWidth() - 100) / 3;
+        ringOn.setBounds (b5.getX() + 10, b5.getY() + 32, 80, 26);
+        ringWave.setBounds (b5.getX() + 10, b5.getY() + 62, 80, 28);
+        ringSpread.setBounds (b5.getX() + 10, b5.getY() + 94, 80, 40);
+        const int kx = b5.getX() + 94, kw = (b5.getWidth() - 98) / 2;
         ringFreq.setBounds (kx, b5.getY() + 30, kw, h - 40);
         ringMix.setBounds (kx + kw, b5.getY() + 30, kw, h - 40);
-        ringSpread.setBounds (kx + 2 * kw, b5.getY() + 30, kw, h - 40);
     }
 
 private:
@@ -475,7 +484,10 @@ private:
     Toggle ringOn;
     Knob ringFreq;
     Choice ringWave;
-    Knob ringMix, ringSpread;
+    Knob ringMix;
+    HSlider ringSpread;
+    Choice pumpSource;
+    HSlider pumpThresh;
     juce::Rectangle<int> b1, b2, b3, b4, b5;
 };
 
@@ -1256,6 +1268,7 @@ Content::Content (Ogro2Processor& p) : proc (p), ctx { p }, lane (ctx), keys (ct
     euclidButton.setTooltip (T ("Ritmo euclidiano: reparte N golpes lo más parejo posible en la pista"));
     euclidButton.onClick = [this] { showEuclid(); };
     addAndMakeVisible (euclidButton);
+    addAndMakeVisible (midiButton);
 
     // MOTION en el secuenciador
     static const char* shapeNames[] = { "RAMPA", "SENO", "TRI", "AZAR", "PLANO" };
@@ -1320,11 +1333,17 @@ void Content::refreshPreset()
 void Content::showPresetMenu()
 {
     juce::PopupMenu m;
-    m.addSectionHeader ("PRESETS DE FÁBRICA");
     const auto& presets = factoryPresets();
-    for (int i = 0; i < (int) presets.size(); ++i)
-        m.addItem (i + 1, juce::String::fromUTF8 (presets[(size_t) i].name.c_str()) + "  ·  " + juce::String::fromUTF8 (presets[(size_t) i].mood.c_str()),
-                   true, proc.getUserPresetName().isEmpty() && i == proc.getPresetIndex());
+    // Primero los de OGRO 2 (minimal 127), después los 12 de la 1.0
+    for (int pass = 0; pass < 2; ++pass)
+    {
+        m.addSectionHeader (pass == 0 ? T ("OGRO 2  ·  MINIMAL 127") : T ("OGRO 1.0  ·  LOS 12 DE SIEMPRE"));
+        for (int i = 0; i < (int) presets.size(); ++i)
+            if (presets[(size_t) i].v2 == (pass == 0))
+                m.addItem (i + 1, juce::String::fromUTF8 (presets[(size_t) i].name.c_str()) + "  ·  " + juce::String::fromUTF8 (presets[(size_t) i].mood.c_str()),
+                           true, proc.getUserPresetName().isEmpty() && i == proc.getPresetIndex());
+        if (pass == 0) m.addSeparator();
+    }
     m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (presetDisplay), [this] (int r) {
         if (r <= 0) return;
         proc.loadPreset (r - 1);
@@ -1340,6 +1359,11 @@ void Content::showFileMenu()
     m.addItem (2, T ("Abrir preset propio..."));
     m.addSeparator();
     m.addItem (3, T ("Importar preset de OGRO 1.0..."));
+    m.addSeparator();
+    m.addSectionHeader ("MIDI");
+    m.addItem (10, T ("Secuenciador interno (si lo apagás, lo disparan tus clips de Ableton)"), true, proc.value (P::SeqOn) > 0.5f);
+    m.addItem (11, T ("Las notas MIDI de bajo, acordes y melodía toman la nota del patrón"), true, proc.value (P::MidiNotes) > 0.5f);
+    m.addItem (12, T ("Olvidar todas las perillas aprendidas (MIDI learn)"));
     m.addSeparator();
     m.addSectionHeader (T ("SAMPLES  ·  ") + proc.getSampleFolder().getFullPathName().replace (juce::File::getSpecialLocation (juce::File::userHomeDirectory).getFullPathName(), "~"));
     m.addItem (4, T ("Carpeta de samples..."));
@@ -1386,6 +1410,9 @@ void Content::showFileMenu()
         }
         else if (r == 6)
             proc.getSampleFolder().getChildFile ("ogro2_samples.json").revealToUser();
+        else if (r == 10) proc.setValue (P::SeqOn, proc.value (P::SeqOn) > 0.5f ? 0.0f : 1.0f);
+        else if (r == 11) proc.setValue (P::MidiNotes, proc.value (P::MidiNotes) > 0.5f ? 0.0f : 1.0f);
+        else if (r == 12) proc.forgetAllMidi();
         else if (r == 3)
         {
             const auto v1Dir = juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("OGRO Presets");
@@ -1408,7 +1435,7 @@ void Content::setLaneMode (LaneMode m)
     lane.setVisible (! motion);
     keys.setVisible (! motion);
     lockChoice.setVisible (m == LaneMode::Lock);
-    for (auto* b : { &page1, &page2, &euclidButton }) b->setVisible (! motion);
+    for (auto* b : std::initializer_list<juce::Component*> { &page1, &page2, &euclidButton, &midiButton }) b->setVisible (! motion);
     for (auto* b : motionLaneButtons) b->setVisible (motion);
     for (auto* b : motionShapes) b->setVisible (motion);
     setMotionLane (motionLane);
@@ -1468,6 +1495,11 @@ void Content::lengthChanged()
     lane.repaint();
     keys.repaint();
     repaint (grooveCard);
+}
+
+void Content::mouseDown (const juce::MouseEvent& e)
+{
+    if (proc.midiLearnParam() >= 0 && tube.expanded (0, 8).contains (e.getPosition())) proc.cancelMidiLearn();
 }
 
 void Content::selectTrack (int t)
@@ -1555,6 +1587,7 @@ void Content::resized()
     lane.setBounds (gx, sy + 48, gw, 84);
     keys.setBounds (gx, sy + 138, gw, 96);
     lockChoice.setBounds (sx + 300, sy + 12, 200, 28);
+    midiButton.setBounds (sx + 638, sy + 10, 60, 30);
     page1.setBounds (sx + 704, sy + 10, 52, 30);
     page2.setBounds (sx + 758, sy + 10, 56, 30);
     undoButton.setBounds (sx + 822, sy + 10, 34, 30);
@@ -1645,6 +1678,16 @@ void Content::paint (juce::Graphics& g)
 
     paintLogo (g, { 38.0f, 24.0f, 204.0f, 58.0f });
     paint::copperTube (g, tube.toFloat());
+    if (const int learn = proc.midiLearnParam(); learn >= 0)
+    {
+        auto r = tube.toFloat().withSizeKeepingCentre (620.0f, 22.0f);
+        g.setColour (col::orange);
+        g.fillRoundedRectangle (r, 11.0f);
+        g.setColour (col::ink);
+        g.setFont (labelFont (12.0f));
+        g.drawText (T ("MIDI LEARN: mové una perilla de tu controlador para  ") + upper (juce::String::fromUTF8 (paramDefs()[(size_t) learn].name.c_str()))
+                        + T ("   (clic acá: cancelar)"), r, juce::Justification::centred);
+    }
 
     // Rótulos de la cabecera
     g.setColour (col::label);
@@ -1707,13 +1750,13 @@ void Content::paint (juce::Graphics& g)
     {
         g.setColour (col::label);
         g.setFont (textFont (12.0f));
-        g.drawText (T ("clic derecho: borrar"), juce::Rectangle<int> (seqCard.getX() + 506, seqCard.getY() + 12, 190, 28), juce::Justification::centredLeft);
+        g.drawText (T ("clic derecho: borrar"), juce::Rectangle<int> (seqCard.getX() + 506, seqCard.getY() + 12, 128, 28), juce::Justification::centredLeft);
     }
     // Fill sonando
     if (proc.engine.meters.fill.load())
     {
         g.setColour (col::orange);
-        drawSpaced (g, "FILL", { (float) seqCard.getX() + 640.0f, (float) seqCard.getY() + 14.0f, 50.0f, 22.0f }, titleFont (11.0f), 0.1f,
+        drawSpaced (g, "FILL", { (float) seqCard.getX() + 592.0f, (float) seqCard.getY() + 14.0f, 44.0f, 22.0f }, titleFont (11.0f), 0.1f,
                     juce::Justification::centredLeft);
     }
 }
@@ -1770,6 +1813,7 @@ void Content::timerCallback()
     if (stateDirty && blink % 15 == 0) { proc.notifyStateChanged(); stateDirty = false; }
     randomButton.setButtonText (proc.value (P::RandomMode) < 0.5f ? "FIJO" : "VIVO");
     keyDisplay.refresh();
+    if (proc.midiLearnParam() != shownLearn) { shownLearn = proc.midiLearnParam(); repaint (tube.expanded (0, 8)); }
     depthButton.setButtonText (proc.value (P::MacroDepth) > 0.5f ? "x2" : "x1");
     seedBox.repaint();
     if (auto* pg = pages[currentPage]) pg->tick();

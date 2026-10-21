@@ -4,6 +4,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include "engine/Engine.h"
 #include "engine/Generator.h"
+#include "engine/MidiExport.h"
 #include "engine/Presets.h"
 
 class Ogro2Processor : public juce::AudioProcessor, private juce::Timer
@@ -92,6 +93,14 @@ public:
     // Dado: mueve al azar las perillas sin candado de la pista. amount 0..1 (1 = todo al azar)
     void rollSoundDice (int track, float amount);
 
+    // ---- MIDI learn (MiniLab y cualquier controlador) ----
+    void startMidiLearn (int param) { learnParam.store (param); }
+    void cancelMidiLearn() { learnParam.store (-1); }
+    int midiLearnParam() const { return learnParam.load(); }
+    void forgetMidi (int param);
+    void forgetAllMidi();
+    juce::String midiLabel (int param) const;   // "CC 74 · canal 1" o ""
+
     // Avisa al host que cambió algo que no es un parámetro (patrones, ruteo), para que
     // Ableton marque la sesión como modificada
     void notifyStateChanged();
@@ -127,6 +136,11 @@ private:
     mutable juce::SpinLock sampleLock;
     std::shared_ptr<std::atomic<bool>> alive = std::make_shared<std::atomic<bool>> (true);
     std::atomic<uint32_t> soundLocks[ogro2::kTracks] {};
+    std::atomic<int> learnParam { -1 };
+    std::atomic<int> ccMap[16][128];
+    std::atomic<bool> midiMapChanged { false };
+    juce::String midiMapText() const;
+    void setMidiMapText (const juce::String& text);
     std::vector<std::string> undoStack, redoStack;
     std::atomic<int> currentPreset { 0 };
     juce::String userPresetName;

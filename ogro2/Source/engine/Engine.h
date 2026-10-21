@@ -205,6 +205,8 @@ public:
         textureVoice.prepare (fs, 0x7E47u);
         chordSampler.prepare (fs);
         for (int t = 0; t < kTracks; ++t) strips[t].prepare (fs, 0x57A1u + (uint32_t) t * 977u);
+        scLevel = 0.0f; scArmed = true;
+        scFall = (float) std::exp (-1.0 / (0.030 * fs));
         smoothA = 1.0f - (float) std::exp (-(double) kControl / (0.008 * fs));   // 8 ms
         lastChordCount = 0;
         clock.prepare (fs);
@@ -231,6 +233,8 @@ public:
         lastRandStep = -1;
         sampleClock = 0;
         for (auto& l : trackLocks) l.n = 0;
+        latencyNow = getLatencySamples();   // (con el limitador ya preparado)
+        for (auto& a : auxAlign) for (auto& d : a) d.prepare (latencyNow + 8);
         updateControl (0.0, false);
     }
 
@@ -299,7 +303,16 @@ public:
     EngineMeters meters;
     TriggerLog triggerLog;
 
-    void process (const HostInfo& host, const MidiTrigger* midi, int numMidi, float* outL, float* outR, int numSamples) noexcept
+    // Salidas separadas (opcionales): aux[t][0..1] = pista t en estéreo, alineada con la salida
+    // principal (mismo retardo). Sidechain (opcional): entrada para el PUMP. nullptr = no se usa.
+    struct Io
+    {
+        float* aux[kTracks][2] {};
+        const float* sc[2] {};
+    };
+
+    void process (const HostInfo& host, const MidiTrigger* midi, int numMidi, float* outL, float* outR, int numSamples,
+                  const Io* io = nullptr) noexcept
     {
         for (int start = 0; start < numSamples; start += maxBlockSize)
         {
@@ -310,6 +323,15 @@ public:
                 h.ppq += (double) start * h.bpm / 60.0 / fs;
                 if (h.looping && h.loopEnd > h.loopStart && h.ppq >= h.loopEnd) h.ppq -= h.loopEnd - h.loopStart;
             }
+            // Punteros de este tramo
+            anyAux = false;
+            for (int t = 0; t < kTracks; ++t)
+                for (int c = 0; c < 2; ++c)
+                {
+                    chunkAux[t][c] = io != nullptr && io->aux[t][c] != nullptr ? io->aux[t][c] + start : nullptr;
+                    anyAux |= chunkAux[t][c] != nullptr;
+                }
+            for (int c = 0; c < 2; ++c) chunkSc[c] = io != nullptr && io->sc[c] != nullptr ? io->sc[c] + start : nullptr;
             processChunk (h, midi, numMidi, start, outL + start, outR + start, n);
         }
     }
@@ -355,6 +377,7 @@ private:
             clock.setBarFx (fxBars[clampv ((int) base[P::BfxEvery], 0, 4)], (int) std::lround (base[P::BfxLen]));
         }
         clock.requestPattern ((int) base[P::Pattern]);
+        clock.setEnabled (base[P::SeqOn] > 0.5f);
         int numEvents = clock.process (tr, n, bank, rngState, events, kMaxEvents);
         // Azar FIJO: al arrancar el transporte o al saltar a otro lugar, todo vuelve al mismo estado
         // inicial (voces, efectos, compresores, ring): dos renders desde el mismo lugar salen iguales
@@ -370,6 +393,17 @@ private:
             e.sample = s; e.track = midi[i].track;
             e.release = midi[i].off;
             e.hit.vel = midi[i].vel; e.hit.accent = midi[i].vel > 0.93f;
+            // Notas del patrón: la nota (y octava, tipo de acorde, ligado) del paso de esa pista en
+            // ese momento. Así un clip exportado desde OGRO suena igual que el patrón.
+            if (base[P::MidiNotes] > 0.5f && isPitched (e.track) && tr.playing && ! e.release)
+            {
+                const int64_t k = (int64_t) std::llround ((curPpq + (double) s * curBpm / 60.0 / fs) * 4.0);
+                const Step st = clock.stepAt (k, e.track, bank);
+                e.hit.note = (float) st.note;
+                e.hit.octave = st.octave;
+                e.hit.chordType = st.chordType - 1;
+                e.hit.slide = st.slide;
+            }
             if (fixedRandom)
             {
                 const int64_t k = (int64_t) std::floor ((curPpq + (double) s * curBpm / 60.0 / fs) * 4.0);
@@ -419,6 +453,9 @@ private:
             int segEnd = std::min (n, pos + controlCounter);
             if (ev < numEvents) segEnd = std::min (segEnd, std::max (pos + 1, events[ev].sample));
             const int len = segEnd - pos;
+            for (int t = 0; t < kTracks; ++t)
+                for (int c = 0; c < 2; ++c) segAux[t][c] = chunkAux[t][c] != nullptr ? chunkAux[t][c] + pos : nullptr;
+            for (int c = 0; c < 2; ++c) segSc[c] = chunkSc[c] != nullptr ? chunkSc[c] + pos : nullptr;
             renderSegment (outL + pos, outR + pos, len);
             controlCounter -= len;
             pos = segEnd;
@@ -577,7 +614,7 @@ private:
         {
             voices[t]->trigger (e.hit);
             if (t == HatC) hatO.choke();
-            if (t == Kick) { pumpRise = true; }
+            if (t == Kick && ! pumpFromSc) { pumpRise = true; }
         }
         meters.triggers[t].fetch_add (1, std::memory_order_relaxed);
         triggerLog.push (sampleClock + e.sample, t);
@@ -917,6 +954,8 @@ private:
         reverb.setDuck (0.0f);
         reverb.setPreDelayMs (12.0f);
         pumpRelCoef = decayCoef (eff[P::PumpRel], fs);
+        pumpFromSc = eff[P::PumpSource] > 0.5f;
+        scThresh = dbToGain (eff[P::PumpScThresh]);
 
         // Buses
         drumComp.set (eff[P::BusComp], 0.6f, true);
@@ -1001,8 +1040,17 @@ private:
         const float pumpAtk = 1.0f - (float) std::exp (-1.0 / (0.004 * fs));
         const bool fxOn = barFx.any();
 
+        const bool scOn = pumpFromSc && segSc[0] != nullptr;
         for (int i = 0; i < len; ++i)
         {
+            // PUMP desde el kick real: cada vez que el sidechain cruza el umbral (con histéresis)
+            if (scOn)
+            {
+                const float x = std::max (std::fabs (segSc[0][i]), segSc[1] != nullptr ? std::fabs (segSc[1][i]) : 0.0f);
+                scLevel = std::max (x, scLevel * scFall);
+                if (! scArmed && scLevel < scThresh * 0.5f) scArmed = true;
+                if (scArmed && scLevel > scThresh) { pumpRise = true; scArmed = false; }
+            }
             // Envolvente de pump (sidechain fantasma del kick)
             if (pumpRise) { pumpEnv += pumpAtk * (1.05f - pumpEnv); if (pumpEnv >= 1.0f) { pumpEnv = 1.0f; pumpRise = false; } }
             else pumpEnv *= pumpRelCoef;
@@ -1044,6 +1092,14 @@ private:
                     const float throwMono = 0.5f * (xl + xr);
                     sendD += throwMono * barFx.delaySend (pt);
                     sendR += throwMono * barFx.reverbSend (pt);
+                }
+                // Salida separada de la pista (alineada con la principal)
+                if (anyAux && segAux[t][0] != nullptr)
+                {
+                    auxAlign[t][0].push (xl);
+                    auxAlign[t][1].push (xr);
+                    segAux[t][0][i] = auxAlign[t][0].readInt (latencyNow);
+                    if (segAux[t][1] != nullptr) segAux[t][1][i] = auxAlign[t][1].readInt (latencyNow);
                 }
                 const float mono = 0.5f * (xl + xr);
                 sendD += mono * m.dly;
@@ -1155,6 +1211,15 @@ private:
     float smoothA = 0.1f;
     bool clean = false, snapSmoothing = false, snapNext = true, console = false;
     std::unique_ptr<std::atomic<float>[]> snap[2];
+    // Fase 7: salidas separadas y sidechain
+    float* chunkAux[kTracks][2] {};
+    float* segAux[kTracks][2] {};
+    const float* chunkSc[2] {};
+    const float* segSc[2] {};
+    bool anyAux = false, pumpFromSc = false, scArmed = true;
+    float scThresh = 0.1f, scLevel = 0.0f, scFall = 0.999f;
+    int latencyNow = 0;
+    DelayLine auxAlign[kTracks][2];
     std::atomic<bool> snapValid[2] { false, false };
 
     StepClock clock;

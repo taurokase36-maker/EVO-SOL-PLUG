@@ -111,6 +111,9 @@ namespace P
                 TexReverse, TexFilter, TexCat, TexRandStep, TexFollow,
                 ChordSource, ChordSampleLevel, ChordRandStep,
                 Quality,
+                // Fase 7: PUMP desde el kick real (sidechain)
+                PumpSource, PumpScThresh,
+                SeqOn, MidiNotes,
                 Count };
 }
 
@@ -521,6 +524,19 @@ inline const std::vector<ParamDef>& paramDefs()
             for (auto* p : { &src, &lvl, &crs }) { p->track = Chord; p->version = 2; }
             auto& q = C (P::Quality, "global.quality", "Calidad", { "LIVE", "ALTA", "AUTO" }, 2, 4);
             q.version = 2;
+        }
+        // PUMP con sidechain (fase 7)
+        {
+            auto& src = C (P::PumpSource, "pump.source", "Pump fuente", { "Kick interno", "Sidechain" }, 0, 4);
+            auto& thr = F (P::PumpScThresh, "pump.scthresh", "Pump umbral del sidechain", -48.0f, 0.0f, -20.0f, false,
+                           [] (float x) { return fmt ("%.0f dB", x); }, true);
+            src.version = thr.version = 2;
+            // MIDI: el secuenciador interno se puede apagar (los clips de Ableton disparan) y las notas
+            // MIDI de bajo, acordes, perc, melodía y texturas pueden tomar la nota del patrón
+            auto& on = B (P::SeqOn, "global.seqon", "Secuenciador interno", true);
+            auto& mn = C (P::MidiNotes, "global.midinotes", "Notas MIDI", { "Tonica (como la 1.0)", "Del patron" }, 1, 4);
+            mn.compat = 0.0f;
+            on.version = mn.version = 2;
         }
         // Las sesiones de antes de la fase 2 tocaban los polirritmos continuos
         v[P::PolyMode].compat = 1.0f;
