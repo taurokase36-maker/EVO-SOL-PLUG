@@ -27,7 +27,7 @@ public:
     void setPage (int i) { showPage (i); } // para capturas y tests
     // Vistas del secuenciador: 0 VELOCITY, 1 NOTE, 2 CHANCE, 3 MOTION
     void setSeqMode (int m) { setLaneMode (kViews[juce::jlimit (0, 3, m)]); }
-    void setFillPreview (bool on) { proc.fillPreview = on; }
+    void setFillPreview (bool on) { setFillEdit (on); }
     void setInspectorTab (int t) { pages[0]->setTab (t); }
     void refreshNow() { timerCallback(); }
 
@@ -43,6 +43,7 @@ private:
     void showFileMenu();
     void showInventMenu();
     void setLaneMode (LaneMode m);
+    void setFillEdit (bool on);
     void setMotionLane (int l);
     void showEuclid();
     void lengthChanged();
@@ -81,7 +82,7 @@ private:
     juce::TextButton grooveMore { "MORE" };
     // AUTO FILL (tarjeta a la izquierda del secuenciador)
     std::unique_ptr<Choice> fillEvery, fillStyle;
-    juce::TextButton previewButton { "PREVIEW" };
+    juce::TextButton previewButton { "EDIT FILL" }, fillReset { "RESET" };
     juce::Rectangle<int> fillCard;
     int lastBar = -1;
     bool stateDirty = false;

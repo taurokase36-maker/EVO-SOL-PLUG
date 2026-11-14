@@ -84,13 +84,11 @@ public:
         addChildComponent (stripCompType);
         for (auto* b : { &tabSound, &tabStrip })
         {
-            styleKey (*b, col::keyCream);
-            b->setColour (juce::TextButton::buttonOnColourId, col::violet);
-            b->setColour (juce::TextButton::textColourOnId, juce::Colours::white);
+            makeTab (*b);
             addAndMakeVisible (b);
         }
-        tabSound.setButtonText ("SOUND");
-        tabStrip.setButtonText ("ANALOG");
+        tabSound.setButtonText ("Sound");
+        tabStrip.setButtonText ("Analog strip");
         tabSound.setTooltip (T ("Las perillas de sonido de la pista"));
         tabStrip.setTooltip (T ("Tira analógica de la pista: drive (cinta, válvula, transistor, diodo), cuerpo, ruido, transiente, brillo y compresor"));
         tabSound.onClick = [this] { tab = 0; trackChanged (track); };
@@ -162,6 +160,15 @@ public:
     void tick() override
     {
         for (auto* k : sound) k->repaint (k->lockArea().toNearestInt());
+        // La pestaña dice si la tira está haciendo algo: en 0 la pista suena sin procesar
+        bool stripOn = false;
+        for (int k = 0; k < 7; ++k)
+        {
+            const int idx = P::track (track, stripFields()[k].first);
+            if (stripFields()[k].first != P::StripBodyHz) stripOn |= std::abs (proc.value (idx) - paramDefs()[(size_t) idx].def) > 0.001f;
+        }
+        const juce::String name = stripOn ? T ("Analog strip · on") : T ("Analog strip · off");
+        if (tabStrip.getButtonText() != name) tabStrip.setButtonText (name);
         if (track == Texture || track == Chord)
         {
             texSample.refresh();
@@ -233,19 +240,15 @@ public:
     void paint (juce::Graphics& g) override
     {
         // Encabezado
-        g.setColour (col::track (track).withAlpha (0.35f));
-        g.fillRoundedRectangle (0.0f, 2.0f, 8.0f, 28.0f, 4.0f);
-        g.setColour (col::track (track));
-        g.fillRoundedRectangle (1.5f, 4.0f, 5.0f, 24.0f, 2.5f);
-        g.setColour (col::violetText);
-        drawSpaced (g, trackLabel (track), { 18.0f, 0.0f, 200.0f, 32.0f }, titleFont (19.0f), 0.1f, juce::Justification::centredLeft);
-        const float nameW = (float) juce::GlyphArrangement::getStringWidthInt (titleFont (19.0f), trackLabel (track)) * 1.1f + 34.0f;
+        g.setColour (col::print);
+        drawSpaced (g, trackLabel (track), { 0.0f, 0.0f, 200.0f, 32.0f }, titleFont (19.0f), 0.1f, juce::Justification::centredLeft);
+        const float nameW = (float) juce::GlyphArrangement::getStringWidthInt (titleFont (19.0f), trackLabel (track)) * 1.05f + 16.0f;
         g.setColour (col::violetValue);
         const bool warn = (track == Texture || (track == Chord && chordSource > 0)) && status.isNotEmpty();
-        if (warn) g.setColour (juce::Colour (0xffffb35c));
+        if (warn) g.setColour (col::hot);
         g.setFont (textFont (13.0f));
         g.drawFittedText (warn ? status : (tab == 1 ? T ("Tira analógica: todo en 0 = la pista suena sin procesar") : T (trackDescription (track))),
-                          juce::Rectangle<int> ((int) nameW, 0, getWidth() - (int) nameW - 300, 32), juce::Justification::centredLeft, 2);
+                          juce::Rectangle<int> ((int) nameW, 0, getWidth() - (int) nameW - 390, 32), juce::Justification::centredLeft, 2);
         if (chordView)
         {
             paint::violetCard (g, soundBox.toFloat(), "Sound");
@@ -260,8 +263,6 @@ public:
         }
         else if (hasExtras)
         {
-            g.setColour (juce::Colours::white.withAlpha (0.06f));
-            g.fillRoundedRectangle (extrasBox.toFloat(), 10.0f);
             if (tab == 1)
             {
                 g.setColour (col::violetValue);
@@ -290,8 +291,8 @@ public:
         const int W = getWidth();
         audition.setBounds (W - 72, 0, 72, 32);
         diceButton.setBounds (W - 140, 0, 64, 32);
-        tabStrip.setBounds (W - 214, 2, 70, 28);
-        tabSound.setBounds (W - 288, 2, 70, 28);
+        tabStrip.setBounds (W - 284, 2, 136, 28);
+        tabSound.setBounds (W - 350, 2, 58, 28);
         // Tira: 7 perillas y las dos listas abajo
         {
             const int w7 = W / 7;
@@ -1243,9 +1244,7 @@ Content::Content (Ogro2Processor& p) : proc (p), ctx { p }, lane (ctx), keys (ct
     for (int i = 0; i < 4; ++i)
     {
         auto* b = modeButtons.add (new juce::TextButton (modes[i]));
-        styleKey (*b, col::keyCream);
-        b->setColour (juce::TextButton::buttonOnColourId, col::ink);
-        b->setColour (juce::TextButton::textColourOnId, juce::Colours::white);
+        makeTab (*b);
         b->setTooltip (T (modeTips[i]));
         b->onClick = [this, i] { setLaneMode (kViews[i]); };
         addAndMakeVisible (b);
@@ -1262,9 +1261,17 @@ Content::Content (Ogro2Processor& p) : proc (p), ctx { p }, lane (ctx), keys (ct
     previewButton.setClickingTogglesState (true);
     styleKey (previewButton, col::keyCream);
     previewButton.setColour (juce::TextButton::buttonOnColourId, kFillColour);
-    previewButton.setTooltip (T ("Muestra en las teclas cómo suena el compás de fill (en naranja lo que agrega)"));
-    previewButton.onClick = [this] { proc.fillPreview = previewButton.getToggleState(); lane.repaint(); keys.repaint(); };
+    previewButton.setTooltip (T ("Las teclas pasan a mostrar el compás de fill de esta pista: en naranja lo que cambia. Cada clic cambia ese paso solo en el fill. Volvé a tocar para salir."));
+    previewButton.onClick = [this] { setFillEdit (previewButton.getToggleState()); };
     addAndMakeVisible (previewButton);
+    fillReset.setTooltip (T ("Borra lo que cambiaste a mano en el fill de esta pista: vuelve a sonar el estilo (clic derecho: todas las pistas)"));
+    fillReset.onClick = [this] {
+        proc.pushUndo();
+        if (juce::ModifierKeys::currentModifiers.isPopupMenu()) proc.engine.bank.clearFill (ctx.pattern());
+        else proc.engine.bank.clearFillTrack (ctx.pattern(), ctx.track());
+        lane.repaint(); keys.repaint();
+    };
+    addChildComponent (fillReset);
     addChildComponent (lockChoice);
     for (auto* b : { &page1, &page2 })
     {
@@ -1303,7 +1310,7 @@ Content::Content (Ogro2Processor& p) : proc (p), ctx { p }, lane (ctx), keys (ct
         addChildComponent (motionDest.add (new RouteChoice (p, RouteChoice::Kind::LaneDest, l)));
         addChildComponent (motionBars.add (new Choice (p, P::lane (l, P::LaneBars), "")));
         auto* d = motionDepth.add (new juce::Slider (juce::Slider::LinearHorizontal, juce::Slider::NoTextBox));
-        d->setColour (juce::Slider::trackColourId, juce::Colour (0xffb48cff));
+        d->setColour (juce::Slider::trackColourId, col::hot);
         d->setTooltip (T ("Profundidad del carril"));
         motionDepthAtt.add (new APVTS::SliderAttachment (p.state, juce::String (paramDefs()[(size_t) P::lane (l, P::LaneDepth)].id), *d));
         addChildComponent (d);
@@ -1451,6 +1458,18 @@ void Content::showFileMenu()
                                   });
         }
     });
+}
+
+void Content::setFillEdit (bool on)
+{
+    proc.fillPreview = on;
+    if (on) proc.seqPage = 0;
+    previewButton.setToggleState (on, juce::dontSendNotification);
+    previewButton.setButtonText (on ? "DONE" : "EDIT FILL");
+    fillReset.setVisible (on);
+    resized();
+    repaint (seqCard);
+    lane.repaint(); keys.repaint();
 }
 
 void Content::setLaneMode (LaneMode m)
@@ -1616,7 +1635,9 @@ void Content::resized()
     fillCard = { sx + 12, sy + 46, 128, 188 };
     fillEvery->setBounds (fillCard.getX() + 6, fillCard.getY() + 22, fillCard.getWidth() - 12, 46);
     fillStyle->setBounds (fillCard.getX() + 6, fillCard.getY() + 70, fillCard.getWidth() - 12, 46);
-    previewButton.setBounds (fillCard.getX() + 8, fillCard.getBottom() - 34, fillCard.getWidth() - 16, 28);
+    const bool editing = proc.fillPreview.load();
+    previewButton.setBounds (fillCard.getX() + 6, fillCard.getBottom() - 34, editing ? 56 : fillCard.getWidth() - 12, 28);
+    fillReset.setBounds (fillCard.getX() + 66, fillCard.getBottom() - 34, fillCard.getWidth() - 72, 28);
     const int gx = sx + 152, gw = seqCard.getRight() - 14 - gx;
     lane.setBounds (gx, sy + 48, gw, 84);
     keys.setBounds (gx, sy + 138, gw, 96);
@@ -1641,47 +1662,18 @@ void Content::resized()
 
 void Content::paintLogo (juce::Graphics& g, juce::Rectangle<float> plate)
 {
-    // Placa azul (como el dragón cromado), destello rojo/amarillo detrás y letras de cromo
-    g.setColour (juce::Colour (0xff141e46).withAlpha (0.35f));
-    g.fillRoundedRectangle (plate.translated (0, 3.0f), 12.0f);
-    juce::ColourGradient blue (juce::Colour (0xff1f3b70), 0, plate.getY(), juce::Colour (0xff6e9bc4), 0, plate.getBottom(), false);
-    blue.addColour (0.55, juce::Colour (0xff3e679c));
-    g.setGradientFill (blue);
-    g.fillRoundedRectangle (plate, 12.0f);
-    g.saveState();
-    g.reduceClipRegion (plate.toNearestInt());
-    const auto sc = juce::Point<float> (plate.getX() + 160.0f, plate.getCentreY() + 2.0f);
-    g.setColour (col::red);
-    g.fillPath (paint::star (sc, 30.0f, 4.0f));
-    g.setColour (col::yellow);
-    g.fillPath (paint::star (sc, 17.0f, 2.5f));
-    g.setColour (col::red);
-    g.fillPath (paint::star ({ plate.getX() + 24.0f, plate.getY() + 16.5f }, 8.5f, 1.5f));
-    g.restoreState();
-
-    auto chrome = [&g] (const juce::String& s, juce::Font f, float x, float baseline, float kern) {
-        f.setExtraKerningFactor (kern);
-        juce::GlyphArrangement ga;
-        ga.addLineOfText (f, s, x, baseline);
-        juce::Path path;
-        ga.createPath (path);
-        const auto b = path.getBounds();
-        g.setColour (juce::Colours::black.withAlpha (0.55f));
-        g.fillPath (path, juce::AffineTransform::translation (0, 2.0f));
-        juce::ColourGradient cg (juce::Colours::white, 0, b.getY(), juce::Colours::white, 0, b.getBottom(), false);
-        cg.addColour (0.34, juce::Colour (0xffeef0f6));
-        cg.addColour (0.52, juce::Colour (0xff9a9dab));
-        cg.addColour (0.57, juce::Colour (0xff3a3c48));
-        cg.addColour (0.80, juce::Colour (0xffc6c9d6));
-        g.setGradientFill (cg);
-        g.fillPath (path);
-        return b;
-    };
-    chrome ("OGRO", titleFont (35.0f), plate.getX() + 12.0f, plate.getY() + 44.0f, 0.02f);
-    chrome ("2", titleFont (21.0f), plate.getX() + 180.0f, plate.getY() + 27.0f, 0.0f);
-    g.setColour (col::dim);
-    drawSpaced (g, T ("EVO THE SUN  ·  GROOVEBOX"), { plate.getX() + 2.0f, plate.getBottom() + 4.0f, 240.0f, 14.0f }, labelFont (11.0f), 0.2f,
-                juce::Justification::centredLeft);
+    // Marca impresa en la placa: sin brillo ni degradado
+    g.setColour (col::print);
+    g.setFont (titleFont (38.0f));
+    g.drawText ("OGRO", plate.withTrimmedLeft (-2.0f), juce::Justification::centredLeft, false);
+    const float w = (float) juce::GlyphArrangement::getStringWidthInt (titleFont (38.0f), "OGRO");
+    auto two = juce::Rectangle<float> (plate.getX() + w + 8.0f, plate.getY() + 6.0f, 26.0f, 26.0f);
+    g.drawRect (two, 1.5f);
+    g.setFont (titleFont (17.0f));
+    g.drawText ("2", two, juce::Justification::centred, false);
+    g.setColour (col::print3);
+    g.setFont (textFont (11.0f));
+    g.drawText (T ("EVO THE SUN"), juce::Rectangle<float> (plate.getX(), plate.getBottom() + 4.0f, 240.0f, 14.0f), juce::Justification::centredLeft);
     // Versión y build: así se ve de un vistazo qué versión cargó Ableton
 #ifndef OGRO2_BUILD
  #define OGRO2_BUILD "local"
@@ -1694,30 +1686,21 @@ void Content::paintLogo (juce::Graphics& g, juce::Rectangle<float> plate)
 
 void Content::paint (juce::Graphics& g)
 {
-    g.fillAll (col::black);
-    // Aparato de plástico crema con grilla fina
-    auto ch = chassis.toFloat();
-    g.setColour (col::chassis);
-    g.fillRoundedRectangle (ch, 22.0f);
-    g.saveState();
-    g.reduceClipRegion (chassis);
-    g.setColour (col::grid);
-    for (float x = ch.getX(); x < ch.getRight(); x += 12.0f) g.fillRect (x, ch.getY(), 1.0f, ch.getHeight());
-    for (float y = ch.getY(); y < ch.getBottom(); y += 12.0f) g.fillRect (ch.getX(), y, ch.getWidth(), 1.0f);
-    g.restoreState();
-    g.setColour (juce::Colours::white.withAlpha (0.9f));
-    g.drawLine (ch.getX() + 22.0f, ch.getY() + 1.5f, ch.getRight() - 22.0f, ch.getY() + 1.5f, 2.0f);
-    g.setColour (juce::Colours::black.withAlpha (0.12f));
-    g.drawLine (ch.getX() + 22.0f, ch.getBottom() - 1.5f, ch.getRight() - 22.0f, ch.getBottom() - 1.5f, 3.0f);
-
+    g.fillAll (col::panel);
+    // Líneas impresas que separan las zonas de la placa
+    const auto tb = tube.toFloat();
+    paint::rule (g, 28.0f, tb.getCentreY(), 1252.0f, tb.getCentreY());
+    paint::rule (g, 28.0f, 544.0f, 1252.0f, 544.0f);
+    paint::rule (g, 268.0f, 138.0f, 268.0f, 536.0f);
+    paint::rule (g, 932.0f, 138.0f, 932.0f, 536.0f);
+    paint::rule (g, 268.0f, 552.0f, 268.0f, 792.0f);
     paintLogo (g, { 38.0f, 24.0f, 204.0f, 58.0f });
-    paint::copperTube (g, tube.toFloat());
     if (const int learn = proc.midiLearnParam(); learn >= 0)
     {
         auto r = tube.toFloat().withSizeKeepingCentre (620.0f, 22.0f);
-        g.setColour (col::orange);
-        g.fillRoundedRectangle (r, 11.0f);
-        g.setColour (col::ink);
+        g.setColour (col::hot);
+        g.fillRect (r);
+        g.setColour (col::onHot);
         g.setFont (labelFont (12.0f));
         g.drawText (T ("MIDI LEARN: mové una perilla de tu controlador para  ") + upper (juce::String::fromUTF8 (paramDefs()[(size_t) learn].name.c_str()))
                         + T ("   (clic acá: cancelar)"), r, juce::Justification::centred);
@@ -1733,7 +1716,6 @@ void Content::paint (juce::Graphics& g)
 
     // Tarjetas
     for (auto r : { trackCard, macroCard, masterCard, grooveCard, seqCard }) paint::card (g, r.toFloat());
-    paint::violetWindow (g, window.toFloat());
     g.setColour (col::ink);
     drawSpaced (g, "TRACKS", { (float) trackCard.getX() + 14.0f, (float) trackCard.getY() + 10.0f, 200.0f, 18.0f }, titleFont (12.0f), 0.16f,
                 juce::Justification::centredLeft);
@@ -1754,8 +1736,6 @@ void Content::paint (juce::Graphics& g)
 
     // Groove
     const int t = proc.selectedTrack.load();
-    g.setColour (col::violetRing);
-    g.fillRoundedRectangle ((float) grooveCard.getX() + 14.0f, (float) grooveCard.getY() + 13.0f, 5.0f, 14.0f, 2.5f);
     g.setColour (col::ink);
     drawSpaced (g, "GROOVE", { (float) grooveCard.getX() + 26.0f, (float) grooveCard.getY() + 10.0f, 200.0f, 20.0f }, titleFont (12.0f), 0.16f,
                 juce::Justification::centredLeft);
@@ -1767,10 +1747,10 @@ void Content::paint (juce::Graphics& g)
     paint::glowText (g, juce::String (proc.engine.bank.getLength (ctx.pattern(), t)), lenR, lcdFont (22.0f), juce::Justification::centred);
 
     // Secuenciador
-    g.setColour (col::track (t));
-    g.fillRoundedRectangle ((float) seqCard.getX() + 14.0f, (float) seqCard.getY() + 18.0f, 5.0f, 14.0f, 2.5f);
     g.setColour (col::ink);
-    drawSpaced (g, T ("SEQUENCE · ") + trackLabel (t), { (float) seqCard.getX() + 26.0f, (float) seqCard.getY() + 14.0f, 270.0f, 22.0f },
+    const bool fillEdit = proc.fillPreview.load();
+    if (fillEdit) g.setColour (col::hot);
+    drawSpaced (g, (fillEdit ? T ("FILL BAR · ") : T ("SEQUENCE · ")) + trackLabel (t), { (float) seqCard.getX() + 26.0f, (float) seqCard.getY() + 14.0f, 270.0f, 22.0f },
                 titleFont (12.0f), 0.14f, juce::Justification::centredLeft);
     if (lane.getMode() == LaneMode::Motion)
     {
@@ -1779,9 +1759,7 @@ void Content::paint (juce::Graphics& g)
                     juce::Justification::centredLeft);
     }
     // AUTO FILL: compases del ciclo (el último es el fill) y el que suena ahora
-    g.setColour (juce::Colours::white.withAlpha (0.5f));
-    g.fillRoundedRectangle (fillCard.toFloat(), 12.0f);
-    g.setColour (kFillColour.darker (0.45f));
+    g.setColour (col::print);
     drawSpaced (g, "AUTO FILL", { (float) fillCard.getX() + 10.0f, (float) fillCard.getY() + 4.0f, 110.0f, 18.0f }, titleFont (11.0f), 0.1f,
                 juce::Justification::centredLeft);
     {
@@ -1803,11 +1781,12 @@ void Content::paint (juce::Graphics& g)
             {
                 auto c = juce::Rectangle<float> (cells.getX() + cw * (float) b, cells.getY(), cw, cells.getHeight()).reduced (e > 8 ? 0.5f : 1.5f, 0.0f);
                 const bool isFill = b == e - 1, now = playing && bar % e == b;
-                g.setColour (now ? (isFill ? kFillColour : col::ink) : (isFill ? kFillColour.withAlpha (0.35f) : juce::Colours::white.withAlpha (0.8f)));
-                g.fillRoundedRectangle (c, 4.0f);
+                g.setColour (now ? (isFill ? col::hot : col::print) : col::recess);
+                g.fillRect (c);
+                if (isFill && ! now) { g.setColour (col::hot); g.drawRect (c, 1.0f); }
                 if (e <= 8)
                 {
-                    g.setColour (now ? juce::Colours::white : col::ink.withAlpha (0.7f));
+                    g.setColour (now ? (isFill ? col::onHot : col::onPrint) : (isFill ? col::hot : col::print2));
                     g.setFont (labelFont (11.0f));
                     g.drawText (isFill ? juce::String ("F") : juce::String (b + 1), c, juce::Justification::centred);
                 }
@@ -1854,7 +1833,8 @@ void Content::timerCallback()
     else
     {
         const bool longTrack = proc.engine.bank.getLength (ctx.pattern(), ctx.track()) > kViewSteps;
-        page2.setEnabled (longTrack);
+        page1.setEnabled (! proc.fillPreview.load());
+        page2.setEnabled (longTrack && ! proc.fillPreview.load());
         if (! longTrack && proc.seqPage.load() != 0) proc.seqPage = 0;
         page1.setToggleState (proc.seqPage.load() == 0, juce::dontSendNotification);
         page2.setToggleState (proc.seqPage.load() == 1, juce::dontSendNotification);
@@ -1862,9 +1842,9 @@ void Content::timerCallback()
     undoButton.setEnabled (proc.canUndo());
     redoButton.setEnabled (proc.canRedo());
     const bool fillNow = m.fill.load();
-    if (fillNow != lastFill) { lastFill = fillNow; repaint (seqCard.withHeight (44)); lane.repaint(); }
+    if (fillNow != lastFill) { lastFill = fillNow; repaint (seqCard.withHeight (44)); }
     if (m.bar.load() != lastBar) { lastBar = m.bar.load(); repaint (fillCard); }
-    if (previewButton.getToggleState() != proc.fillPreview.load()) previewButton.setToggleState (proc.fillPreview.load(), juce::dontSendNotification);
+    if (previewButton.getToggleState() != proc.fillPreview.load()) setFillEdit (proc.fillPreview.load());
     const auto rev = proc.engine.bank.revision.load();
     if (rev != lastRevision)
     {
@@ -1899,7 +1879,7 @@ Ogro2Editor::Ogro2Editor (Ogro2Processor& p) : AudioProcessorEditor (p), content
 
 Ogro2Editor::~Ogro2Editor() { setLookAndFeel (nullptr); }
 
-void Ogro2Editor::paint (juce::Graphics& g) { g.fillAll (ogro2::ui::col::black); }
+void Ogro2Editor::paint (juce::Graphics& g) { g.fillAll (ogro2::ui::col::panel); }
 
 void Ogro2Editor::resized()
 {

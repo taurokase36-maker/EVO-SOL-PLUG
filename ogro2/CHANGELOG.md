@@ -2,6 +2,26 @@
 
 Formato: cada fase del desarrollo suma una entrada. La versión publicada será la 2.0.0.
 
+## 2.1 (en curso, sin publicar)
+
+Errores arreglados
+- Hat abierto que desaparecía: el hat cerrado del mismo paso lo cortaba si caía unos ms después
+  (HUMANIZE, swing propio, nudge) o si las notas MIDI llegaban en otro orden. Ahora, en el mismo
+  paso gana el abierto; un golpe nuevo nunca hereda un corte a medias. El cerrado del paso
+  siguiente lo sigue cortando. La comparación exacta con la 1.0 no cambia.
+- Los fills automáticos ya no tocan el hat abierto (ROLL y BREAK lo borraban, BUILD y RANDOM lo
+  cortaban y RANDOM agregaba golpes). Las sesiones con esos estilos ahora lo dejan sonar.
+- AUTO FILL: la grilla ya no cambia sola mientras suena. EDIT FILL muestra el compás de fill de la
+  pista y cada paso se puede cambiar; RESET vuelve al estilo. Se guarda en la sesión (línea "F" del
+  patrón; las versiones anteriores la ignoran).
+
+Interfaz
+- Placa frontal impresa: una chapa verde, rótulos en crema, líneas impresas en vez de tarjetas,
+  perillas planas, un solo acento naranja. Sin degradados, brillos, destellos ni caño de cobre.
+- Rótulos en minúscula con inicial mayúscula. La pestaña ANALOG pasa a "Analog strip · off / on".
+
+Tests: `tests/test_revision.cpp` (falla con la 2.0.9, pasa ahora).
+
 ## 2.0.0 (en desarrollo) — Interfaz simple (después de probar la 2.0.8)
 
 ### Acordes: elegir un sonido y darle vida

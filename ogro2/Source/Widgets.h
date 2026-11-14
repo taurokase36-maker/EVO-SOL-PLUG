@@ -123,7 +123,7 @@ public:
         {
             const bool on = isLocked();
             const auto a = lockArea().reduced (2.0f);
-            g.setColour (on ? juce::Colour (0xffffc35c) : (v ? juce::Colours::white.withAlpha (0.22f) : col::ink.withAlpha (0.2f)));
+            g.setColour (on ? col::hot : (v ? juce::Colours::white.withAlpha (0.22f) : col::ink.withAlpha (0.2f)));
             juce::Path shackle;
             shackle.addCentredArc (a.getCentreX(), a.getY() + 4.5f, 3.0f, 3.0f, 0.0f, -1.5708f, on ? 1.5708f : 0.9f, true);
             g.strokePath (shackle, juce::PathStrokeType (1.4f));
@@ -330,8 +330,8 @@ private:
 // Tecla de calculadora sin parámetro (acciones)
 inline void styleKey (juce::TextButton& b, juce::Colour c, juce::Colour text = col::ink)
 {
-    b.setColour (juce::TextButton::buttonColourId, c);
-    b.setColour (juce::TextButton::textColourOffId, text);
+    juce::ignoreUnused (text);
+    if (c == col::hot) makeHot (b);
 }
 
 // Deslizador horizontal con título y valor (para la fila de controles extra del inspector)
@@ -850,6 +850,7 @@ public:
         addAndMakeVisible (level);
         addAndMakeVisible (mute);
         addAndMakeVisible (solo);
+        solo.button.getProperties().set ("hot", true);
         mute.button.setTooltip ("Mute");
         solo.button.setTooltip ("Solo");
     }
@@ -868,28 +869,18 @@ public:
         auto r = getLocalBounds().toFloat().reduced (0.5f, 1.0f);
         if (selected)
         {
-            g.setColour (col::violet.withAlpha (0.3f));
-            g.fillRoundedRectangle (r.translated (0, 3.0f).expanded (1.0f), 10.0f);
-            g.setColour (col::violetDeep);
-            g.fillRoundedRectangle (r, 9.0f);
-            g.setColour (col::violetRing);
-            g.drawRoundedRectangle (r.reduced (0.5f), 9.0f, 1.0f);
+            g.setColour (col::window);
+            g.fillRoundedRectangle (r, 3.0f);
+            g.setColour (col::print);
+            g.fillRect (r.getX(), r.getY(), 3.0f, r.getHeight());
         }
-        else
-        {
-            g.setColour (juce::Colours::white.withAlpha (0.55f));
-            g.fillRoundedRectangle (r, 9.0f);
-        }
+        else paint::rule (g, r.getX(), r.getBottom(), r.getRight(), r.getBottom(), col::faint);
         // LED de disparo
         auto led = juce::Rectangle<float> (r.getX() + 10.0f, r.getCentreY() - 4.5f, 9.0f, 9.0f);
-        if (glow > 0.02f) { g.setColour (col::led.withAlpha (0.4f * glow)); g.fillEllipse (led.expanded (4.0f)); }
-        g.setColour ((selected ? col::violetDeep.brighter (0.4f) : col::ledOff).interpolatedWith (col::led, glow));
-        g.fillEllipse (led);
-        // Color y nombre
-        g.setColour (col::track (track));
-        g.fillRoundedRectangle (r.getX() + 25.0f, r.getCentreY() - 8.0f, 4.0f, 16.0f, 2.0f);
-        g.setColour (selected ? col::violetText : col::ink);
-        drawSpaced (g, juce::String (trackName (track)), { r.getX() + 36.0f, r.getY(), 96.0f, r.getHeight() },
+        g.setColour (col::faint.interpolatedWith (col::hot, glow));
+        g.fillRect (led.reduced (1.0f));
+        g.setColour (col::print);
+        drawSpaced (g, juce::String (trackName (track)), { r.getX() + 28.0f, r.getY(), 104.0f, r.getHeight() },
                     labelFont (14.0f), 0.04f, juce::Justification::centredLeft);
     }
     void resized() override
@@ -965,25 +956,12 @@ public:
     PlayOrb() : juce::Button ("play") { setClickingTogglesState (true); }
     void paintButton (juce::Graphics& g, bool over, bool down) override
     {
-        auto r = getLocalBounds().toFloat().reduced (6.0f);
+        auto r = getLocalBounds().toFloat().reduced (8.0f);
         const auto c = r.getCentre();
         const bool on = getToggleState();
-        for (int i = 4; i >= 1; --i)
-        {
-            g.setColour (juce::Colour (0xff8c5aff).withAlpha ((on ? 0.12f : 0.07f) * (float) i / 2.0f));
-            g.fillEllipse (r.expanded (2.5f * (float) i));
-        }
-        juce::ColourGradient orb (juce::Colours::white, c.x - r.getWidth() * 0.14f, c.y - r.getHeight() * 0.2f,
-                                  juce::Colour (0xff1e0a5a), r.getRight(), r.getBottom(), true);
-        orb.addColour (0.13, juce::Colour (0xffdcd0ff));
-        orb.addColour (0.40, on ? juce::Colour (0xffb48cff) : juce::Colour (0xff9c76ff));
-        orb.addColour (0.68, juce::Colour (0xff5a2adf));
-        g.setGradientFill (orb);
-        g.fillEllipse (down ? r.reduced (1.0f) : r);
-        g.setColour (juce::Colour (0xffdcd0ff).withAlpha (over ? 1.0f : 0.8f));
-        g.drawEllipse (r, 1.5f);
+        paint::key (g, down ? r.reduced (1.0f) : r, on ? paint::Key::Hot : paint::Key::On, over);
         // Símbolo
-        g.setColour (juce::Colours::white.withAlpha (0.92f));
+        g.setColour (on ? col::onHot : col::onPrint);
         if (on) { g.fillRect (c.x - 7.0f, c.y - 7.0f, 5.0f, 14.0f); g.fillRect (c.x + 2.0f, c.y - 7.0f, 5.0f, 14.0f); }
         else { juce::Path tri; tri.addTriangle (c.x - 5.0f, c.y - 8.0f, c.x - 5.0f, c.y + 8.0f, c.x + 9.0f, c.y); g.fillPath (tri); }
     }
@@ -1005,40 +983,27 @@ public:
         auto r = getLocalBounds().toFloat().reduced (4.0f);
         const auto c = r.getCentre();
         const float R = juce::jmin (r.getWidth(), r.getHeight()) * 0.5f;
-        g.setColour (juce::Colours::black.withAlpha (0.35f));
-        g.fillEllipse (c.x - R, c.y - R + 5.0f, R * 2, R * 2);
-        g.setColour (juce::Colour (0xff0b090e));
+        g.setColour (col::window);
         g.fillEllipse (c.x - R, c.y - R, R * 2, R * 2);
-        g.setColour (juce::Colours::white.withAlpha (0.035f));
-        for (float rr = R * 0.4f; rr < R - 2.0f; rr += 4.0f) g.drawEllipse (c.x - rr, c.y - rr, rr * 2, rr * 2, 1.0f);
-        g.setColour (juce::Colour (0xff26222c));
-        g.drawEllipse (c.x - R, c.y - R, R * 2, R * 2, 2.0f);
         // Anillo de nivel (de -48 a 0 dB)
         const float frac = juce::jlimit (0.0f, 1.0f, (shownDb + 48.0f) / 48.0f);
         const float a0 = juce::MathConstants<float>::pi * 1.25f, a1 = a0 + frac * juce::MathConstants<float>::pi * 1.5f;
         const float rr = R * 0.86f;
         juce::Path trk; trk.addCentredArc (c.x, c.y, rr, rr, 0, a0, juce::MathConstants<float>::pi * 2.75f, true);
-        g.setColour (col::discRing.withAlpha (0.12f));
+        g.setColour (col::faint);
         g.strokePath (trk, juce::PathStrokeType (R * 0.1f));
         if (frac > 0.001f)
         {
             juce::Path arc; arc.addCentredArc (c.x, c.y, rr, rr, 0, a0, a1, true);
-            for (int i = 3; i >= 1; --i)
-            {
-                g.setColour (col::discRing.withAlpha (0.1f));
-                g.strokePath (arc, juce::PathStrokeType (R * 0.1f + 4.0f * (float) i));
-            }
             g.setColour (shownDb > -1.0f ? col::red : col::discRing);
             g.strokePath (arc, juce::PathStrokeType (R * 0.1f));
         }
-        g.setColour (juce::Colour (0xffe9e1ff));
-        g.fillPath (paint::star ({ c.x + R * 0.6f, c.y - R * 0.6f }, 9.0f, 1.6f));
         // Textos
-        g.setColour (juce::Colour (0xffc9b3ff));
+        g.setColour (col::print2);
         drawSpaced (g, "MASTER", { c.x - R, c.y - R * 0.42f, R * 2, 16.0f }, titleFont (11.0f), 0.18f, juce::Justification::centred);
         paint::glowText (g, shownDb <= -60.0f ? juce::String ("-inf") : juce::String (shownDb, 1) + " dB",
                          { c.x - R, c.y - 14.0f, R * 2, 30.0f }, lcdFont (30.0f), juce::Justification::centred);
-        g.setColour (juce::Colour (0xff9c8cc8));
+        g.setColour (col::print3);
         g.setFont (textFont (12.0f));
         g.drawText (T ("LIMITER ") + juce::String (lim, 1) + " dB", juce::Rectangle<float> (c.x - R, c.y + R * 0.22f, R * 2, 16.0f),
                     juce::Justification::centred);
@@ -1066,33 +1031,48 @@ struct SeqContext
 
 // AUTO FILL: con PREVIEW o mientras suena el fill, las teclas y la pantalla muestran el paso
 // como va a sonar en el compás de fill (en naranja lo que pone el fill)
-const juce::Colour kFillColour { 0xffff9a3c };
-inline bool fillShown (Ogro2Processor& proc)
+const juce::Colour kFillColour = col::hot;
+// EDIT FILL: las 16 teclas son las 16 posiciones del compás de fill de la pista elegida.
+// Se ve lo que va a sonar ahí (en naranja lo que cambia respecto del patrón) y cada clic
+// guarda ese paso solo para el fill. Tocando, la grilla no cambia sola.
+inline bool fillShown (Ogro2Processor& proc) { return proc.fillPreview.load(); }
+// Paso del patrón que cae en la posición q del próximo compás de fill
+inline int fillSource (const SeqContext& ctx, int p, int t, int q)
 {
-    return (int) proc.value (P::Fill) > 0 && (proc.fillPreview.load() || proc.engine.meters.fill.load());
+    static const int every[] = { 1, 2, 4, 8, 16 };
+    const int e = every[juce::jlimit (0, 4, (int) ctx.proc.value (P::Fill))];
+    const int bar = juce::jmax (0, ctx.proc.engine.meters.bar.load());
+    const int64_t k = (int64_t) ((bar / e) * e + e - 1) * 16 + (q % 16);
+    return (int) (k % juce::jmax (1, ctx.bank().getLength (p, t)));
 }
 inline Step viewStep (const SeqContext& ctx, int p, int t, int s, bool& fillHit)
 {
-    const Step st = ctx.bank().get (p, t, s);
     fillHit = false;
-    if (! fillShown (ctx.proc)) return st;
+    if (! fillShown (ctx.proc)) return ctx.bank().get (p, t, s);
+    const int q = s % 16;
+    const Step base = ctx.bank().get (p, t, fillSource (ctx, p, t, q));
+    Step f = base;
     const int style = (int) ctx.proc.value (P::FillStyle);
-    Step f = st;
-    if (style == FillPatternStyle)
+    if (ctx.bank().getFillStep (p, t, q, f)) {}
+    else if (style != FillPatternStyle)
     {
-        const int fp = (int) ctx.proc.value (P::FillPat);
-        if (fp > 0) f = ctx.bank().get (fp - 1, t, s);
-        if (f.cond == CondNotFill) f.on = false;
-        fillHit = f.on && (fp > 0 || f.cond == CondFill);
-        return f;
+        static const int every[] = { 1, 2, 4, 8, 16 };
+        const int e = every[juce::jlimit (0, 4, (int) ctx.proc.value (P::Fill))];
+        const int bar = juce::jmax (0, ctx.proc.engine.meters.bar.load());
+        f = fillStep (style, t, q, base, (uint32_t) ctx.proc.value (P::Seed), (bar / e) * e + e - 1);
     }
-    static const int every[] = { 1, 2, 4, 8, 16 };
-    const int e = every[juce::jlimit (0, 4, (int) ctx.proc.value (P::Fill))];
-    const int bar = ctx.proc.engine.meters.bar.load();
-    f = fillStep (style, t, s % 16, st, (uint32_t) ctx.proc.value (P::Seed), (bar / e) * e + e - 1);
-    fillHit = f.on && (! st.on || f.ratchet != st.ratchet || f.vel != st.vel);
+    else if (f.cond == CondNotFill) f.on = false;
+    fillHit = f.on && (! base.on || f.ratchet != base.ratchet || f.vel != base.vel || ctx.bank().hasFillStep (p, t, q));
     return f;
 }
+// Leer y guardar un paso desde la grilla: en EDIT FILL va al fill, si no al patrón
+inline Step editStep (const SeqContext& ctx, int p, int t, int s) { bool h; return viewStep (ctx, p, t, s, h); }
+inline void storeStep (const SeqContext& ctx, int p, int t, int s, const Step& st)
+{
+    if (fillShown (ctx.proc)) ctx.bank().setFillStep (p, t, s % 16, st);
+    else ctx.bank().set (p, t, s, st);
+}
+inline int viewLength (const SeqContext& ctx, int p, int t) { return fillShown (ctx.proc) ? 16 : ctx.bank().getLength (p, t); }
 
 // Qué perilla se dibuja en el modo P-LOCK: un campo de la pista (sigue a la pista elegida)
 // o un parámetro global
@@ -1144,7 +1124,7 @@ public:
     void paint (juce::Graphics& g) override
     {
         const int t = ctx.track(), p = ctx.pattern(), off = ctx.offset();
-        const int len = ctx.bank().getLength (p, t);
+        const int len = viewLength (ctx, p, t);
         const bool playing = ctx.proc.engine.meters.playing.load();
         const int cur = ctx.proc.engine.meters.step[t].load();
         const float w = (float) getWidth() / (float) kViewSteps;
@@ -1162,20 +1142,17 @@ public:
             if (fillHit && s < len) kc = kFillColour;
             if (s >= len) kc = kc.withMultipliedSaturation (0.2f).darker (0.25f).withAlpha (0.6f);
             paint::key (g, key, kc, active, false);
-            auto face = active ? key.translated (0, 1.5f) : key;
+            auto face = key;
             if (here)
             {
                 g.setColour (col::violet);
-                g.drawRoundedRectangle (key.expanded (2.5f), 9.0f, 2.0f);
+                g.drawRoundedRectangle (key.expanded (3.0f), 5.0f, 1.5f);
             }
             if (active)
             {
                 const auto lightR = juce::Rectangle<float> (face.getX() + face.getWidth() * 0.2f, face.getBottom() - 9.0f, face.getWidth() * 0.6f, 4.0f);
-                g.setColour (col::track (t).withAlpha (0.35f));
-                g.fillRoundedRectangle (lightR.expanded (2.0f), 3.0f);
-                g.setColour (col::track (t));
-                g.fillRoundedRectangle (lightR, 2.0f);
-                g.setColour (col::ink.withAlpha (0.85f));
+                juce::ignoreUnused (lightR);
+                g.setColour (kc == col::recess ? col::onPrint : col::onHot);
                 g.setFont (labelFont (12.0f));
                 juce::String txt;
                 if (t >= Bass && t != Texture) txt = stepNoteText (ctx.proc, t, st);
@@ -1186,14 +1163,14 @@ public:
             // Condición (arriba a la izquierda) y p-locks (punto violeta arriba a la derecha)
             if (st.cond != CondAlways && s < len)
             {
-                g.setColour (active ? col::violet : col::dim);
+                g.setColour (active ? col::onPrint : col::print3);
                 g.setFont (labelFont (10.0f));
                 g.drawText (juce::String (condLabel (st.cond)), face.reduced (5.0f, 3.0f), juce::Justification::topLeft, false);
             }
             if (ctx.bank().lockCount (p, t, s) > 0 && s < len)
             {
-                g.setColour (col::violet);
-                g.fillEllipse (face.getRight() - 11.0f, face.getY() + 5.0f, 6.0f, 6.0f);
+                g.setColour (active ? col::onPrint : col::print);
+                g.fillRect (face.getRight() - 10.0f, face.getY() + 5.0f, 5.0f, 5.0f);
             }
             g.setColour (i % 4 == 0 ? col::ink : col::dim);
             g.setFont (labelFont (12.0f));
@@ -1207,7 +1184,7 @@ public:
         if (s < 0) return;
         if (! e.mods.isPopupMenu()) ctx.edit();
         const int t = ctx.track(), p = ctx.pattern();
-        Step st = ctx.bank().get (p, t, s);
+        Step st = editStep (ctx, p, t, s);
         if (e.mods.isPopupMenu())
         {
             dragMode = -1;
@@ -1218,7 +1195,7 @@ public:
         {
             st.on = ! st.on;
             if (st.on && st.vel < 10) st.vel = 100;
-            ctx.bank().set (p, t, s, st);
+            storeStep (ctx, p, t, s, st);
             dragMode = st.on ? 1 : 0;
         }
         lastStep = s;
@@ -1231,9 +1208,9 @@ public:
         if (s < 0 || s == lastStep) return;
         lastStep = s;
         const int t = ctx.track(), p = ctx.pattern();
-        Step st = ctx.bank().get (p, t, s);
+        Step st = editStep (ctx, p, t, s);
         st.on = dragMode == 1;
-        ctx.bank().set (p, t, s, st);
+        storeStep (ctx, p, t, s, st);
         repaint();
     }
 
@@ -1243,10 +1220,10 @@ public:
     void stepMenu (int s)
     {
         const int t = ctx.track(), p = ctx.pattern();
-        const Step st = ctx.bank().get (p, t, s);
+        const Step st = editStep (ctx, p, t, s);
         const bool pitched = t >= Bass;
         juce::PopupMenu m, rep, len;
-        m.addSectionHeader ("STEP " + juce::String (s + 1));
+        m.addSectionHeader ((fillShown (ctx.proc) ? "FILL STEP " : "STEP ") + juce::String (s + 1));
         m.addItem (1, "Accent", true, st.on && st.vel >= 118);
         for (int r = 1; r <= 4; ++r) rep.addItem (10 + r, r == 1 ? juce::String ("Off") : "x" + juce::String (r), true, st.ratchet == r);
         m.addSubMenu ("Repeat", rep);
@@ -1266,7 +1243,7 @@ public:
         m.addItem (32, "Never in fills", true, st.cond == CondNotFill);
         m.addItem (33, "Every 2nd time", true, st.cond == CondRatioBase + 1);
         m.addSeparator();
-        m.addItem (40, "Clear step");
+        m.addItem (40, fillShown (ctx.proc) ? "Back to the fill style" : "Clear step");
         if (onEuclid) m.addItem (41, "Euclid rhythm...");
         juce::Component::SafePointer<StepKeys> safe (this);
         m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this), [safe, s, p, t] (int r) {
@@ -1274,7 +1251,7 @@ public:
             if (r == 41) { if (safe->onEuclid) safe->onEuclid(); return; }
             auto& c = safe->ctx;
             c.edit();
-            Step x = c.bank().get (p, t, s);
+            Step x = editStep (c, p, t, s);
             static const int gates[] = { 0, 16, 32, 63 };
             if (r == 1) { const bool acc = x.on && x.vel >= 118; x.on = true; x.vel = acc ? 100 : 127; }
             else if (r > 10 && r <= 14) { x.ratchet = r - 10; x.on = true; }
@@ -1286,8 +1263,9 @@ public:
             else if (r == 31) { x.cond = CondFill; x.on = true; }
             else if (r == 32) { x.cond = CondNotFill; x.on = true; }
             else if (r == 33) { x.cond = CondRatioBase + 1; x.on = true; }
+            else if (r == 40 && fillShown (c.proc)) { c.bank().clearFillStep (p, t, s % 16); safe->repaint(); if (safe->onEdited) safe->onEdited(); return; }
             else if (r == 40) { x = Step(); c.bank().clearLocks (p, t, s); }
-            c.bank().set (p, t, s, x);
+            storeStep (c, p, t, s, x);
             safe->repaint();
             if (safe->onEdited) safe->onEdited();
         });
@@ -1314,7 +1292,7 @@ public:
         auto r = getLocalBounds().toFloat();
         paint::lcd (g, r);
         const int t = ctx.track(), p = ctx.pattern(), off = ctx.offset();
-        const int len = ctx.bank().getLength (p, t);
+        const int len = viewLength (ctx, p, t);
         const auto in = r.reduced (10.0f, 8.0f);
         const float w = in.getWidth() / (float) kViewSteps;
         const bool tonal = ctx.proc.value (P::Tonal) > 0.5f && isPitched (t);
@@ -1403,14 +1381,9 @@ public:
             }
             if (! bar.isEmpty())
             {
-                const auto on = fillHit ? kFillColour : (mode == LaneMode::Lock ? juce::Colour (0xffb48cff) : col::phosphor);
-                if (active)
-                {
-                    g.setColour (on.withAlpha (0.25f));
-                    g.fillRoundedRectangle (bar.expanded (2.0f), 3.0f);
-                }
+                const auto on = fillHit ? kFillColour : (mode == LaneMode::Lock ? col::hot : col::phosphor);
                 g.setColour (active ? on : col::phosphorOff);
-                g.fillRoundedRectangle (bar, 2.0f);
+                g.fillRect (bar);
             }
             g.setColour (active ? col::phosphor : col::phosphorDim.withAlpha (0.55f));
             g.setFont (lcdFont (label.length() > 5 ? 14.0f : 17.0f));
@@ -1438,7 +1411,7 @@ private:
     {
         const int s = stepAt (e);
         const int t = ctx.track(), p = ctx.pattern();
-        const int cur = ctx.bank().get (p, t, s).cond;
+        const int cur = editStep (ctx, p, t, s).cond;
         juce::PopupMenu m, ratios;
         for (int c = 0; c < CondRatioBase; ++c)
             m.addItem (c + 1, juce::String::fromUTF8 (condLabel (c).c_str()).isEmpty() ? T ("Siempre")
@@ -1448,9 +1421,9 @@ private:
         m.addSubMenu (T ("Vueltas (A:B)"), ratios, true, nullptr, cur >= CondRatioBase);
         m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition(), [this, s, t, p] (int r) {
             if (r <= 0) return;
-            Step st = ctx.bank().get (p, t, s);
+            Step st = editStep (ctx, p, t, s);
             st.cond = r - 1;
-            ctx.bank().set (p, t, s, st);
+            storeStep (ctx, p, t, s, st);
             repaint();
         });
     }
@@ -1459,16 +1432,16 @@ private:
         const int t = ctx.track(), p = ctx.pattern();
         if (t != Chord) return;
         const int s = stepAt (e);
-        const int cur = ctx.bank().get (p, t, s).chordType;
+        const int cur = editStep (ctx, p, t, s).chordType;
         juce::PopupMenu m;
         m.addItem (1, T ("El de la pista (TIPO)"), true, cur == 0);
         m.addSeparator();
         for (int k = 0; k < kChordTypes; ++k) m.addItem (2 + k, chordTypeName (k), true, cur == k + 1);
         m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition(), [this, s, t, p] (int r) {
             if (r <= 0) return;
-            Step st = ctx.bank().get (p, t, s);
+            Step st = editStep (ctx, p, t, s);
             st.chordType = r - 1;
-            ctx.bank().set (p, t, s, st);
+            storeStep (ctx, p, t, s, st);
             repaint();
         });
     }
@@ -1478,7 +1451,7 @@ private:
         const int s = stepAt (e);
         const float f = juce::jlimit (0.0f, 1.0f, (r.getBottom() - (float) e.y) / r.getHeight());
         const int t = ctx.track(), p = ctx.pattern();
-        Step st = ctx.bank().get (p, t, s);
+        Step st = editStep (ctx, p, t, s);
         switch (mode)
         {
             case LaneMode::Vel: st.vel = juce::jmax (1, juce::roundToInt (f * 127.0f)); break;
@@ -1513,7 +1486,7 @@ private:
             case LaneMode::Motion: return;
         }
         lastS = s;
-        ctx.bank().set (p, t, s, st);
+        storeStep (ctx, p, t, s, st);
         repaint();
     }
 
@@ -1645,7 +1618,7 @@ public:
             g.fillRect (x - 0.5f, in.getY(), 1.0f, in.getHeight());
         }
         const bool active = proc.engine.routing.laneDst[lane].load() >= 0;
-        const auto c = active ? juce::Colour (0xffb48cff) : col::phosphorDim;
+        const auto c = active ? col::hot : col::phosphorDim;
         juce::Path fill, line;
         const float w = in.getWidth() / (float) kLanePoints;
         fill.startNewSubPath (in.getX(), in.getBottom());
@@ -1661,8 +1634,6 @@ public:
         fill.closeSubPath();
         g.setColour (c.withAlpha (0.16f));
         g.fillPath (fill);
-        g.setColour (c.withAlpha (0.3f));
-        g.strokePath (line, juce::PathStrokeType (5.0f));
         g.setColour (c);
         g.strokePath (line, juce::PathStrokeType (2.2f));
         if (proc.engine.meters.playing.load())
@@ -1733,12 +1704,10 @@ public:
             const float x = in.getX() + in.getWidth() * ph, y = in.getCentreY() - v * in.getHeight() * 0.5f;
             if (i == 0) p.startNewSubPath (x, y); else p.lineTo (x, y);
         }
-        g.setColour (col::phosphor.withAlpha (0.25f));
-        g.strokePath (p, juce::PathStrokeType (4.0f));
         g.setColour (col::phosphor);
         g.strokePath (p, juce::PathStrokeType (1.6f));
         const float cur = proc.engine.meters.lfo[lfo].load();
-        g.setColour (juce::Colour (0xffb48cff));
+        g.setColour (col::hot);
         g.fillEllipse (in.getRight() - 7.0f, in.getCentreY() - cur * in.getHeight() * 0.5f - 3.5f, 7.0f, 7.0f);
     }
 

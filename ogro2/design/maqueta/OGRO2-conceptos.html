@@ -1,0 +1,371 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OGRO 2 concepts</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=Chivo+Mono:wght@400;500&family=Chivo:wght@400;500;700&family=Courier+Prime:wght@400;700&family=Michroma&family=Saira+Extra+Condensed:wght@600;800&family=Saira+Semi+Condensed:wght@400;500;600&family=VT323&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #1b1b1c; color: #ededed; font: 15px/1.5 "Chivo", "Helvetica Neue", sans-serif; padding: 32px 24px 64px; }
+  .intro { max-width: 1280px; margin: 0 auto 32px; }
+  .intro h1 { font-weight: 500; font-size: 28px; line-height: 1.15; }
+  .intro p { color: #a1a1a6; max-width: 46rem; margin-top: 8px; }
+  .concept { max-width: 1280px; margin: 0 auto 56px; }
+  .concept h2 { font-weight: 500; font-size: 20px; }
+  .concept .why { color: #a1a1a6; max-width: 52rem; margin: 4px 0 16px; }
+  .concept .why b { color: #ededed; font-weight: 500; }
+  .stage { width: 100%; height: auto; display: block; }
+  .mock { width: 1280px; height: 820px; position: relative; display: grid;
+          grid-template-columns: 248px minmax(0, 1fr) 316px; grid-template-rows: 76px 1fr 272px; overflow: hidden; }
+
+  /* ---------- shared structure ---------- */
+  .top { grid-column: 1 / 4; display: flex; align-items: center; gap: 24px; padding: 0 24px; min-width: 0; }
+  .insp, .right, .seq, .tracks, .groove { min-width: 0; }
+  .brand { width: 224px; }
+  .brand .sub { font-size: 11px; margin-top: 2px; }
+  .preset { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
+  .preset .screen { flex: 1; min-width: 0; height: 48px; padding: 4px 12px; display: flex; flex-direction: column; justify-content: center; }
+  .preset .name { font-size: 20px; line-height: 22px; }
+  .preset .desc { font-size: 12px; line-height: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pats { display: flex; gap: 4px; }
+  .transport { display: flex; align-items: center; gap: 12px; }
+  .readout { height: 48px; padding: 0 12px; display: flex; flex-direction: column; justify-content: center; align-items: flex-end; min-width: 104px; }
+  .readout .big { font-size: 22px; line-height: 24px; }
+  .readout .unit { font-size: 11px; line-height: 12px; }
+  .btn { height: 32px; min-width: 32px; padding: 0 12px; display: inline-flex; align-items: center; justify-content: center; font-size: 13px; cursor: default; white-space: nowrap; }
+  .btn.sq { padding: 0; width: 32px; }
+  .play { width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; }
+  .play i { width: 0; height: 0; border-left: 14px solid currentColor; border-top: 9px solid transparent; border-bottom: 9px solid transparent; margin-left: 4px; }
+
+  .tracks { grid-column: 1; grid-row: 2; padding: 16px 12px 16px 24px; }
+  .sec { font-size: 13px; height: 20px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+  .trk { height: 36px; display: grid; grid-template-columns: 24px minmax(0, 1fr) 40px 24px 24px; align-items: center; gap: 4px; padding: 0 8px; }
+  .trk .n { font-size: 11px; }
+  .trk .nm { font-size: 15px; }
+  .trk .lv { height: 4px; position: relative; }
+  .trk .lv b { position: absolute; left: 0; top: 0; bottom: 0; }
+  .trk .ms { width: 24px; height: 20px; font-size: 11px; display: flex; align-items: center; justify-content: center; }
+
+  .insp { grid-column: 2; grid-row: 2; padding: 16px 24px; display: flex; flex-direction: column; justify-content: space-between; }
+  .insp .head { display: flex; align-items: center; gap: 16px; height: 36px; }
+  .insp .head .title { font-size: 24px; line-height: 1; }
+  .insp .head .desc { font-size: 12px; flex: 1; }
+  .tabs { display: flex; gap: 16px; }
+  .tab { font-size: 13px; height: 32px; display: flex; align-items: center; gap: 6px; }
+  .tab small { font-size: 11px; }
+  .knobs { display: flex; justify-content: space-between; }
+  .knob { width: 76px; text-align: center; }
+  .knob .lab { font-size: 12px; line-height: 16px; }
+  .knob svg { display: block; margin: 4px auto; }
+  .knob .val { font-size: 12px; line-height: 16px; }
+  .extras { display: flex; gap: 24px; align-items: flex-end; height: 44px; font-size: 13px; }
+  .field { display: flex; flex-direction: column; gap: 2px; }
+  .field .lab { font-size: 11px; line-height: 12px; }
+  .field .sel { height: 24px; padding: 0 8px; display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 112px; font-size: 13px; }
+  .groups { display: flex; gap: 32px; }
+  .group .gl { font-size: 13px; height: 20px; display: flex; align-items: center; gap: 8px; }
+  .group .gl i { flex: 1; height: 0; position: relative; display: none; }
+  .group .gl em { font-style: normal; font-size: 11px; display: none; }
+  .group .row { display: flex; gap: 8px; margin-top: 4px; }
+  .group .row .knob, .master .knob { width: 64px; }
+  .group.grow { flex: 1; }
+
+  .right { grid-column: 3; grid-row: 2; padding: 16px 24px 16px 16px; display: flex; flex-direction: column; }
+  .macros { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; }
+  .macro { display: flex; gap: 8px; align-items: center; }
+  .macro .nm { font-size: 13px; line-height: 16px; }
+  .macro .ds { font-size: 11px; line-height: 14px; }
+  .pages { display: flex; gap: 4px; margin: 16px 0; }
+  .pages .btn { flex: 1; padding: 0 4px; font-size: 12px; }
+  .master { display: flex; align-items: center; gap: 12px; margin-top: auto; }
+  .disc { width: 124px; height: 124px; border-radius: 50%; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; flex: none; }
+  .disc .db { font-size: 26px; line-height: 28px; }
+  .disc .lm { font-size: 10px; line-height: 12px; }
+
+  .groove { grid-column: 1; grid-row: 3; padding: 16px 12px 16px 24px; }
+  .groove .rowa { display: flex; gap: 12px; align-items: flex-start; }
+  .groove .acts { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4px; margin-top: 12px; }
+  .groove .acts .btn { padding: 0 4px; font-size: 12px; }
+  .groove .gen { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-top: 12px; }
+
+  .seq { grid-column: 2 / 4; grid-row: 3; padding: 16px 24px 16px 24px; display: grid; grid-template-columns: 132px 1fr; grid-template-rows: 32px 1fr; gap: 12px 16px; }
+  .seq .bar { grid-column: 1 / 3; display: flex; align-items: center; gap: 8px; }
+  .seq .bar .ttl { font-size: 13px; width: 132px; margin-right: 8px; }
+  .seq .bar .gap { flex: 1; }
+  .fill { display: flex; flex-direction: column; gap: 8px; }
+  .fill .bars { display: flex; gap: 4px; }
+  .fill .bars span { flex: 1; height: 20px; font-size: 11px; display: flex; align-items: center; justify-content: center; }
+  .grid { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  .lane { height: 84px; display: grid; grid-template-columns: repeat(16, 1fr); gap: 4px; padding: 8px; align-items: end; }
+  .lane .c { height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 2px; }
+  .lane .c span { font-size: 11px; line-height: 12px; }
+  .lane .c b { width: 100%; display: block; }
+  .keys { display: grid; grid-template-columns: repeat(16, 1fr); gap: 4px; padding: 0 8px; }
+  .key { height: 64px; position: relative; display: flex; align-items: flex-end; justify-content: center; padding-bottom: 4px; font-size: 11px; }
+  .key:nth-child(4n+1):not(:first-child) { margin-left: 4px; }
+  .lane .c:nth-child(4n+1):not(:first-child) { margin-left: 4px; }
+  .num { font-variant-numeric: tabular-nums; }
+
+  /* =====================================================================
+     1 · PRINTED FACEPLATE — one sheet of painted steel, silkscreened
+     ===================================================================== */
+  .t-face { background: #3b4730; color: #efe7d2; font-family: "Saira Semi Condensed", "DIN Condensed", "Arial Narrow", sans-serif;
+            --ink: #efe7d2; --ink2: rgba(239,231,210,.72); --ink3: rgba(239,231,210,.5); --line: rgba(239,231,210,.34);
+            --dark: #14180f; --hot: #f39a2b; --cap: #171a12; }
+  .t-face .mono, .t-face .val, .t-face .readout, .t-face .lane span, .t-face .trk .n { font-family: "Chivo Mono", Menlo, monospace; }
+  .t-face .top { border-bottom: 1px solid var(--line); }
+  .t-face .wordmark { font-family: "Saira Extra Condensed", "DIN Condensed", sans-serif; font-weight: 800; font-size: 46px; line-height: 40px; letter-spacing: .02em; }
+  .t-face .wordmark sup { font-size: 22px; font-weight: 600; margin-left: 6px; border: 1.5px solid var(--ink); padding: 0 5px; line-height: 22px; display: inline-block; vertical-align: top; margin-top: 3px; }
+  .t-face .brand .sub { color: var(--ink3); font-family: "Chivo Mono", monospace; }
+  .t-face .screen, .t-face .readout, .t-face .lane { background: var(--dark); border-radius: 2px; }
+  .t-face .preset .name, .t-face .readout .big { font-family: "Chivo Mono", monospace; font-weight: 500; }
+  .t-face .preset .desc, .t-face .readout .unit { color: var(--ink3); font-family: "Chivo Mono", monospace; }
+  .t-face .btn { border: 1px solid var(--line); border-radius: 3px; color: var(--ink); font-weight: 500; }
+  .t-face .btn.on { background: var(--ink); color: #2a3322; border-color: var(--ink); font-weight: 600; }
+  .t-face .btn.hot { background: var(--hot); color: #24180a; border-color: var(--hot); font-weight: 600; }
+  .t-face .play { background: var(--ink); color: #2a3322; border-radius: 3px; }
+  .t-face .tracks, .t-face .groove { border-right: 1px solid var(--line); }
+  .t-face .right { border-left: 1px solid var(--line); }
+  .t-face .groove, .t-face .seq { border-top: 1px solid var(--line); }
+  .t-face .sec, .t-face .group .gl, .t-face .seq .ttl { font-weight: 600; }
+  .t-face .sec small, .t-face .knob .val, .t-face .field .lab, .t-face .macro .ds, .t-face .insp .desc, .t-face .tab small { color: var(--ink2); }
+  .t-face .trk .n { color: var(--ink3); }
+  .t-face .trk.sel { background: var(--ink); color: #2a3322; border-radius: 3px; }
+  .t-face .trk.sel .n { color: rgba(42,51,34,.6); }
+  .t-face .trk .lv { background: var(--line); }
+  .t-face .trk .lv b { background: var(--ink); }
+  .t-face .trk.sel .lv { background: rgba(42,51,34,.3); } .t-face .trk.sel .lv b { background: #2a3322; }
+  .t-face .trk .ms { border: 1px solid var(--line); border-radius: 2px; color: var(--ink2); }
+  .t-face .trk.sel .ms { border-color: rgba(42,51,34,.4); color: #2a3322; }
+  .t-face .title { font-family: "Saira Extra Condensed", sans-serif; font-weight: 800; font-size: 34px !important; letter-spacing: .02em; }
+  .t-face .tab { color: var(--ink3); border-bottom: 2px solid transparent; }
+  .t-face .tab.on { color: var(--ink); border-bottom-color: var(--ink); font-weight: 600; }
+  .t-face .field .sel { border: 1px solid var(--line); border-radius: 2px; }
+  .t-face .k-cap { fill: var(--cap); } .t-face .k-ptr { stroke: var(--ink); } .t-face .k-trk { stroke: var(--line); } .t-face .k-arc { stroke: var(--ink); } .t-face .k-mod { stroke: var(--hot); }
+  .t-face .group { position: relative; }
+  .t-face .group .gl i { display: block; border-top: 1px solid var(--ink3); }
+  .t-face .group .gl i::after { content: ""; position: absolute; right: -1px; top: -4.5px; border-left: 7px solid var(--ink3); border-top: 4px solid transparent; border-bottom: 4px solid transparent; }
+  .t-face .group .gl em { display: block; color: var(--ink2); font-family: "Chivo Mono", monospace; font-weight: 400; }
+  .t-face .disc { background: var(--dark); border: 1px solid var(--line); }
+  .t-face .disc .db { font-family: "Chivo Mono", monospace; font-weight: 500; }
+  .t-face .disc .lm { color: var(--ink3); font-family: "Chivo Mono", monospace; }
+  .t-face .fill .bars span { border: 1px solid var(--line); border-radius: 2px; color: var(--ink2); font-family: "Chivo Mono", monospace; }
+  .t-face .fill .bars span.f { border-color: var(--hot); color: var(--hot); }
+  .t-face .lane .c b { background: rgba(239,231,210,.16); border-radius: 1px; }
+  .t-face .lane .c.on b { background: var(--ink); } .t-face .lane .c.acc b { background: var(--hot); }
+  .t-face .lane .c span { color: var(--ink3); } .t-face .lane .c.on span { color: var(--ink); }
+  .t-face .key { background: #2c3524; border-radius: 3px; border: 1px solid rgba(0,0,0,.35); color: var(--ink3); font-family: "Chivo Mono", monospace; }
+  .t-face .key.on { background: #e9e1cb; color: #2a3322; border-color: #e9e1cb; }
+  .t-face .key.acc { background: var(--hot); color: #24180a; border-color: var(--hot); }
+  .t-face .key.now::before { content: ""; position: absolute; inset: -4px; border: 1.5px solid var(--ink); border-radius: 5px; }
+
+  /* =====================================================================
+     2 · WHITE-LABEL RECORD — paper, black ink, one rubber-stamp colour
+     ===================================================================== */
+  .t-label { background: #f1ede2; color: #161513; font-family: "Archivo", "Helvetica Neue", sans-serif;
+             --ink: #161513; --ink2: #56514a; --ink3: #7a746a; --line: rgba(22,21,19,.16); --stamp: #d23a1c; }
+  .t-label .mono, .t-label .val, .t-label .readout, .t-label .lane span, .t-label .trk .n, .t-label .preset .screen, .t-label .field .sel, .t-label .macro .ds, .t-label .insp .desc { font-family: "Courier Prime", "Courier New", monospace; }
+  .t-label .top { border-bottom: 2px solid var(--ink); }
+  .t-label .wordmark { font-stretch: 125%; font-weight: 900; font-size: 34px; line-height: 34px; letter-spacing: -.01em; }
+  .t-label .wordmark sup { font-size: 16px; font-weight: 700; margin-left: 4px; vertical-align: top; }
+  .t-label .brand { position: relative; }
+  .t-label .brand .sub { color: var(--ink3); font-family: "Courier Prime", monospace; }
+  .t-label .brand .stampmark { position: absolute; right: -16px; top: -6px; border: 1.5px solid var(--stamp); color: var(--stamp); font-size: 10px; font-weight: 700; font-stretch: 110%; padding: 1px 5px; transform: rotate(-5deg); line-height: 14px; }
+  .t-label .screen { border-bottom: 1px solid var(--ink); }
+  .t-label .preset .name { font-weight: 700; }
+  .t-label .preset .desc, .t-label .readout .unit { color: var(--ink2); }
+  .t-label .readout { border-left: 1px solid var(--line); }
+  .t-label .readout .big { font-weight: 700; }
+  .t-label .btn { border: 1px solid var(--ink); color: var(--ink); font-weight: 500; font-stretch: 100%; }
+  .t-label .btn.on { background: var(--ink); color: #f1ede2; }
+  .t-label .btn.hot { background: var(--stamp); color: #fff7ef; border-color: var(--stamp); font-weight: 600; }
+  .t-label .play { background: var(--ink); color: #f1ede2; border-radius: 50%; }
+  .t-label .tracks, .t-label .groove { border-right: 1px solid var(--line); }
+  .t-label .right { border-left: 1px solid var(--line); }
+  .t-label .groove, .t-label .seq { border-top: 2px solid var(--ink); }
+  .t-label .sec, .t-label .group .gl, .t-label .seq .ttl { font-weight: 700; font-stretch: 112%; }
+  .t-label .sec small, .t-label .knob .val, .t-label .field .lab, .t-label .tab small { color: var(--ink2); }
+  .t-label .trk { border-bottom: 1px solid var(--line); }
+  .t-label .trk .n { color: var(--ink3); }
+  .t-label .trk.sel { background: var(--ink); color: #f1ede2; }
+  .t-label .trk.sel .n { color: rgba(241,237,226,.6); }
+  .t-label .trk .lv { background: var(--line); } .t-label .trk .lv b { background: var(--ink); }
+  .t-label .trk.sel .lv { background: rgba(241,237,226,.3); } .t-label .trk.sel .lv b { background: #f1ede2; }
+  .t-label .trk .ms { color: var(--ink2); border: 1px solid var(--line); }
+  .t-label .trk.sel .ms { border-color: rgba(241,237,226,.4); color: #f1ede2; }
+  .t-label .title { font-stretch: 125%; font-weight: 900; font-size: 30px !important; letter-spacing: -.01em; }
+  .t-label .tab { color: var(--ink3); border-bottom: 2px solid transparent; }
+  .t-label .tab.on { color: var(--ink); border-bottom-color: var(--ink); font-weight: 700; }
+  .t-label .field .sel { border-bottom: 1px solid var(--ink); padding: 0; }
+  .t-label .k-cap { fill: #f1ede2; stroke: var(--ink); stroke-width: 1.5; } .t-label .k-ptr { stroke: var(--ink); } .t-label .k-trk { stroke: var(--line); } .t-label .k-arc { stroke: var(--ink); } .t-label .k-mod { stroke: var(--stamp); }
+  .t-label .disc { background: var(--stamp); color: #fff4ea; }
+  .t-label .disc::before { content: ""; position: absolute; inset: 8px; border: 1px solid rgba(255,244,234,.55); border-radius: 50%; }
+  .t-label .disc::after { content: ""; position: absolute; width: 12px; height: 12px; border-radius: 50%; background: #f1ede2; top: 14px; }
+  .t-label .disc .db { font-family: "Courier Prime", monospace; font-weight: 700; margin-top: 14px; }
+  .t-label .disc .lm { font-family: "Courier Prime", monospace; }
+  .t-label .fill .bars span { border: 1px solid var(--line); color: var(--ink2); font-family: "Courier Prime", monospace; }
+  .t-label .fill .bars span.f { border-color: var(--stamp); color: var(--stamp); font-weight: 700; }
+  .t-label .lane { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+  .t-label .lane .c b { background: rgba(22,21,19,.1); } .t-label .lane .c.on b { background: var(--ink); } .t-label .lane .c.acc b { background: var(--stamp); }
+  .t-label .lane .c span { color: var(--ink3); } .t-label .lane .c.on span { color: var(--ink); }
+  .t-label .key { border: 1.5px solid var(--ink); color: var(--ink3); font-family: "Courier Prime", monospace; }
+  .t-label .key.on { background: var(--ink); color: #f1ede2; }
+  .t-label .key.acc { background: var(--stamp); border-color: var(--stamp); color: #fff4ea; }
+  .t-label .key.now::before { content: ""; position: absolute; left: 0; right: 0; bottom: -8px; height: 3px; background: var(--stamp); }
+
+  /* =====================================================================
+     3 · CREAM MACHINE, STRIPPED — today's device without the decoration
+     ===================================================================== */
+  .t-cream { background: #ece8de; color: #1e1a24; font-family: "Chivo", "Helvetica Neue", sans-serif;
+             --ink: #1e1a24; --ink2: #554e5c; --ink3: #7a7381; --line: rgba(30,26,36,.14); --lcd: #121807; --ph: #d8f55a; --phd: #93ad36; --hot: #e9772a; }
+  .t-cream .top { border-bottom: 1px solid var(--line); }
+  .t-cream .wordmark { font-family: "Michroma", "Eurostile", sans-serif; font-size: 30px; line-height: 34px; }
+  .t-cream .wordmark sup { font-size: 15px; margin-left: 4px; vertical-align: top; }
+  .t-cream .brand .sub { color: var(--ink3); }
+  .t-cream .screen, .t-cream .readout, .t-cream .lane { background: var(--lcd); border-radius: 4px; color: var(--ph); font-family: "VT323", Menlo, monospace; }
+  .t-cream .preset .name { font-size: 26px; } .t-cream .preset .desc { font-size: 16px; color: var(--phd); }
+  .t-cream .readout .big { font-size: 30px; } .t-cream .readout .unit { font-size: 14px; color: var(--phd); }
+  .t-cream .btn { background: #f6f3ec; border: 1px solid rgba(30,26,36,.22); border-radius: 6px; color: var(--ink); font-weight: 500; }
+  .t-cream .btn.on { background: var(--ink); color: #f6f3ec; border-color: var(--ink); }
+  .t-cream .btn.hot { background: var(--hot); color: #24130a; border-color: var(--hot); font-weight: 700; }
+  .t-cream .play { background: var(--ink); color: #f6f3ec; border-radius: 6px; }
+  .t-cream .tracks, .t-cream .groove { border-right: 1px solid var(--line); }
+  .t-cream .right { border-left: 1px solid var(--line); }
+  .t-cream .groove, .t-cream .seq { border-top: 1px solid var(--line); }
+  .t-cream .sec, .t-cream .group .gl, .t-cream .seq .ttl { font-weight: 700; }
+  .t-cream .sec small, .t-cream .knob .val, .t-cream .field .lab, .t-cream .macro .ds, .t-cream .insp .desc, .t-cream .tab small { color: var(--ink2); }
+  .t-cream .val, .t-cream .trk .n { font-family: "Chivo Mono", Menlo, monospace; }
+  .t-cream .trk .n { color: var(--ink3); }
+  .t-cream .trk.sel { background: var(--ink); color: #f6f3ec; border-radius: 6px; }
+  .t-cream .trk.sel .n { color: rgba(246,243,236,.6); }
+  .t-cream .trk .lv { background: var(--line); } .t-cream .trk .lv b { background: var(--ink); }
+  .t-cream .trk.sel .lv { background: rgba(246,243,236,.3); } .t-cream .trk.sel .lv b { background: #f6f3ec; }
+  .t-cream .trk .ms { background: #f6f3ec; border: 1px solid rgba(30,26,36,.22); border-radius: 4px; color: var(--ink2); }
+  .t-cream .trk.sel .ms { background: transparent; border-color: rgba(246,243,236,.4); color: #f6f3ec; }
+  .t-cream .title { font-family: "Michroma", sans-serif; font-size: 22px !important; }
+  .t-cream .tab { color: var(--ink3); border-bottom: 2px solid transparent; }
+  .t-cream .tab.on { color: var(--ink); border-bottom-color: var(--ink); font-weight: 700; }
+  .t-cream .field .sel { background: var(--lcd); color: var(--ph); border-radius: 4px; font-family: "VT323", monospace; font-size: 17px; }
+  .t-cream .k-cap { fill: #d6d1c4; stroke: rgba(30,26,36,.3); stroke-width: 1; } .t-cream .k-ptr { stroke: var(--ink); } .t-cream .k-trk { stroke: var(--line); } .t-cream .k-arc { stroke: var(--ink); } .t-cream .k-mod { stroke: var(--hot); }
+  .t-cream .disc { background: var(--lcd); color: var(--ph); }
+  .t-cream .disc .db { font-family: "VT323", monospace; font-size: 34px; } .t-cream .disc .lm { font-family: "VT323", monospace; font-size: 14px; color: var(--phd); }
+  .t-cream .fill .bars span { background: #f6f3ec; border: 1px solid rgba(30,26,36,.22); border-radius: 4px; color: var(--ink2); font-family: "Chivo Mono", monospace; }
+  .t-cream .fill .bars span.f { background: var(--hot); border-color: var(--hot); color: #24130a; }
+  .t-cream .lane .c b { background: #33401a; border-radius: 1px; } .t-cream .lane .c.on b { background: var(--ph); } .t-cream .lane .c.acc b { background: var(--hot); }
+  .t-cream .lane .c span { color: var(--phd); font-size: 15px; } .t-cream .lane .c.on span { color: var(--ph); }
+  .t-cream .key { background: #f6f3ec; border: 1px solid rgba(30,26,36,.22); border-radius: 6px; color: var(--ink3); font-family: "Chivo Mono", monospace; box-shadow: 0 2px 0 rgba(30,26,36,.18); }
+  .t-cream .key:nth-child(8n+1), .t-cream .key:nth-child(8n+2), .t-cream .key:nth-child(8n+3), .t-cream .key:nth-child(8n+4) { background: #afc6df; }
+  .t-cream .key.on { box-shadow: none; transform: translateY(2px); color: var(--ink); }
+  .t-cream .key.on::after { content: ""; position: absolute; left: 20%; right: 20%; top: 8px; height: 4px; border-radius: 2px; background: var(--ink); }
+  .t-cream .key.acc { background: var(--hot) !important; border-color: var(--hot); }
+  .t-cream .key.now::before { content: ""; position: absolute; inset: -4px; border: 2px solid var(--ink); border-radius: 9px; }
+</style>
+</head>
+<body>
+<div class="intro">
+  <h1>OGRO 2: three ways to draw the same machine</h1>
+  <p>Same screen, same controls, same order in all three. Bass is selected, the pattern is the bass line of a 127 BPM groove, and step 5 is playing. Nothing glows, nothing has a gradient, and each version uses one accent colour only for what is lit, selected or moving.</p>
+</div>
+<div id="out"></div>
+
+<script>
+const tracks = [["Kick",.78],["Clap",.6],["Rim",.5],["Hat C",.55],["Hat O",.62],["Perc",.48],["Bass",.72],["Chords",.5],["Melody",.44],["Textures",.36]];
+const bassKnobs = [["Octave",.375,"-1"],["Decay",.35,"210 ms"],["Cutoff",.3,"420 Hz",.18],["Reso",.35,"35 %"],["Env",.45,"45 %"],["Drive",.35,"35 %"],["Wave",.2,"Saw"],["Glide",.25,"60 ms"]];
+const steps = [1,0,0,1,0,0,2,0,1,0,0,1,0,1,0,0];           // 0 off, 1 on, 2 accent
+const vels  = [100,0,0,84,0,0,124,0,100,0,0,88,0,96,0,0];
+const notes = ["A1","","","A1","","","C2","","A1","","","E2","","G1","",""];
+
+function knob(size, v, mod) {
+  const r = size / 2 - 5, c = size / 2, a0 = 135, a1 = 405;
+  const pt = (deg, rad) => [c + rad * Math.cos(deg * Math.PI / 180), c + rad * Math.sin(deg * Math.PI / 180)];
+  const arc = (from, to, cls) => { const [x0, y0] = pt(from, r), [x1, y1] = pt(to, r);
+    return `<path class="${cls}" fill="none" stroke-width="3" d="M${x0.toFixed(1)} ${y0.toFixed(1)}A${r} ${r} 0 ${to - from > 180 ? 1 : 0} 1 ${x1.toFixed(1)} ${y1.toFixed(1)}"/>`; };
+  const av = a0 + (a1 - a0) * v, [px, py] = pt(av, r - 9), [qx, qy] = pt(av, r - 18 > 2 ? r - 18 : 2);
+  return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">${arc(a0, a1, "k-trk")}${arc(a0, av, "k-arc")}`
+       + (mod ? arc(av, av + (a1 - a0) * mod, "k-mod") : "")
+       + `<circle class="k-cap" cx="${c}" cy="${c}" r="${r - 6}"/><line class="k-ptr" x1="${qx.toFixed(1)}" y1="${qy.toFixed(1)}" x2="${px.toFixed(1)}" y2="${py.toFixed(1)}" stroke-width="2.5" stroke-linecap="round"/></svg>`;
+}
+const kn = (l, v, t, m, s = 68) => `<div class="knob"><div class="lab">${l}</div>${knob(s, v, m)}<div class="val num">${t}</div></div>`;
+
+function mock(theme) {
+  const label = theme === "t-label";
+  return `<div class="mock ${theme}">
+  <div class="top">
+    <div class="brand"><div class="wordmark">OGRO<sup>2</sup></div>${label ? '<div class="stampmark">EVO THE SUN</div>' : ""}<div class="sub">${label ? "OGR 002 · v2.1.0 · build 10" : "EVO THE SUN · v2.1.0 · build 10"}</div></div>
+    <div class="preset"><div class="btn sq">&lsaquo;</div><div class="screen"><div class="name">Madrugada</div><div class="desc">Hipnótico: cadena A A A B, fill cada 8</div></div><div class="btn sq">&rsaquo;</div><div class="btn">Presets</div></div>
+    <div class="pats">${"ABCDEFGH".split("").map((p, i) => `<div class="btn sq ${i === 0 ? "on" : ""}">${p}</div>`).join("")}</div>
+    <div class="transport"><div class="play"><i></i></div><div class="readout"><div class="big num">127.0</div><div class="unit">BPM</div></div><div class="readout"><div class="big">A min</div><div class="unit">Key</div></div></div>
+  </div>
+  <div class="tracks">
+    <div class="sec"><span>Tracks</span><small>M · S</small></div>
+    ${tracks.map((t, i) => `<div class="trk ${i === 6 ? "sel" : ""}"><span class="n num">${label ? "A" + (i + 1) : String(i + 1).padStart(2, "0")}</span><span class="nm">${t[0]}</span><span class="lv"><b style="width:${t[1] * 100}%"></b></span><span class="ms">M</span><span class="ms">S</span></div>`).join("")}
+  </div>
+  <div class="insp">
+    <div class="head"><div class="title">Bass</div><div class="desc">4-pole ladder filter, 303 accent and slide</div>
+      <div class="tabs"><div class="tab on">Sound</div><div class="tab">Strip <small>off</small></div></div>
+      <div class="btn">Vary</div><div class="btn hot">Play</div></div>
+    <div class="knobs">${bassKnobs.map(k => kn(k[0], k[1], k[2], k[3])).join("")}</div>
+    <div class="extras">
+      <div class="field"><span class="lab">Shape</span><span class="sel">Classic <span>▾</span></span></div>
+      <div class="field"><span class="lab">Accent</span><span class="sel">303 <span>▾</span></span></div>
+      <div class="field"><span class="lab">Sub</span><span class="sel num">20 %</span></div>
+      <div class="btn on">Legato</div>
+    </div>
+    <div class="groups">
+      <div class="group"><div class="gl">Mix</div><div class="row">${kn("Level", .72, "-2.4 dB", 0, 60)}${kn("Pan", .5, "C", 0, 60)}</div></div>
+      <div class="group"><div class="gl">Sends<i></i><em>FX</em></div><div class="row">${kn("Delay", .2, "20 %", 0, 60)}${kn("Reverb", .1, "10 %", 0, 60)}${kn("Pump", .35, "35 %", 0, 60)}</div></div>
+      <div class="group grow"><div class="gl">Envelope</div><div class="row">${kn("Attack", .05, "2 ms", 0, 60)}${kn("Sustain", 0, "0 %", 0, 60)}${kn("Release", .3, "120 ms", 0, 60)}</div></div>
+    </div>
+  </div>
+  <div class="right">
+    <div class="sec"><span>Macros</span><small>centre = no change</small></div>
+    <div class="macros">
+      <div class="macro">${knob(52, .62)}<div><div class="nm">Calor</div><div class="ds">filters, saturation</div></div></div>
+      <div class="macro">${knob(52, .5, .22)}<div><div class="nm">Movimiento</div><div class="ds">LFO + Motion</div></div></div>
+      <div class="macro">${knob(52, .4)}<div><div class="nm">Espacio</div><div class="ds">delay, reverb</div></div></div>
+      <div class="macro">${knob(52, .5)}<div><div class="nm">Crudeza</div><div class="ds">dirtier drums</div></div></div>
+    </div>
+    <div class="pages"><div class="btn">FX</div><div class="btn">Mod</div><div class="btn">Arrange</div><div class="btn">Scenes</div><div class="btn">Master</div></div>
+    <div class="master"><div class="disc"><div class="db num">-6.2</div><div class="lm">Limiter 0.0 dB</div></div>${kn("Ceiling", .9, "-0.3 dB", 0, 52)}${kn("Volume", .7, "+0.0 dB", 0, 52)}</div>
+  </div>
+  <div class="groove">
+    <div class="sec"><span>Groove</span><small>More</small></div>
+    <div class="rowa">${kn("Swing", .16, "54 %", 0, 52)}
+      <div style="flex:1;display:flex;flex-direction:column;gap:8px"><div class="field"><span class="lab">Feel</span><span class="sel" style="min-width:0">Straight <span>▾</span></span></div>
+      <div class="field"><span class="lab">Length</span><span class="sel num" style="min-width:0">16 steps</span></div></div></div>
+    <div class="gen"><div class="btn hot">Invent</div><div class="btn">Mutate</div></div>
+    <div class="acts"><div class="btn">Clear</div><div class="btn">Copy</div><div class="btn">Paste</div></div>
+  </div>
+  <div class="seq">
+    <div class="bar"><div class="ttl">Sequence · Bass</div><div class="btn on">Velocity</div><div class="btn">Note</div><div class="btn">Chance</div><div class="btn">Motion</div><div class="gap"></div>
+      <div class="btn">MIDI</div><div class="btn on">1-16</div><div class="btn">17-32</div><div class="btn">Undo</div><div class="btn">Redo</div></div>
+    <div class="fill">
+      <div class="field"><span class="lab">Auto fill</span><span class="sel" style="min-width:0">Every 4 bars <span>▾</span></span></div>
+      <div class="field"><span class="lab">Style</span><span class="sel" style="min-width:0">Roll <span>▾</span></span></div>
+      <div class="bars"><span>1</span><span>2</span><span>3</span><span class="f">F</span></div>
+      <div class="btn">Edit fill</div>
+    </div>
+    <div class="grid">
+      <div class="lane">${steps.map((s, i) => `<div class="c ${s ? "on" : ""} ${s === 2 ? "acc" : ""}"><span class="num">${s ? vels[i] : ""}</span><b style="height:${s ? Math.round(vels[i] / 127 * 52) : 3}px"></b></div>`).join("")}</div>
+      <div class="keys">${steps.map((s, i) => `<div class="key ${s ? "on" : ""} ${s === 2 ? "acc" : ""} ${i === 4 ? "now" : ""}"><span class="num">${s ? notes[i] : i + 1}</span></div>`).join("")}</div>
+    </div>
+  </div>
+</div>`;
+}
+
+const concepts = [
+  ["t-face", "1 · Printed faceplate",
+   "<b>World:</b> the front panel of a studio drum machine. One sheet of painted steel in ogre green, legends silkscreened in cream, sections split by printed lines instead of boxes, black knob caps. <b>Signature:</b> the signal path printed on the panel as arrows (Sends to FX). <b>Accent:</b> sun orange, only for lit steps, accents and modulation. <b>Type:</b> Saira (squared, engineered) with Chivo Mono for figures, both from Omnibus-Type in Buenos Aires."],
+  ["t-label", "2 · White-label record",
+   "<b>World:</b> a hand-stamped minimal 12-inch. Uncoated paper, black ink, typewritten values, heavy printed rules. Tracks read like a tracklist (A1 to A10 on pattern A). <b>Signature:</b> one rubber-stamp red, used for the stamp, accents, the playhead and the master, which becomes the centre label. <b>Type:</b> Archivo wide and black for names, Courier Prime for everything typed."],
+  ["t-cream", "3 · Cream machine, stripped",
+   "<b>World:</b> today's cream device, kept. Calculator keys in groups of four, green LCD for preset, tempo and steps, Michroma wordmark. <b>Removed:</b> the violet glow panel, sparkles, copper tube, grid texture, chrome knobs, nested cards and the ten track colours. <b>Accent:</b> orange only. <b>Type:</b> Chivo replaces Space Grotesk for labels."],
+];
+document.getElementById("out").innerHTML = concepts.map(c => `<section class="concept"><h2>${c[1]}</h2><p class="why">${c[2]}</p><svg class="stage" viewBox="0 0 1280 820" xmlns="http://www.w3.org/2000/svg"><foreignObject x="0" y="0" width="1280" height="820">${mock(c[0])}</foreignObject></svg></section>`).join("");
+
+</script>
+</body>
+</html>

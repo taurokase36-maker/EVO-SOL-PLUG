@@ -101,9 +101,12 @@ inline std::string condName (int c)
 
 // Fills automáticos: cómo cambia cada paso en el compás de fill (q = paso dentro del compás, 0..15).
 // Estilo 0 = el de antes (condiciones FILL o tocar otro patrón entero).
+// El HAT ABIERTO no se toca nunca: suena como está programado (lo que se cambie a mano en el
+// fill va por PatternBank::setFillStep).
 enum FillStyleId { FillPatternStyle = 0, FillRoll, FillBreak, FillBuild, FillRandom, FillStyleCount };
 inline Step fillStep (int style, int t, int q, Step st, uint32_t seed, int64_t bar)
 {
+    if (t == HatO) return st;
     switch (style)
     {
         case FillRoll:   // redoble de clap y rim al final, hats al doble, el bombo respira
@@ -111,14 +114,13 @@ inline Step fillStep (int style, int t, int q, Step st, uint32_t seed, int64_t b
             {
                 if (t == Clap || t == Rim) { st.on = true; st.ratchet = std::min (4, q - 10); st.vel = 70 + (q - 12) * 16; st.prob = 100; st.cond = 0; }
                 else if (t == HatC) { st.on = true; st.ratchet = 2; st.vel = std::max (st.vel, 80); st.prob = 100; }
-                else if (t == HatO) st.on = false;
                 else if (t == Kick && q == 14) st.on = false;
             }
             break;
         case FillBreak:  // la segunda mitad se vacía: sin bombo ni bajo, un acorde largo y un clap al final
             if (q >= 8)
             {
-                if (t == Kick || t == Bass || t == HatO) st.on = false;
+                if (t == Kick || t == Bass) st.on = false;
                 else if (t == Clap) { st.on = q == 15; st.vel = 120; st.ratchet = 1; st.prob = 100; }
                 else if (t == Chord) { st.on = q == 8; st.gate = 40; st.prob = 100; }
                 else if (t == Melody || t == Texture) st.on = st.on && q < 12;
@@ -186,7 +188,37 @@ public:
             steps[idx (p)][tr (t)][s].store (Step().pack());
             for (int k = 0; k < kMaxLocks; ++k) locks[idx (p)][tr (t)][s][k].store (0xFFFFFFFFu);
         }
+        for (int q = 0; q < kFillSteps; ++q) fillOv[idx (p)][tr (t)][q].store (0);
         ++revision;
+    }
+
+    // ---- Fill editado a mano ----
+    // Para cada posición del compás de fill (0..15) se puede guardar el paso tal como tiene que
+    // sonar ahí. Lo guardado manda sobre el estilo del fill; lo que no se tocó sigue al estilo.
+    static constexpr int kFillSteps = 16;
+    bool getFillStep (int p, int t, int q, Step& out) const
+    {
+        const uint64_t v = fillOv[idx (p)][tr (t)][fq (q)].load (std::memory_order_relaxed);
+        if ((v & kFillSet) == 0) return false;
+        out = Step::unpack (v & ~kFillSet);
+        return true;
+    }
+    bool hasFillStep (int p, int t, int q) const { return (fillOv[idx (p)][tr (t)][fq (q)].load (std::memory_order_relaxed) & kFillSet) != 0; }
+    void setFillStep (int p, int t, int q, const Step& v) { fillOv[idx (p)][tr (t)][fq (q)].store (v.pack() | kFillSet, std::memory_order_relaxed); ++revision; }
+    void clearFillStep (int p, int t, int q) { fillOv[idx (p)][tr (t)][fq (q)].store (0, std::memory_order_relaxed); ++revision; }
+    void clearFillTrack (int p, int t) { for (int q = 0; q < kFillSteps; ++q) fillOv[idx (p)][tr (t)][q].store (0, std::memory_order_relaxed); ++revision; }
+    void clearFill (int p) { for (int t = 0; t < kTracks; ++t) clearFillTrack (p, t); }
+    int fillEdits (int p, int t) const
+    {
+        int n = 0;
+        for (int q = 0; q < kFillSteps; ++q) n += hasFillStep (p, t, q) ? 1 : 0;
+        return n;
+    }
+    int fillEdits (int p) const
+    {
+        int n = 0;
+        for (int t = 0; t < kTracks; ++t) n += fillEdits (p, t);
+        return n;
     }
 
     Step get (int p, int t, int s) const { return Step::unpack (steps[idx (p)][tr (t)][st (s)].load (std::memory_order_relaxed)); }
@@ -246,6 +278,8 @@ public:
             set (toP, toT, s, get (fromP, fromT, s));
             for (int k = 0; k < kMaxLocks; ++k) writeLock (toP, toT, s, k, getLock (fromP, fromT, s, k));
         }
+        for (int q = 0; q < kFillSteps; ++q)
+            fillOv[idx (toP)][tr (toT)][q].store (fillOv[idx (fromP)][tr (fromT)][q].load (std::memory_order_relaxed), std::memory_order_relaxed);
     }
     void copyPattern (int from, int to)
     {
@@ -286,6 +320,20 @@ public:
                         std::snprintf (buf, sizeof (buf), "%.5f", (double) l.value);
                         o << "K " << p << " " << trackId (t) << " " << s << " " << id << " " << buf << "\n";
                     }
+            }
+            // Fill editado a mano (las versiones que no lo conocen ignoran la línea)
+            for (int t = 0; t < kTracks; ++t)
+            {
+                if (fillEdits (p, t) == 0) continue;
+                o << "F " << p << " " << trackId (t);
+                for (int q = 0; q < kFillSteps; ++q)
+                {
+                    Step st;
+                    if (! getFillStep (p, t, q, st)) continue;
+                    std::snprintf (buf, sizeof (buf), " %d=%llx", q, (unsigned long long) st.pack());
+                    o << buf;
+                }
+                o << "\n";
             }
         }
         if (chainLength() > 0)
@@ -337,6 +385,23 @@ public:
                     const int s = std::atoi (tok.substr (0, eq).c_str());
                     if (s < 0 || s >= kSteps) continue;
                     steps[p][t][s].store ((uint64_t) std::strtoull (tok.substr (eq + 1).c_str(), nullptr, 16));
+                }
+            }
+            else if (kind == "F")
+            {
+                int p = 0;
+                std::string tid;
+                ls >> p >> tid;
+                const int t = trackIndex (tid);
+                if (p < 0 || p >= kPatterns || t < 0) continue;
+                std::string tok;
+                while (ls >> tok)
+                {
+                    const auto eq = tok.find ('=');
+                    if (eq == std::string::npos) continue;
+                    const int q = std::atoi (tok.substr (0, eq).c_str());
+                    if (q < 0 || q >= kFillSteps) continue;
+                    fillOv[p][t][q].store ((uint64_t) std::strtoull (tok.substr (eq + 1).c_str(), nullptr, 16) | kFillSet);
                 }
             }
             else if (kind == "K" && paramIndex)
@@ -454,9 +519,12 @@ private:
     static int idx (int p) { return clampv (p, 0, kPatterns - 1); }
     static int tr (int t) { return clampv (t, 0, kTracks - 1); }
     static int st (int s) { return clampv (s, 0, kSteps - 1); }
+    static int fq (int q) { return clampv (q, 0, kFillSteps - 1); }
+    static constexpr uint64_t kFillSet = 1ull << 63;   // "hay un paso guardado" (Step::pack usa 52 bits)
 
     std::atomic<uint64_t> steps[kPatterns][kTracks][kSteps];
     std::atomic<uint32_t> locks[kPatterns][kTracks][kSteps][kMaxLocks];
+    std::atomic<uint64_t> fillOv[kPatterns][kTracks][kFillSteps] {};
     std::atomic<int> length[kPatterns][kTracks];
     std::atomic<int> patLength[kPatterns];
     std::atomic<float> lanes[kLanes][kLanePoints];
@@ -484,6 +552,8 @@ struct TriggerEvent
     int pattern = 0;
     bool release = false;   // fin de nota (MIDI note-off)
     bool locks = false;     // el paso tiene p-locks (se leen al disparar)
+    bool seq = false;       // sale del secuenciador interno (absStep vale)
+    bool fillAdded = false; // golpe que agregó el estilo del fill (no está en el patrón ni lo escribió nadie)
     int bfxBar = -1;        // >= 0: arranca la ventana de FX de fin de compás de ese compás
     double bfxBeats = 0.0;  // largo de la ventana en negras
 };
@@ -712,7 +782,19 @@ private:
                 const int64_t pos = polyContinuous ? k : relK;
                 const int s = (int) (pos % len);
                 Step st = bank.get (sl.pattern, t, s);
-                if (sl.fill && fillStyle != FillPatternStyle) st = fillStep (fillStyle, t, (int) (k % 16), st, seed, k / 16);
+                // Compás de fill: lo editado a mano manda; si no, el estilo. "ownHits" = cuántos
+                // subgolpes del paso son del patrón (los demás los agregó el estilo).
+                int ownHits = kMaxRatchet;
+                if (sl.fill)
+                {
+                    Step edited;
+                    if (bank.getFillStep (sl.pattern, t, (int) (k % 16), edited)) st = edited;
+                    else if (fillStyle != FillPatternStyle)
+                    {
+                        ownHits = st.on ? st.ratchet : 0;
+                        st = fillStep (fillStyle, t, (int) (k % 16), st, seed, k / 16);
+                    }
+                }
                 float sw = trackSwingOwn[t] ? trackSwing[t] : swing;
                 if (groove == 2) sw = 0.5f + std::round ((sw - 0.5f) * 24.0f) / 24.0f;   // 909: el swing va en saltos
                 const double swingOffset = odd ? (sw - 0.5) * 2.0 * stepLen : 0.0;
@@ -742,6 +824,8 @@ private:
                     e.hit.slide = st.slide && r == 0;
                     e.hit.accent = st.vel >= 118;
                     e.absStep = k;
+                    e.seq = true;
+                    e.fillAdded = r >= ownHits;
                     e.sub = r;
                     e.stepIndex = s;
                     e.pattern = sl.pattern;

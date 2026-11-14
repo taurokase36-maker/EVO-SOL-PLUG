@@ -233,6 +233,7 @@ public:
         controlCounter = 0;
         lastRandStep = -1;
         sampleClock = 0;
+        hatOStep = INT64_MIN; hatOStart = INT64_MIN / 2;
         for (auto& l : trackLocks) l.n = 0;
         latencyNow = getLatencySamples();   // (con el limitador ya preparado)
         for (auto& a : auxAlign) for (auto& d : a) d.prepare (latencyNow + 8);
@@ -254,6 +255,7 @@ public:
     void setExactLegacy (bool e)
     {
         exactLegacy = e;
+        hatC.setLegacyChoke (e); hatO.setLegacyChoke (e);
         for (auto* sat : { &drumSatL, &drumSatR, &warmL, &warmR }) sat->setExact (e);
         clipL.setExact (e); clipR.setExact (e);
     }
@@ -515,6 +517,7 @@ private:
         djL.reset(); djR.reset();
         for (int c = 0; c < 2; ++c) { hp1[c].reset(); hp2[c].reset(); body[c].reset(); pres[c].reset(); air[c].reset(); }
         pumpEnv = 0.0f; pumpRise = false;
+        hatOStep = INT64_MIN; hatOStart = INT64_MIN / 2;
         // Portadora del ring: la fase sale de la posición del tema
         const double secs = ppq * 60.0 / std::max (1.0, curBpm);
         const double cyc = secs * (double) ringFreq;
@@ -622,11 +625,26 @@ private:
         else if (voices[t])
         {
             voices[t]->trigger (e.hit);
-            if (t == HatC) hatO.choke();
+            if (t == HatO) { hatOStep = e.seq ? e.absStep : INT64_MIN; hatOStart = sampleClock + e.sample; }
+            if (t == HatC && hatChokes (e)) hatO.choke();
             if (t == Kick && ! pumpFromSc) { pumpRise = true; }
         }
         meters.triggers[t].fetch_add (1, std::memory_order_relaxed);
         triggerLog.push (sampleClock + e.sample, t);
+    }
+
+    // El hat cerrado corta al abierto, como en las máquinas clásicas, salvo en tres casos:
+    //  1) los dos son del mismo paso: gana el abierto, aunque el cerrado caiga unos ms después
+    //     (humanize, swing propio, nudge o una repetición del cerrado);
+    //  2) el abierto acaba de arrancar: notas MIDI en el mismo lugar, lleguen en el orden que lleguen;
+    //  3) el golpe de hat cerrado lo agregó un fill automático (los fills no tocan el hat abierto).
+    bool hatChokes (const TriggerEvent& e) const noexcept
+    {
+        if (exactLegacy) return true;
+        if (e.fillAdded) return false;
+        const int64_t age = sampleClock + e.sample - hatOStart;
+        if (e.seq && e.absStep == hatOStep && age < (int64_t) fs) return false;
+        return age >= (int64_t) (0.012 * fs);
     }
 
     static int fold12 (int x) { int r = ((x % 12) + 12) % 12; return r > 5 ? r - 12 : r; }
@@ -1261,6 +1279,7 @@ private:
     float lfoHold[P::kLfos] {}, lfoPrev[P::kLfos] {};
     int64_t lastRandStep = -1;
     float randStep = 0, randPrev = 0;
+    int64_t hatOStep = INT64_MIN, hatOStart = INT64_MIN / 2;   // último golpe del hat abierto
     float pumpEnv = 0, pumpRelCoef = 0.999f;
     bool pumpRise = false;
 

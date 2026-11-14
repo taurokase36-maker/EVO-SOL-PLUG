@@ -502,12 +502,16 @@ public:
         amp = 1.0f;
         att = 0.0f;
         chokeMul = 1.0f;
+        // Un golpe nuevo arranca entero: si quedaba un corte a medias (el hat cerrado sonó hace
+        // menos de ~110 ms, o el hat se apagó solo mientras se cortaba) no lo hereda.
+        if (! legacyChoke) choking = false;
         gain = velGain (h.vel) * gm * (h.accent ? 1.2f : 1.0f);
         toneMul = std::pow (2.0f, (h.note + ps) / 12.0f);
         decayMul = dm * (h.accent ? 1.15f : 1.0f);
         active = true;
     }
     void choke() override { if (active) choking = true; }
+    void setLegacyChoke (bool l) { legacyChoke = l; }   // comparación exacta con la 1.0
     void render (float* out, int n) noexcept override
     {
         using namespace maps;
@@ -564,7 +568,7 @@ public:
     }
 
 private:
-    bool open = false, choking = false;
+    bool open = false, choking = false, legacyChoke = false;
     float ph[6] {}, amp = 0, att = 0, chokeMul = 1, gain = 1, toneMul = 1, decayMul = 1, lastAir = -100.0f;
     Svf bpf, hpf;
     Biquad air;
