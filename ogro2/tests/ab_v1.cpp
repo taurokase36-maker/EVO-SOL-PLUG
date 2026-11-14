@@ -257,7 +257,9 @@ int main (int argc, char** argv)
                      V1::presets()[pi].name.c_str(), worstRms, worstStep, worstBand);
         // Con azar FIJO cambian las decisiones al azar (qué golpe con probabilidad suena, el S&H):
         // ahí se compara el nivel y el color (bandas), no golpe por golpe
-        if (gNormal) ok &= worstRms < 2.0 && worstBand < 3.5;
+        // (2.5 dB de nivel: desde la 2.1 el hat abierto ya no se apaga cuando comparte paso con el
+        //  cerrado, así que su pista suena hasta ~2 dB más fuerte que en la 1.0; --exacto no cambia)
+        if (gNormal) ok &= worstRms < 2.5 && worstBand < 3.5;
         else ok &= worstRms < 1.0 && worstStep < 1.5 && worstBand < 1.5;
     }
     if (jf) { std::fprintf (jf, "  ]\n}\n"); std::fclose (jf); }
